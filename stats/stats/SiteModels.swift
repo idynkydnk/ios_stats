@@ -30,6 +30,16 @@ struct RankingRow: Codable, Identifiable {
 
     var gamesCount: Int { games ?? (wins + losses) }
 
+    init(name: String, wins: Int, losses: Int, winPct: Double, games: Int? = nil, rating: Double? = nil, plusMinus: Int? = nil) {
+        self.name = name
+        self.wins = wins
+        self.losses = losses
+        self.winPct = winPct
+        self.games = games
+        self.rating = rating
+        self.plusMinus = plusMinus
+    }
+
     enum CodingKeys: String, CodingKey {
         case name, wins, losses, winPct, games, rating, plusMinus
     }
@@ -346,6 +356,12 @@ struct NetworkEdge: Codable, Identifiable {
     var losses: Int?
     var winRate: Double?
     var id: String { source + "-" + target }
+}
+
+struct TodaysDoublesDashboard {
+    var year: String
+    var stats: [RankingRow]
+    var games: [DoublesGame]
 }
 
 struct YearsPayload: Codable {

@@ -200,12 +200,93 @@ final class PythonAnywhereClient {
     }
 
     func doublesPlayers() async throws -> [String] {
-        let raw = try await getRaw("/api/doubles_players")
+        try await nameList("/api/doubles_players")
+    }
+
+    func vollisPlayers() async throws -> [String] {
+        try await nameList("/api/vollis_players")
+    }
+
+    func otherGamePlayers(gameName: String) async throws -> [String] {
+        let encoded = gameName.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? gameName
+        return try await nameList("/api/other_game_players/\(encoded)")
+    }
+
+    func otherGameCommonScores(gameName: String) async throws -> (winners: [Int], losers: [Int], winnerIndiv: [Int], loserIndiv: [Int]) {
+        let encoded = gameName.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? gameName
+        let json = try await getJSON("/api/other_game_common_scores/\(encoded)")
+        let w = (json["winner_scores"] as? [Any] ?? []).compactMap { Self.jsonInt($0) }
+        let l = (json["loser_scores"] as? [Any] ?? []).compactMap { Self.jsonInt($0) }
+        let wi = (json["winner_individual_scores"] as? [Any] ?? []).compactMap { Self.jsonInt($0) }
+        let li = (json["loser_individual_scores"] as? [Any] ?? []).compactMap { Self.jsonInt($0) }
+        return (w, l, wi, li)
+    }
+
+    func todaysDoublesDashboard() async throws -> TodaysDoublesDashboard {
+        let json = try await getJSON("/api/todays_doubles_dashboard")
+        let year = json["year"] as? String ?? ""
+        var stats: [RankingRow] = []
+        if let rows = json["stats"] as? [Any] {
+            for row in rows {
+                let arr = row as? [Any] ?? []
+                let name = arr.first as? String ?? ""
+                let wins = arr.count > 1 ? (Self.jsonInt(arr[1]) ?? 0) : 0
+                let losses = arr.count > 2 ? (Self.jsonInt(arr[2]) ?? 0) : 0
+                let pct = arr.count > 3 ? (Self.jsonDouble(arr[3]) ?? 0) : 0
+                let pm = arr.count > 4 ? Self.jsonInt(arr[4]) : nil
+                if !name.isEmpty {
+                    stats.append(RankingRow(name: name, wins: wins, losses: losses, winPct: pct, plusMinus: pm))
+                }
+            }
+        }
+        var games: [DoublesGame] = []
+        if let rows = json["games"] as? [Any] {
+            for row in rows {
+                guard let g = row as? [String: Any] else { continue }
+                games.append(DoublesGame(
+                    id: Self.jsonInt(g["id"]) ?? 0,
+                    gameDate: g["when"] as? String ?? g["game_date"] as? String,
+                    winner1: g["winner1"] as? String,
+                    winner2: g["winner2"] as? String,
+                    winnerScore: Self.jsonInt(g["winner_score"]),
+                    loser1: g["loser1"] as? String,
+                    loser2: g["loser2"] as? String,
+                    loserScore: Self.jsonInt(g["loser_score"]),
+                    updatedAt: nil,
+                    comments: g["comment"] as? String ?? g["comments"] as? String,
+                    enteredTimezone: nil,
+                    updatedBy: nil
+                ))
+            }
+        }
+        return TodaysDoublesDashboard(year: year, stats: stats, games: games)
+    }
+
+    private func nameList(_ path: String) async throws -> [String] {
+        let raw = try await getRaw(path)
         if let names = try JSONSerialization.jsonObject(with: raw) as? [String] { return names }
         if let objs = try JSONSerialization.jsonObject(with: raw) as? [[String: Any]] {
             return objs.compactMap { $0["name"] as? String ?? $0["full_name"] as? String }
         }
         return []
+    }
+
+    static func jsonIntPublic(_ v: Any?) -> Int? { jsonInt(v) }
+
+    private static func jsonInt(_ v: Any?) -> Int? {
+        if let i = v as? Int { return i }
+        if let d = v as? Double { return Int(d) }
+        if let s = v as? String { return Int(s) }
+        if let n = v as? NSNumber { return n.intValue }
+        return nil
+    }
+
+    private static func jsonDouble(_ v: Any?) -> Double? {
+        if let d = v as? Double { return d }
+        if let i = v as? Int { return Double(i) }
+        if let s = v as? String { return Double(s) }
+        if let n = v as? NSNumber { return n.doubleValue }
+        return nil
     }
 
     func tournaments() async throws -> [Tournament] {

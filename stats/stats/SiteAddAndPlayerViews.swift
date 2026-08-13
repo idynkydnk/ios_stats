@@ -14,14 +14,29 @@ struct SiteAddHubView: View {
                 if !auth.isLoggedIn {
                     LoginView()
                 } else {
-                    VStack {
+                    VStack(spacing: 0) {
                         Picker("Type", selection: $section) {
                             ForEach(GameSection.allCases) { s in
                                 Text(s.title).tag(s)
                             }
                         }
                         .pickerStyle(.segmented)
-                        .padding()
+                        .padding(.horizontal)
+                        .padding(.top, 8)
+
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                addLink("AI Summary", systemImage: "sparkles") { SiteAISummaryView() }
+                                addLink("Flyer", systemImage: "megaphone") { SiteFlyerView() }
+                                addLink("Recaps", systemImage: "text.bubble") { SiteRecapsView() }
+                                addLink("Voice", systemImage: "mic") { SiteVoiceAddView() }
+                                addLink("Tournament", systemImage: "trophy") { SiteTournamentsView() }
+                                addLink("Player", systemImage: "person.badge.plus") { SitePlayersView() }
+                            }
+                            .padding(.horizontal)
+                            .padding(.vertical, 10)
+                        }
+
                         switch section {
                         case .doubles:
                             SiteAddDoublesView(gameToEdit: doublesEdit) {
@@ -40,260 +55,17 @@ struct SiteAddHubView: View {
             .navigationTitle("Add")
         }
     }
-}
 
-struct SiteAddDoublesView: View {
-    var gameToEdit: DoublesGame?
-    var onDone: () -> Void
-    @State private var winner1 = ""
-    @State private var winner2 = ""
-    @State private var loser1 = ""
-    @State private var loser2 = ""
-    @State private var winnerScore = "21"
-    @State private var loserScore = "19"
-    @State private var comments = ""
-    @State private var players: [String] = []
-    @State private var error: String?
-    @State private var saving = false
-    @State private var success = false
-    @ObservedObject private var network = NetworkMonitor.shared
-    @ObservedObject private var queue = SiteOfflineQueue.shared
-
-    var body: some View {
-        Form {
-            if success { Text("Game saved.").foregroundStyle(.green) }
-            if let error { Text(error).foregroundStyle(.red) }
-            playerField("Winner 1", text: $winner1)
-            playerField("Winner 2", text: $winner2)
-            playerField("Loser 1", text: $loser1)
-            playerField("Loser 2", text: $loser2)
-            TextField("Winner score", text: $winnerScore).keyboardType(.numberPad)
-            TextField("Loser score", text: $loserScore).keyboardType(.numberPad)
-            TextField("Comment", text: $comments, axis: .vertical)
-            Button(gameToEdit == nil ? "Save game" : "Update game") { Task { await save() } }
-                .disabled(saving)
+    private func addLink<V: View>(_ title: String, systemImage: String, @ViewBuilder destination: () -> V) -> some View {
+        NavigationLink(destination: destination) {
+            Label(title, systemImage: systemImage)
+                .font(.subheadline.weight(.semibold))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(Color(.secondarySystemFill))
+                .clipShape(Capsule())
         }
-        .task {
-            if let g = gameToEdit {
-                winner1 = g.winner1 ?? ""; winner2 = g.winner2 ?? ""
-                loser1 = g.loser1 ?? ""; loser2 = g.loser2 ?? ""
-                winnerScore = String(g.winnerScore ?? 21)
-                loserScore = String(g.loserScore ?? 19)
-                comments = g.comment
-            }
-            players = (try? await PythonAnywhereClient.shared.doublesPlayers()) ?? []
-        }
-        .onChange(of: gameToEdit?.id) { _, _ in
-            if let g = gameToEdit {
-                winner1 = g.winner1 ?? ""; winner2 = g.winner2 ?? ""
-                loser1 = g.loser1 ?? ""; loser2 = g.loser2 ?? ""
-                winnerScore = String(g.winnerScore ?? 21)
-                loserScore = String(g.loserScore ?? 19)
-                comments = g.comment
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func playerField(_ title: String, text: Binding<String>) -> some View {
-        VStack(alignment: .leading) {
-            TextField(title, text: text)
-            if !text.wrappedValue.isEmpty {
-                ForEach(players.filter { $0.lowercased().contains(text.wrappedValue.lowercased()) }.prefix(6), id: \.self) { name in
-                    Button(name) { text.wrappedValue = name }.font(.caption)
-                }
-            }
-        }
-    }
-
-    private func save() async {
-        guard let ws = Int(winnerScore), let ls = Int(loserScore), ws > ls else {
-            error = "Winner score must be greater than loser score."
-            return
-        }
-        let names = [winner1, winner2, loser1, loser2].map { $0.trimmingCharacters(in: .whitespaces) }
-        guard Set(names).count == 4, names.allSatisfy({ !$0.isEmpty }) else {
-            error = "Four unique player names required."
-            return
-        }
-        saving = true
-        error = nil
-        let tz = TimeZone.current.identifier
-        let df = DateFormatter()
-        df.dateFormat = "yyyy-MM-dd HH:mm:ss"
-        let fields: [String: Any] = [
-            "game_date": df.string(from: Date()),
-            "winner1": names[0], "winner2": names[1],
-            "loser1": names[2], "loser2": names[3],
-            "winner_score": ws, "loser_score": ls,
-            "comments": comments,
-            "entered_timezone": tz,
-        ]
-        do {
-            if !network.isConnected {
-                if let g = gameToEdit {
-                    queue.enqueue(method: "PUT", path: "/api/doubles/games/\(g.id)", body: fields)
-                } else {
-                    queue.enqueue(method: "POST", path: "/api/doubles/games", body: fields)
-                }
-                success = true
-            } else if let g = gameToEdit {
-                _ = try await PythonAnywhereClient.shared.updateDoubles(id: g.id, fields: fields)
-                success = true
-                onDone()
-            } else {
-                _ = try await PythonAnywhereClient.shared.createDoubles(fields)
-                success = true
-                winner1 = ""; winner2 = ""; loser1 = ""; loser2 = ""; comments = ""
-            }
-        } catch {
-            self.error = error.localizedDescription
-        }
-        saving = false
-    }
-}
-
-struct SiteAddVollisView: View {
-    var gameToEdit: VollisGame?
-    var onDone: () -> Void
-    @State private var winner = ""
-    @State private var loser = ""
-    @State private var winnerScore = "21"
-    @State private var loserScore = "19"
-    @State private var error: String?
-    @State private var saving = false
-    @ObservedObject private var auth = SiteAuthManager.shared
-
-    var body: some View {
-        Form {
-            if let error { Text(error).foregroundStyle(.red) }
-            TextField("Winner", text: $winner)
-            TextField("Loser", text: $loser)
-            TextField("Winner score", text: $winnerScore).keyboardType(.numberPad)
-            TextField("Loser score", text: $loserScore).keyboardType(.numberPad)
-            Button(gameToEdit == nil ? "Save vollis game" : "Update") { Task { await save() } }
-                .disabled(saving || !auth.isLoggedIn)
-        }
-        .task {
-            if let g = gameToEdit {
-                winner = g.winner ?? ""; loser = g.loser ?? ""
-                winnerScore = String(g.winnerScore ?? 21)
-                loserScore = String(g.loserScore ?? 19)
-            }
-        }
-    }
-
-    private func save() async {
-        guard let ws = Int(winnerScore), let ls = Int(loserScore), ws > ls, winner != loser, !winner.isEmpty else {
-            error = "Check names and scores."
-            return
-        }
-        saving = true
-        let df = DateFormatter(); df.dateFormat = "yyyy-MM-dd HH:mm:ss"
-        let fields: [String: Any] = [
-            "game_date": df.string(from: Date()),
-            "winner": winner.trimmingCharacters(in: .whitespaces),
-            "loser": loser.trimmingCharacters(in: .whitespaces),
-            "winner_score": ws, "loser_score": ls,
-            "entered_timezone": TimeZone.current.identifier,
-        ]
-        do {
-            if let g = gameToEdit {
-                try await PythonAnywhereClient.shared.updateVollis(id: g.id, fields: fields)
-                onDone()
-            } else {
-                try await PythonAnywhereClient.shared.createVollis(fields)
-                winner = ""; loser = ""
-            }
-        } catch { self.error = error.localizedDescription }
-        saving = false
-    }
-}
-
-struct SiteAddOtherView: View {
-    @State private var gameType = "Cards"
-    @State private var gameName = ""
-    @State private var winners = ""
-    @State private var losers = ""
-    @State private var winnerScore = ""
-    @State private var loserScore = ""
-    @State private var comment = ""
-    @State private var scoreType = "team"
-    @State private var error: String?
-    @State private var saving = false
-    @State private var knownNames: [String] = []
-    @State private var knownTypes: [String] = []
-
-    var body: some View {
-        Form {
-            if let error { Text(error).foregroundStyle(.red) }
-            TextField("Game type (e.g. Cards, Volleyball, Coed)", text: $gameType)
-            if !knownTypes.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack {
-                        ForEach(knownTypes, id: \.self) { t in
-                            Button(t) { gameType = t }
-                                .buttonStyle(.bordered)
-                                .font(.caption)
-                        }
-                    }
-                }
-            }
-            TextField("Game name", text: $gameName)
-            if !knownNames.isEmpty && !gameName.isEmpty {
-                ForEach(knownNames.filter { $0.lowercased().contains(gameName.lowercased()) }.prefix(6), id: \.self) { n in
-                    Button(n) { gameName = n }.font(.caption)
-                }
-            }
-            TextField("Winners (comma-separated)", text: $winners)
-            TextField("Losers (comma-separated)", text: $losers)
-            Picker("Scoring", selection: $scoreType) {
-                Text("Team").tag("team")
-                Text("Individual").tag("individual")
-                Text("None").tag("none")
-            }
-            if scoreType != "none" {
-                TextField("Winner score", text: $winnerScore).keyboardType(.numberPad)
-                TextField("Loser score", text: $loserScore).keyboardType(.numberPad)
-            }
-            TextField("Comment", text: $comment)
-            Button("Save other game") { Task { await save() } }.disabled(saving)
-        }
-        .task {
-            if let info = try? await PythonAnywhereClient.shared.otherGameTypes() {
-                knownNames = info.names
-                knownTypes = info.types
-                if let first = info.types.first, gameType == "Cards" { gameType = first }
-            }
-        }
-    }
-
-    private func save() async {
-        let w = winners.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-        let l = losers.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-        guard !gameType.isEmpty, !gameName.isEmpty, !w.isEmpty, !l.isEmpty else {
-            error = "Type, name, winners, and losers are required."
-            return
-        }
-        saving = true
-        let df = DateFormatter(); df.dateFormat = "yyyy-MM-dd HH:mm:ss"
-        var fields: [String: Any] = [
-            "game_date": df.string(from: Date()),
-            "game_type": gameType, "game_name": gameName,
-            "winners": w, "losers": l,
-            "score_type": scoreType,
-            "comment": comment,
-            "entered_timezone": TimeZone.current.identifier,
-        ]
-        if scoreType == "team" {
-            if let ws = Int(winnerScore) { fields["winner_score"] = ws }
-            if let ls = Int(loserScore) { fields["loser_score"] = ls }
-        }
-        do {
-            try await PythonAnywhereClient.shared.createOther(fields)
-            winners = ""; losers = ""; comment = ""
-        } catch { self.error = error.localizedDescription }
-        saving = false
+        .buttonStyle(.plain)
     }
 }
 
@@ -349,31 +121,29 @@ struct SitePlayerDetailView: View {
                 }
                 if let partners = p.partners, !partners.isEmpty {
                     Text("Partners").font(.headline).padding(.horizontal)
-                    ForEach(partners) { m in
-                        NavigationLink {
-                            SitePlayerDetailView(name: m.partner ?? "", year: year, section: section)
-                        } label: {
-                            HStack {
-                                Text(m.partner ?? "")
-                                Spacer()
-                                Text("\(m.wins)-\(m.losses)  \(Int(m.winPercentage * 100))%")
-                            }.padding(.horizontal)
+                    VStack(spacing: 10) {
+                        ForEach(partners) { m in
+                            NavigationLink {
+                                SitePlayerDetailView(name: m.partner ?? "", year: year, section: section)
+                            } label: {
+                                matchupRow(name: m.partner ?? "", wins: m.wins, losses: m.losses, winPct: m.winPercentage)
+                            }
                         }
                     }
+                    .padding(.horizontal)
                 }
                 if let opponents = p.opponents, !opponents.isEmpty {
                     Text("Opponents").font(.headline).padding(.horizontal).padding(.top)
-                    ForEach(opponents) { m in
-                        NavigationLink {
-                            SitePlayerDetailView(name: m.opponent ?? "", year: year, section: section)
-                        } label: {
-                            HStack {
-                                Text(m.opponent ?? "")
-                                Spacer()
-                                Text("\(m.wins)-\(m.losses)  \(Int(m.winPercentage * 100))%")
-                            }.padding(.horizontal)
+                    VStack(spacing: 10) {
+                        ForEach(opponents) { m in
+                            NavigationLink {
+                                SitePlayerDetailView(name: m.opponent ?? "", year: year, section: section)
+                            } label: {
+                                matchupRow(name: m.opponent ?? "", wins: m.wins, losses: m.losses, winPct: m.winPercentage)
+                            }
                         }
                     }
+                    .padding(.horizontal)
                 }
                 Text("Games").font(.headline).padding()
                 if section == .doubles {
@@ -384,7 +154,31 @@ struct SitePlayerDetailView: View {
             }
         }
         .navigationTitle(name)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                SiteCopyLinkButton(url: SitePublicLink.player(section: section, year: payload?.year ?? year, name: payload?.name ?? name))
+            }
+        }
         .task { await load() }
+    }
+
+    private func matchupRow(name: String, wins: Int, losses: Int, winPct: Double) -> some View {
+        let pct = winPct <= 1.0 ? winPct * 100 : winPct
+        return HStack(alignment: .center, spacing: 12) {
+            Text(name)
+                .foregroundStyle(.primary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text("\(wins)-\(losses)")
+                .monospacedDigit()
+                .frame(width: 56, alignment: .leading)
+            Text(String(format: "%.0f%%", pct))
+                .monospacedDigit()
+                .frame(width: 48, alignment: .leading)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(Color(.secondarySystemFill))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 
     private func stat(_ label: String, _ value: String, _ color: Color?) -> some View {

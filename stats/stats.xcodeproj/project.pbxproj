@@ -287,7 +287,11 @@
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
-				EXCLUDED_SOURCE_FILE_NAMES = "*STATS WEB SITE*";
+				EXCLUDED_SOURCE_FILE_NAMES = (
+					"*STATS",
+					WEB,
+					"SITE*",
+				);
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = stats/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Beach Volleyball Stats";
@@ -313,7 +317,7 @@
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
-				MARKETING_VERSION = 4.9;
+				MARKETING_VERSION = 5.0;
 				OTHER_LDFLAGS = "-ObjC";
 				PRODUCT_BUNDLE_IDENTIFIER = com.kt.stats;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -341,7 +345,11 @@
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
-				EXCLUDED_SOURCE_FILE_NAMES = "*STATS WEB SITE*";
+				EXCLUDED_SOURCE_FILE_NAMES = (
+					"*STATS",
+					WEB,
+					"SITE*",
+				);
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = stats/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Beach Volleyball Stats";
@@ -367,7 +375,7 @@
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
-				MARKETING_VERSION = 4.9;
+				MARKETING_VERSION = 5.0;
 				OTHER_LDFLAGS = "-ObjC";
 				PRODUCT_BUNDLE_IDENTIFIER = com.kt.stats;
 				PRODUCT_NAME = "$(TARGET_NAME)";

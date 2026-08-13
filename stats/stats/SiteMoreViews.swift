@@ -221,6 +221,11 @@ struct SiteNetworkView: View {
             }
         }
         .navigationTitle("Network")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                SiteCopyLinkButton(url: SitePublicLink.network(year: year))
+            }
+        }
         .task(id: year) { await load() }
     }
 
@@ -296,6 +301,11 @@ struct SiteVolleyballView: View {
             }
         }
         .navigationTitle("Volleyball")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                SiteCopyLinkButton(url: SitePublicLink.volleyball(year: year))
+            }
+        }
         .task {
             payload = try? await PythonAnywhereClient.shared.volleyballStats(year: year)
         }
@@ -363,8 +373,11 @@ struct SiteRecapsView: View {
             VStack(alignment: .leading) {
                 Text(r.headline ?? "Recap").font(.headline)
                 if let url = r.shareUrl, let u = URL(string: url) {
-                    ShareLink(item: u)
-                    Link("Open", destination: u)
+                    HStack {
+                        ShareLink(item: u)
+                        SiteCopyLinkButton(url: u)
+                        Link("Open", destination: u)
+                    }
                 }
                 if let img = r.heroImageUrl, let u = URL(string: img) {
                     AsyncImage(url: u) { i in i.resizable().scaledToFit() } placeholder: { ProgressView() }

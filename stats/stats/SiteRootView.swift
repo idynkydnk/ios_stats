@@ -205,6 +205,11 @@ struct SiteStatsView: View {
                 }
             }
             .navigationTitle("Stats")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    SiteCopyLinkButton(url: SitePublicLink.stats(section: section, year: selectedYear))
+                }
+            }
             .refreshable { await load() }
             .task(id: "\(section.rawValue)-\(selectedYear)") { await load() }
         }
@@ -268,6 +273,12 @@ struct SiteGamesView: View {
                                         Button("Delete", role: .destructive) { Task { await deleteDoubles(g) } }
                                     }
                                 }
+                                .contextMenu {
+                                    if canEdit {
+                                        Button("Edit") { onEditDoubles(g) }
+                                        Button("Delete", role: .destructive) { Task { await deleteDoubles(g) } }
+                                    }
+                                }
                         }
                     case .vollis:
                         ForEach(filteredVollis) { g in
@@ -280,6 +291,12 @@ struct SiteGamesView: View {
                                 }
                             }
                             .swipeActions {
+                                if canEdit {
+                                    Button("Edit") { onEditVollis(g) }
+                                    Button("Delete", role: .destructive) { Task { await deleteVollis(g) } }
+                                }
+                            }
+                            .contextMenu {
                                 if canEdit {
                                     Button("Edit") { onEditVollis(g) }
                                     Button("Delete", role: .destructive) { Task { await deleteVollis(g) } }
@@ -300,11 +317,21 @@ struct SiteGamesView: View {
                                     Button("Delete", role: .destructive) { Task { await deleteOther(g) } }
                                 }
                             }
+                            .contextMenu {
+                                if canEdit {
+                                    Button("Delete", role: .destructive) { Task { await deleteOther(g) } }
+                                }
+                            }
                         }
                     }
                 }
             }
             .navigationTitle("Games")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    SiteCopyLinkButton(url: SitePublicLink.games(section: section, year: selectedYear))
+                }
+            }
             .refreshable { await load() }
             .task(id: "\(section.rawValue)-\(selectedYear)") { await load() }
         }
