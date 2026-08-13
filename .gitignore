@@ -37,3 +37,10 @@ Pods/
 # Local databases
 *.db
 stats_backup*.db
+
+# Secrets and local backend plists
+stats/stats/GoogleService-Info.plist
+stats/stats/Supabase-Info.plist
+
+# Website copy dropped into the Xcode source folder (do not ship)
+stats/stats/STATS WEB SITE/

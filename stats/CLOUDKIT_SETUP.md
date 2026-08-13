@@ -19,25 +19,48 @@ The app shares game data across devices using Apple CloudKit. To enable it:
 
 ## 3. CloudKit schema (Dashboard)
 
-1. In [CloudKit Console](https://icloud.developer.apple.com), select your container **iCloud.com.kt.stats**.
-2. Create record types if they don’t exist:
+In [CloudKit Console](https://icloud.developer.apple.com), select your container **iCloud.com.kt.stats**.
 
-   - **Database** (root for sharing)  
-     - `createdAt` (Date/Time, optional)
+You need these record types in **both Development and Production**. TestFlight uses Production. Create them in Development first, then deploy (or recreate in Production if deploy shows 0 changes).
 
-   - **Game** (child of Database)  
-     - `gameNumber` (Int64)  
-     - `winner1`, `winner2`, `loser1`, `loser2` (String)  
-     - `winnerScore`, `loserScore` (Int64)  
-     - `gameDate` (Date/Time)  
-     - `parentRef` (Reference to **Database**)
+### 3a. Development: create record types
 
-   - **ShareLookup** (in **Public** database)  
-     - `code` (String)  
-     - `shareURL` (String)
+1. Set environment to **Development**. Go to **Schema** → **Record Types**. Click **+** to add.
 
-3. For **ShareLookup**, create it under the **Public Database** schema (not Private).
-4. Index **ShareLookup** by `code` if you want to query by code (fetch by record ID uses `code` as record name, so optional).
+**Database** (Private – default)
+- Record Field: `createdAt` → **Date/Time** (optional, uncheck Required). Save.
+
+**Game** (Private)
+- Add Record Fields (click + for each):
+  - `gameNumber` → **Int(64)**
+  - `winner1` → **String**
+  - `winner2` → **String**
+  - `loser1` → **String**
+  - `loser2` → **String**
+  - `winnerScore` → **Int(64)**
+  - `loserScore` → **Int(64)**
+  - `gameDate` → **Date/Time**
+  - `parentRef` → **Reference** (Reference type: **Database**)
+- Save.
+
+**ShareLookup** (must be in **Public** database)
+- In the Console, create this under the **Public** database (not Private). Look for a database selector or "Public Database" under Schema.
+- Record Fields: `code` → **String**, `shareURL` → **String**. Save.
+
+### 3b. Production: deploy or recreate
+
+- Click **Deploy Schema Changes…** (bottom of left sidebar). If it lists new record types, click **Deploy**.
+- If it shows **(0)** changes, create the same three record types manually in **Production** (switch environment to Production, then repeat the steps above for Database, Game, and ShareLookup in Public).
+
+### 3c. Quick reference
+
+| Record Type  | Database | Fields |
+|--------------|----------|--------|
+| Database     | Private  | `createdAt` (Date/Time, optional) |
+| Game         | Private  | `gameNumber` (Int64), `winner1`, `winner2`, `loser1`, `loser2` (String), `winnerScore`, `loserScore` (Int64), `gameDate` (Date/Time), `parentRef` (Reference → Database) |
+| ShareLookup  | **Public** | `code` (String), `shareURL` (String) |
+
+Index on ShareLookup `code` is optional.
 
 ## 4. Container identifier in code
 
@@ -51,6 +74,6 @@ If you use a different container ID in the portal and Xcode, change this string 
 
 ## Flow
 
-- **Owner:** Taps “Create database (get share code)” → CloudKit creates a root record and share → a 6-character code is stored in the public DB and shown. Others use this code to join.
+- **Owner:** Taps "Create database (get share code)" → CloudKit creates a root record and share → a 6-character code is stored in the public DB and shown. Others use this code to join.
 - **Joiner:** Enters the 6-character code → app looks up the share URL in the public DB → accepts the share → has read/write access to the same game records.
 - All participants with access read and write the same CloudKit data, so the database is shared across devices.

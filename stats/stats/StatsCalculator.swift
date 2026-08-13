@@ -214,9 +214,9 @@ final class StatsCalculator {
             playerStatsMap[name]?.trueSkillExposed = rating.exposed
         }
         
-        // Today's stats
+        // Today's stats (always from full games list so the card shows when there are games today, regardless of year filter)
         let today = calendar.startOfDay(for: Date())
-        let todayGames = filteredGames.filter { calendar.startOfDay(for: $0.date) == today }
+        let todayGames = games.filter { calendar.startOfDay(for: $0.date) == today }
         var todayStats: DayStats? = nil
         
         if !todayGames.isEmpty {

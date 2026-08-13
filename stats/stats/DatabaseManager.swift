@@ -88,6 +88,7 @@ final class DatabaseManager: @unchecked Sendable {
                     loser1: loser1,
                     loser2: loser2,
                     loserScore: loserScore,
+                    comment: "",
                     recordName: nil
                 ))
             }
@@ -97,19 +98,12 @@ final class DatabaseManager: @unchecked Sendable {
         return games
     }
     
-    /// Fetches all games; uses CloudKit when a shared database is active, otherwise local SQLite. Completion is called on main thread.
+    /// Fetches all games. Completion is called on main thread.
     func fetchAllGames(completion: @escaping ([LegacyGame]) -> Void) {
-        if CloudKitManager.shared.hasSharedDatabase {
-            CloudKitManager.shared.fetchAllGames { result in
-                DispatchQueue.main.async {
-                    switch result {
-                    case .success(let games): completion(games)
-                    case .failure: completion([])
-                    }
-                }
-            }
-        } else {
-            completion(fetchAllGames())
+        dbQueue.async { [weak self] in
+            guard let self else { return }
+            let games = self.fetchAllGames()
+            DispatchQueue.main.async { completion(games) }
         }
     }
     
@@ -190,50 +184,22 @@ final class DatabaseManager: @unchecked Sendable {
         return players
     }
     
-    /// Fetches recent players; when using CloudKit, derives from shared games. Completion on main thread.
+    /// Fetches recent players. Completion on main thread.
     func fetchRecentPlayers(limit: Int = 10, completion: @escaping ([PlayerInfo]) -> Void) {
-        if CloudKitManager.shared.hasSharedDatabase {
-            CloudKitManager.shared.fetchAllGames { result in
-                let games = (try? result.get()) ?? []
-                let players = Self.playersFromGames(games)
-                DispatchQueue.main.async {
-                    completion(Array(players.prefix(limit)))
-                }
-            }
-        } else {
-            completion(fetchRecentPlayers(limit: limit))
+        dbQueue.async { [weak self] in
+            guard let self else { return }
+            let players = self.fetchRecentPlayers(limit: limit)
+            DispatchQueue.main.async { completion(players) }
         }
     }
-    
-    /// Fetches all players; when using CloudKit, derives from shared games. Completion on main thread.
+
+    /// Fetches all players. Completion on main thread.
     func fetchAllPlayers(completion: @escaping ([PlayerInfo]) -> Void) {
-        if CloudKitManager.shared.hasSharedDatabase {
-            CloudKitManager.shared.fetchAllGames { result in
-                let games = (try? result.get()) ?? []
-                let players = Self.playersFromGames(games)
-                DispatchQueue.main.async {
-                    completion(players)
-                }
-            }
-        } else {
-            completion(fetchAllPlayers())
+        dbQueue.async { [weak self] in
+            guard let self else { return }
+            let players = self.fetchAllPlayers()
+            DispatchQueue.main.async { completion(players) }
         }
-    }
-    
-    private static func playersFromGames(_ games: [LegacyGame]) -> [PlayerInfo] {
-        var lastPlayed: [String: Date] = [:]
-        var gameCount: [String: Int] = [:]
-        for g in games {
-            for (name, date) in [(g.winner1, g.date), (g.winner2, g.date), (g.loser1, g.date), (g.loser2, g.date)] where !name.trimmingCharacters(in: .whitespaces).isEmpty {
-                if lastPlayed[name] == nil || (lastPlayed[name] ?? .distantPast) < date {
-                    lastPlayed[name] = date
-                }
-                gameCount[name, default: 0] += 1
-            }
-        }
-        return lastPlayed.keys.map { name in
-            PlayerInfo(name: name, lastPlayed: lastPlayed[name] ?? Date(), gameCount: gameCount[name] ?? 0)
-        }.sorted { ($0.lastPlayed, $0.gameCount) > ($1.lastPlayed, $1.gameCount) }
     }
     
     // MARK: - Insert Game
@@ -272,18 +238,14 @@ final class DatabaseManager: @unchecked Sendable {
         return false
     }
     
-    /// Inserts a game; uses CloudKit when shared. Completion called on main thread with success.
+    /// Inserts a game. Completion called on main thread with success.
     func insertGame(winner1: String, winner2: String, winnerScore: Int,
                     loser1: String, loser2: String, loserScore: Int,
                     completion: @escaping (Bool) -> Void) {
-        if CloudKitManager.shared.hasSharedDatabase {
-            CloudKitManager.shared.insertGame(winner1: winner1, winner2: winner2, winnerScore: winnerScore, loser1: loser1, loser2: loser2, loserScore: loserScore) { result in
-                DispatchQueue.main.async {
-                    completion((try? result.get()) != nil)
-                }
-            }
-        } else {
-            completion(insertGame(winner1: winner1, winner2: winner2, winnerScore: winnerScore, loser1: loser1, loser2: loser2, loserScore: loserScore))
+        dbQueue.async { [weak self] in
+            guard let self else { return }
+            let success = self.insertGame(winner1: winner1, winner2: winner2, winnerScore: winnerScore, loser1: loser1, loser2: loser2, loserScore: loserScore)
+            DispatchQueue.main.async { completion(success) }
         }
     }
     
@@ -320,18 +282,14 @@ final class DatabaseManager: @unchecked Sendable {
         return false
     }
     
-    /// Updates a game; uses CloudKit when shared (pass recordName from LegacyGame). Completion on main thread.
-    func updateGame(id: Int, recordName: String?, winner1: String, winner2: String, winnerScore: Int,
+    /// Updates a game by id. Completion on main thread.
+    func updateGame(id: Int, winner1: String, winner2: String, winnerScore: Int,
                     loser1: String, loser2: String, loserScore: Int,
                     completion: @escaping (Bool) -> Void) {
-        if CloudKitManager.shared.hasSharedDatabase, let name = recordName {
-            CloudKitManager.shared.updateGame(recordName: name, winner1: winner1, winner2: winner2, winnerScore: winnerScore, loser1: loser1, loser2: loser2, loserScore: loserScore) { result in
-                DispatchQueue.main.async {
-                    completion((try? result.get()) != nil)
-                }
-            }
-        } else {
-            completion(updateGame(id: id, winner1: winner1, winner2: winner2, winnerScore: winnerScore, loser1: loser1, loser2: loser2, loserScore: loserScore))
+        dbQueue.async { [weak self] in
+            guard let self else { return }
+            let success = self.updateGame(id: id, winner1: winner1, winner2: winner2, winnerScore: winnerScore, loser1: loser1, loser2: loser2, loserScore: loserScore)
+            DispatchQueue.main.async { completion(success) }
         }
     }
     
@@ -351,16 +309,12 @@ final class DatabaseManager: @unchecked Sendable {
         return false
     }
     
-    /// Deletes a game; uses CloudKit when shared (pass recordName from LegacyGame). Completion on main thread.
-    func deleteGame(id: Int, recordName: String?, completion: @escaping (Bool) -> Void) {
-        if CloudKitManager.shared.hasSharedDatabase, let name = recordName {
-            CloudKitManager.shared.deleteGame(recordName: name) { result in
-                DispatchQueue.main.async {
-                    completion((try? result.get()) != nil)
-                }
-            }
-        } else {
-            completion(deleteGame(id: id))
+    /// Deletes a game by id. Completion on main thread.
+    func deleteGame(id: Int, completion: @escaping (Bool) -> Void) {
+        dbQueue.async { [weak self] in
+            guard let self else { return }
+            let success = self.deleteGame(id: id)
+            DispatchQueue.main.async { completion(success) }
         }
     }
     
@@ -426,10 +380,11 @@ struct LegacyGame: Identifiable {
     let loser1: String
     let loser2: String
     let loserScore: Int
-    /// CloudKit record name when using shared database; nil for local SQLite.
+    let comment: String
+    /// Reserved for compatibility; unused with local SQLite.
     let recordName: String?
-    
-    init(id: Int, date: Date, winner1: String, winner2: String, winnerScore: Int, loser1: String, loser2: String, loserScore: Int, recordName: String? = nil) {
+
+    init(id: Int, date: Date, winner1: String, winner2: String, winnerScore: Int, loser1: String, loser2: String, loserScore: Int, comment: String = "", recordName: String? = nil) {
         self.id = id
         self.date = date
         self.winner1 = winner1
@@ -438,6 +393,7 @@ struct LegacyGame: Identifiable {
         self.loser1 = loser1
         self.loser2 = loser2
         self.loserScore = loserScore
+        self.comment = comment
         self.recordName = recordName
     }
     
@@ -447,7 +403,7 @@ struct LegacyGame: Identifiable {
         if w1.isEmpty && w2.isEmpty { return "—" }
         if w1.isEmpty { return w2 }
         if w2.isEmpty { return w1 }
-        return "\(w1) & \(w2)"
+        return "\(w1) \(w2)"
     }
     
     var losersDisplay: String {
@@ -456,7 +412,37 @@ struct LegacyGame: Identifiable {
         if l1.isEmpty && l2.isEmpty { return "—" }
         if l1.isEmpty { return l2 }
         if l2.isEmpty { return l1 }
-        return "\(l1) & \(l2)"
+        return "\(l1) \(l2)"
+    }
+}
+
+/// Stored player in Firestore (databases/{dbId}/players). First and last name required; rest optional.
+struct Player: Identifiable, Hashable {
+    var id: String { documentId ?? displayName }
+    let documentId: String?
+    let firstName: String
+    let lastName: String
+    let email: String?
+    let age: Int?
+    let height: Double?
+    let dateOfBirth: Date?
+    let comment: String?
+
+    var displayName: String {
+        [firstName, lastName].filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespaces)
+    }
+
+    init(documentId: String? = nil, firstName: String, lastName: String, email: String? = nil, age: Int? = nil, height: Double? = nil, dateOfBirth: Date? = nil, comment: String? = nil) {
+        self.documentId = documentId
+        self.firstName = firstName.trimmingCharacters(in: .whitespaces)
+        self.lastName = lastName.trimmingCharacters(in: .whitespaces)
+        self.email = email
+        self.age = age
+        self.height = height
+        self.dateOfBirth = dateOfBirth
+        self.comment = comment
     }
 }
 
@@ -465,4 +451,13 @@ struct PlayerInfo: Identifiable, Hashable {
     let name: String
     let lastPlayed: Date
     let gameCount: Int
+    /// When the current user last added/edited a game containing this player (for autocomplete sort). Nil when unknown.
+    let lastAddedByEditor: Date?
+    
+    init(name: String, lastPlayed: Date, gameCount: Int, lastAddedByEditor: Date? = nil) {
+        self.name = name
+        self.lastPlayed = lastPlayed
+        self.gameCount = gameCount
+        self.lastAddedByEditor = lastAddedByEditor
+    }
 }

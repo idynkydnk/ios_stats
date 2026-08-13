@@ -2,10 +2,12 @@ import SwiftUI
 
 @main
 struct statsApp: App {
+    @ObservedObject private var theme = SiteTheme.shared
+
     var body: some Scene {
         WindowGroup {
-            MainTabView()
-                .preferredColorScheme(.dark)
+            SiteRootView()
+                .preferredColorScheme(theme.colorScheme)
         }
     }
 }

@@ -3,9 +3,15 @@ import SwiftUI
 struct PlayerDetailView: View {
     let playerName: String
     let games: [LegacyGame]
-    
+    var cloudDbId: String? = nil
+
+    @State private var fetchedPlayerGames: [LegacyGame]? = nil
+
     private var playerGames: [LegacyGame] {
-        games.filter { game in
+        if let fetched = fetchedPlayerGames {
+            return fetched
+        }
+        return games.filter { game in
             [game.winner1, game.winner2, game.loser1, game.loser2].contains(playerName)
         }
     }
@@ -63,7 +69,14 @@ struct PlayerDetailView: View {
             withPartner[key] = cur
         }
         return withPartner.map { (name: $0.key, wins: $0.value.wins, losses: $0.value.losses) }
-            .sorted { ($0.wins + $0.losses) > ($1.wins + $1.losses) }
+            .sorted { p1, p2 in
+                let t1 = p1.wins + p1.losses
+                let t2 = p2.wins + p2.losses
+                let rate1 = t1 > 0 ? Double(p1.wins) / Double(t1) : 0
+                let rate2 = t2 > 0 ? Double(p2.wins) / Double(t2) : 0
+                if rate1 != rate2 { return rate1 > rate2 }
+                return t1 > t2
+            }
     }
     
     /// (opponent name, wins, losses) — games where this player's team faced a team containing that opponent
@@ -88,18 +101,36 @@ struct PlayerDetailView: View {
             }
         }
         return vsOpponent.map { (name: $0.key, wins: $0.value.wins, losses: $0.value.losses) }
-            .sorted { ($0.wins + $0.losses) > ($1.wins + $1.losses) }
+            .sorted { v1, v2 in
+                let t1 = v1.wins + v1.losses
+                let t2 = v2.wins + v2.losses
+                let rate1 = t1 > 0 ? Double(v1.wins) / Double(t1) : 0
+                let rate2 = t2 > 0 ? Double(v2.wins) / Double(t2) : 0
+                if rate1 != rate2 { return rate1 > rate2 }
+                return t1 > t2
+            }
     }
     
+    private var isLoadingFromCloud: Bool {
+        cloudDbId != nil && fetchedPlayerGames == nil
+    }
+
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                overallSection
-                withPartnersSection
-                versusSection
+        Group {
+            if isLoadingFromCloud {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        overallSection
+                        withPartnersSection
+                        versusSection
+                    }
+                    .padding()
+                    .padding(.bottom, 24)
+                }
             }
-            .padding()
-            .padding(.bottom, 24)
         }
         .background(
             LinearGradient(
@@ -116,6 +147,14 @@ struct PlayerDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarColorScheme(.dark, for: .navigationBar)
         .toolbarBackground(Color(red: 0.06, green: 0.1, blue: 0.16), for: .navigationBar)
+        .task {
+            guard let dbId = cloudDbId, fetchedPlayerGames == nil else { return }
+            cloud.fetchGamesForPlayer(dbId: dbId, playerName: playerName) { result in
+                if case .success(let list) = result {
+                    fetchedPlayerGames = list
+                }
+            }
+        }
     }
     
     private var overallSection: some View {

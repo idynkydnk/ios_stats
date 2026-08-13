@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct StatsView: View {
+    @ObservedObject private var dbOwner = DatabaseOwnerManager.shared
     @State private var games: [LegacyGame] = []
     @State private var isLoading = true
     @State private var selectedYear: Int = 2026
@@ -503,13 +504,18 @@ struct StatsView: View {
     }
     
     private func loadData() {
-        Task {
-            let loaded = DatabaseManager.shared.fetchAllGames()
-            await MainActor.run {
+        guard let dbId = dbOwner.myDbId else {
+            games = []
+            recalculateStats()
+            isLoading = false
+            return
+        }
+        cloud.fetchGames(dbId: dbId, limit: nil) { [self] result in
+            if case .success(let loaded) = result {
                 games = loaded
-                recalculateStats()
-                isLoading = false
             }
+            recalculateStats()
+            isLoading = false
         }
     }
     
