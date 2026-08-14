@@ -127,14 +127,35 @@ struct DoublesGame: Codable, Identifiable, Hashable {
 
     static func parseDate(_ raw: String?) -> Date? {
         guard let raw, !raw.isEmpty else { return nil }
-        let s = raw.replacingOccurrences(of: "T", with: " ").replacingOccurrences(of: "Z", with: "")
-        let formats = ["yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd HH:mm:ss.SSSSSS", "yyyy-MM-dd"]
+        var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Site dates often end with a zone label, e.g. "03/18/2026 07:11 PM (PDT)".
+        // Drop it and parse as a local calendar date so the listed day matches the site.
+        if s.hasSuffix(")"), let open = s.lastIndex(of: "(") {
+            s = String(s[..<open]).trimmingCharacters(in: .whitespaces)
+        }
+        s = s.replacingOccurrences(of: "T", with: " ")
+        if s.hasSuffix("Z") { s.removeLast() }
+
+        let formats = [
+            "yyyy-MM-dd HH:mm:ss.SSSSSS",
+            "yyyy-MM-dd HH:mm:ss",
+            "yyyy-MM-dd HH:mm",
+            "yyyy-MM-dd",
+            "MM/dd/yyyy hh:mm:ss a",
+            "MM/dd/yyyy h:mm:ss a",
+            "MM/dd/yyyy hh:mm a",
+            "MM/dd/yyyy h:mm a",
+            "MM/dd/yyyy HH:mm:ss",
+            "MM/dd/yyyy",
+            "MM/dd/yy hh:mm a",
+            "MM/dd/yy h:mm a",
+            "MM/dd/yy",
+        ]
         let df = DateFormatter()
         df.locale = Locale(identifier: "en_US_POSIX")
         df.timeZone = TimeZone.current
         for f in formats {
             df.dateFormat = f
-            if let d = df.date(from: String(s.prefix(f.count + 4))) { return d }
             if let d = df.date(from: s) { return d }
         }
         return ISO8601DateFormatter().date(from: raw)
@@ -232,6 +253,36 @@ struct VollisStatsPayload: Codable {
     var stats: [RankingRow]
 }
 
+struct OtherGamePlayer: Codable, Hashable {
+    var name: String
+    var score: Int?
+
+    init(name: String, score: Int? = nil) {
+        self.name = name
+        self.score = score
+    }
+
+    init(from decoder: Decoder) throws {
+        if let single = try? decoder.singleValueContainer(), let s = try? single.decode(String.self) {
+            name = s
+            score = nil
+            return
+        }
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = (try? c.decode(String.self, forKey: .name)) ?? ""
+        score = Self.optionalInt(c, .score)
+    }
+
+    enum CodingKeys: String, CodingKey { case name, score }
+
+    private static func optionalInt(_ c: KeyedDecodingContainer<CodingKeys>, _ key: CodingKeys) -> Int? {
+        if let v = try? c.decode(Int.self, forKey: key) { return v }
+        if let v = try? c.decode(Double.self, forKey: key) { return Int(v) }
+        if let v = try? c.decode(String.self, forKey: key) { return Int(v) }
+        return nil
+    }
+}
+
 struct OtherGame: Codable, Identifiable, Hashable {
     var gameId: Int?
     var jsonId: Int?
@@ -243,8 +294,8 @@ struct OtherGame: Codable, Identifiable, Hashable {
     var updatedAt: String?
     var winnerScore: Int?
     var loserScore: Int?
-    var winners: [String]?
-    var losers: [String]?
+    var winners: [OtherGamePlayer]?
+    var losers: [OtherGamePlayer]?
     var winner1: String?
     var winner2: String?
     var loser1: String?
@@ -258,14 +309,51 @@ struct OtherGame: Codable, Identifiable, Hashable {
         case jsonId = "id"
     }
 
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        gameId = Self.optionalInt(c, .gameId)
+        jsonId = Self.optionalInt(c, .jsonId)
+        gameDate = try c.decodeIfPresent(String.self, forKey: .gameDate)
+        gameDateOnly = try c.decodeIfPresent(String.self, forKey: .gameDateOnly)
+        gameType = try c.decodeIfPresent(String.self, forKey: .gameType)
+        gameName = try c.decodeIfPresent(String.self, forKey: .gameName)
+        comment = try c.decodeIfPresent(String.self, forKey: .comment)
+        updatedAt = try c.decodeIfPresent(String.self, forKey: .updatedAt)
+        winnerScore = Self.optionalInt(c, .winnerScore)
+        loserScore = Self.optionalInt(c, .loserScore)
+        winners = Self.decodePlayers(c, .winners)
+        losers = Self.decodePlayers(c, .losers)
+        winner1 = try c.decodeIfPresent(String.self, forKey: .winner1)
+        winner2 = try c.decodeIfPresent(String.self, forKey: .winner2)
+        loser1 = try c.decodeIfPresent(String.self, forKey: .loser1)
+        loser2 = try c.decodeIfPresent(String.self, forKey: .loser2)
+    }
+
     var displayWinners: [String] {
-        if let winners, !winners.isEmpty { return winners }
+        let names = (winners ?? []).map(\.name).filter { !$0.isEmpty }
+        if !names.isEmpty { return names }
         return [winner1, winner2].compactMap { $0 }.filter { !$0.isEmpty }
     }
 
     var displayLosers: [String] {
-        if let losers, !losers.isEmpty { return losers }
+        let names = (losers ?? []).map(\.name).filter { !$0.isEmpty }
+        if !names.isEmpty { return names }
         return [loser1, loser2].compactMap { $0 }.filter { !$0.isEmpty }
+    }
+
+    private static func optionalInt(_ c: KeyedDecodingContainer<CodingKeys>, _ key: CodingKeys) -> Int? {
+        if let v = try? c.decode(Int.self, forKey: key) { return v }
+        if let v = try? c.decode(Double.self, forKey: key) { return Int(v) }
+        if let v = try? c.decode(String.self, forKey: key) { return Int(v) }
+        return nil
+    }
+
+    private static func decodePlayers(_ c: KeyedDecodingContainer<CodingKeys>, _ key: CodingKeys) -> [OtherGamePlayer]? {
+        if let players = try? c.decode([OtherGamePlayer].self, forKey: key) { return players }
+        if let names = try? c.decode([String].self, forKey: key) {
+            return names.map { OtherGamePlayer(name: $0) }
+        }
+        return nil
     }
 }
 
