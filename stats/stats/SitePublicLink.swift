@@ -39,6 +39,13 @@ enum SitePublicLink {
         page("volleyball_stats", normalizedYear(year))
     }
 
+    static func faceThumb(name: String, size: Int = 256) -> URL? {
+        var allowed = CharacterSet.urlPathAllowed
+        allowed.remove(charactersIn: "/")
+        let encoded = name.addingPercentEncoding(withAllowedCharacters: allowed) ?? name
+        return URL(string: "\(host)/player_face_thumb/\(encoded)?size=\(size)")
+    }
+
     static func normalizedYear(_ raw: String) -> String {
         if raw.isEmpty || raw == "All" { return "All years" }
         return raw

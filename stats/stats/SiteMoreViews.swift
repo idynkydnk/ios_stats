@@ -77,12 +77,7 @@ struct SitePlayersView: View {
                     SiteEditPlayerView(player: p)
                 } label: {
                     HStack {
-                        AsyncImage(url: URL(string: p.photoUrl ?? "")) { img in
-                            img.resizable().scaledToFill()
-                        } placeholder: {
-                            Circle().fill(Color.gray.opacity(0.3))
-                        }
-                        .frame(width: 36, height: 36).clipShape(Circle())
+                        SitePlayerAvatar(name: p.name, size: 36)
                         VStack(alignment: .leading) {
                             Text(p.name)
                             Text("\(p.games ?? 0) games").font(.caption).foregroundStyle(.secondary)
@@ -132,10 +127,12 @@ struct SiteEditPlayerView: View {
     var body: some View {
         Form {
             if let error { Text(error).foregroundStyle(.red) }
-            AsyncImage(url: URL(string: player.photoUrl ?? "")) { img in
-                img.resizable().scaledToFill()
-            } placeholder: { Color.gray.opacity(0.2) }
-            .frame(height: 160).clipped()
+            HStack {
+                Spacer()
+                SitePlayerAvatar(name: player.name, size: 96)
+                Spacer()
+            }
+            .listRowBackground(Color.clear)
             if auth.isLoggedIn {
                 PhotosPicker("Upload face photo", selection: $picker, matching: .images)
             }

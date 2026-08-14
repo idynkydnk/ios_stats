@@ -230,3 +230,22 @@ struct SiteAddActionButton: View {
         .opacity(disabled ? 0.5 : 1)
     }
 }
+
+struct SitePlayerAvatar: View {
+    var name: String
+    var size: CGFloat = 72
+
+    var body: some View {
+        AsyncImage(url: SitePublicLink.faceThumb(name: name, size: Int(size * 3))) { phase in
+            switch phase {
+            case .success(let img):
+                img.resizable().scaledToFill()
+            default:
+                Circle().fill(Color.gray.opacity(0.3))
+                    .overlay(Text(String(name.prefix(1))).font(.headline))
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(Circle())
+    }
+}
