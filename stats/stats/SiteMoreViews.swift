@@ -627,36 +627,324 @@ struct SiteRecapsView: View {
 }
 
 struct SiteFlyerView: View {
-    @State private var playersText = ""
+    enum Field: Hashable { case player, location, details }
+
+    @State private var gameType = "doubles"
+    @State private var playerQuery = ""
+    @State private var selected: [String] = []
+    @State private var recent: [String] = []
+    @State private var allPlayers: [String] = []
     @State private var location = ""
-    @State private var eventDate = ""
-    @State private var eventTime = ""
-    @State private var message: String?
+    @State private var eventDate = Date()
+    @State private var eventTime = Calendar.current.date(bySettingHour: 17, minute: 0, second: 0, of: Date()) ?? Date()
+    @State private var imageDetails = ""
+    @State private var banner: String?
+    @State private var bannerIsError = false
+    @State private var shareURL: URL?
+    @State private var saving = false
+    @FocusState private var focused: Field?
+
+    private let timePresets = [16, 17, 18, 19, 20]
 
     var body: some View {
-        Form {
-            TextField("Players (comma-separated)", text: $playersText)
-            TextField("Location", text: $location)
-            TextField("Date YYYY-MM-DD", text: $eventDate)
-            TextField("Time (e.g. 5:00 PM)", text: $eventTime)
-            Button("Create flyer") {
-                Task {
-                    let players = playersText.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
-                    do {
-                        let id = try await PythonAnywhereClient.shared.createFlyer([
-                            "players": players,
-                            "game_type": "doubles",
-                            "event_date": eventDate,
-                            "event_time": eventTime,
-                            "location": location,
-                        ])
-                        message = "Queued flyer job #\(id)"
-                    } catch { message = error.localizedDescription }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                if let banner {
+                    SiteAddBanner(text: banner, isError: bannerIsError)
+                }
+                if let shareURL {
+                    HStack(spacing: 12) {
+                        ShareLink(item: shareURL)
+                        SiteCopyLinkButton(url: shareURL)
+                        Link("Open", destination: shareURL)
+                    }
+                }
+
+                Picker("Game", selection: $gameType) {
+                    Text("Doubles").tag("doubles")
+                    Text("Vollis").tag("vollis")
+                    Text("Other").tag("other")
+                }
+                .pickerStyle(.segmented)
+
+                Text("Who’s playing")
+                    .font(.subheadline.weight(.semibold))
+                if !selected.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(selected, id: \.self) { name in
+                                Button { removePlayer(name) } label: {
+                                    HStack(spacing: 6) {
+                                        Text(name)
+                                        Image(systemName: "xmark.circle.fill")
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    .font(.subheadline)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 8)
+                                    .background(SiteAddAccent.orange.opacity(0.2))
+                                    .clipShape(Capsule())
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                }
+                SiteAddTextRow(label: "Search players", text: $playerQuery, field: .player, focus: $focused, submit: .done, onSubmit: {
+                    addTypedPlayer()
+                })
+                if focused == .player && !playerQuery.trimmingCharacters(in: .whitespaces).isEmpty {
+                    SiteAddSuggestionList(names: suggestions) { name in
+                        addPlayer(name)
+                    }
+                }
+                if !recentAvailable.isEmpty {
+                    Text("Recent")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(recentAvailable, id: \.self) { name in
+                                Button { addPlayer(name) } label: {
+                                    Text(name)
+                                        .font(.subheadline)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 8)
+                                        .background(Color(.secondarySystemFill))
+                                        .clipShape(Capsule())
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Date")
+                        .font(.subheadline.weight(.semibold))
+                    HStack(spacing: 8) {
+                        dateChip("Today", date: Date())
+                        dateChip("Tomorrow", date: Calendar.current.date(byAdding: .day, value: 1, to: Date()) ?? Date())
+                    }
+                    DatePicker("Date", selection: $eventDate, displayedComponents: .date)
+                        .datePickerStyle(.compact)
+                        .labelsHidden()
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(RoundedRectangle(cornerRadius: 10).fill(Color(.secondarySystemFill)))
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Time")
+                        .font(.subheadline.weight(.semibold))
+                    HStack(spacing: 8) {
+                        ForEach(timePresets, id: \.self) { hour in
+                            let selectedHour = Calendar.current.component(.hour, from: eventTime) == hour
+                            Button { setTime(hour: hour) } label: {
+                                Text(timeLabel(hour))
+                                    .font(.subheadline.weight(.semibold))
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                                    .background(selectedHour ? SiteAddAccent.orange : Color(.secondarySystemFill))
+                                    .foregroundStyle(selectedHour ? Color.black : Color.primary)
+                                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    DatePicker("Time", selection: $eventTime, displayedComponents: .hourAndMinute)
+                        .datePickerStyle(.compact)
+                        .labelsHidden()
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(RoundedRectangle(cornerRadius: 10).fill(Color(.secondarySystemFill)))
+                }
+
+                SiteAddTextRow(label: "Location", text: $location, field: .location, focus: $focused, submit: .next, onSubmit: {
+                    focused = .details
+                })
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("AI image details")
+                        .font(.subheadline.weight(.semibold))
+                    Text("Optional notes for the flyer image, like sunset, backyard, bring a friend…")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    ZStack(alignment: .topLeading) {
+                        if imageDetails.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            Text("Image prompt details")
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 12)
+                        }
+                        TextEditor(text: $imageDetails)
+                            .focused($focused, equals: .details)
+                            .scrollContentBackground(.hidden)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 8)
+                            .frame(minHeight: 100)
+                    }
+                    .background(RoundedRectangle(cornerRadius: 10).fill(Color(.secondarySystemFill)))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(focused == .details ? SiteAddAccent.orange : Color.clear, lineWidth: 2)
+                    )
+                }
+
+                SiteAddActionButton(
+                    title: saving ? "Creating flyer…" : "Create flyer",
+                    filled: true,
+                    disabled: saving || selected.isEmpty || location.trimmingCharacters(in: .whitespaces).isEmpty
+                ) {
+                    Task { await create() }
                 }
             }
-            if let message { Text(message) }
+            .padding()
+            .padding(.bottom, 40)
         }
+        .scrollDismissesKeyboard(.interactively)
         .navigationTitle("Flyer")
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Done") { focused = nil }
+            }
+        }
+        .task { await loadPlayers() }
+        .onChange(of: gameType) { _, _ in
+            Task { await loadRecent() }
+        }
+    }
+
+    private var suggestions: [String] {
+        siteFilterPlayers(allPlayers, query: playerQuery, excluding: selected)
+    }
+
+    private var recentAvailable: [String] {
+        siteFilterPlayers(recent, query: "", excluding: selected, limit: 16)
+    }
+
+    private func dateChip(_ title: String, date: Date) -> some View {
+        let same = Calendar.current.isDate(eventDate, inSameDayAs: date)
+        return Button { eventDate = date } label: {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(same ? SiteAddAccent.orange : Color(.secondarySystemFill))
+                .foregroundStyle(same ? Color.black : Color.primary)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func timeLabel(_ hour: Int) -> String {
+        hour < 12 ? "\(hour) AM" : hour == 12 ? "12 PM" : "\(hour - 12) PM"
+    }
+
+    private func setTime(hour: Int) {
+        eventTime = Calendar.current.date(bySettingHour: hour, minute: 0, second: 0, of: eventTime) ?? eventTime
+    }
+
+    private func addPlayer(_ name: String) {
+        let n = name.trimmingCharacters(in: .whitespaces)
+        guard !n.isEmpty, !selected.contains(where: { $0.caseInsensitiveCompare(n) == .orderedSame }) else { return }
+        selected.append(n)
+        playerQuery = ""
+        focused = .player
+    }
+
+    private func addTypedPlayer() {
+        let q = playerQuery.trimmingCharacters(in: .whitespaces)
+        if let match = suggestions.first {
+            addPlayer(match)
+        } else if !q.isEmpty {
+            addPlayer(q)
+        }
+    }
+
+    private func removePlayer(_ name: String) {
+        selected.removeAll { $0.caseInsensitiveCompare(name) == .orderedSame }
+    }
+
+    private func loadPlayers() async {
+        if let rows = try? await PythonAnywhereClient.shared.players() {
+            allPlayers = rows.sorted { ($0.games ?? 0) > ($1.games ?? 0) }.map(\.name)
+        }
+        await loadRecent()
+        if allPlayers.isEmpty { allPlayers = recent }
+    }
+
+    private func loadRecent() async {
+        switch gameType {
+        case "vollis":
+            recent = (try? await PythonAnywhereClient.shared.vollisPlayers()) ?? recent
+        default:
+            recent = (try? await PythonAnywhereClient.shared.doublesPlayers()) ?? recent
+        }
+        if allPlayers.isEmpty { allPlayers = recent }
+        else {
+            let extra = recent.filter { name in
+                !allPlayers.contains { $0.caseInsensitiveCompare(name) == .orderedSame }
+            }
+            allPlayers = extra + allPlayers
+        }
+    }
+
+    private func create() async {
+        saving = true
+        banner = nil
+        shareURL = nil
+        bannerIsError = false
+        let dateFmt = DateFormatter()
+        dateFmt.locale = Locale(identifier: "en_US_POSIX")
+        dateFmt.dateFormat = "yyyy-MM-dd"
+        let timeFmt = DateFormatter()
+        timeFmt.locale = Locale(identifier: "en_US_POSIX")
+        timeFmt.dateFormat = "h:mm a"
+        do {
+            let id = try await PythonAnywhereClient.shared.createFlyer([
+                "players": selected,
+                "game_type": gameType,
+                "event_date": dateFmt.string(from: eventDate),
+                "event_time": timeFmt.string(from: eventTime),
+                "location": location.trimmingCharacters(in: .whitespaces),
+                "image_details": imageDetails.trimmingCharacters(in: .whitespacesAndNewlines),
+            ])
+            banner = "Creating flyer…"
+            if let url = await waitForFlyer(jobId: id) {
+                shareURL = url
+                banner = "Flyer ready"
+            } else {
+                banner = "Flyer queued. It will show up shortly."
+            }
+        } catch {
+            banner = error.localizedDescription
+            bannerIsError = true
+        }
+        saving = false
+    }
+
+    private func waitForFlyer(jobId: Int) async -> URL? {
+        for i in 0..<30 {
+            if i > 0 { try? await Task.sleep(nanoseconds: 2_000_000_000) }
+            guard let job = try? await PythonAnywhereClient.shared.aiJob(id: jobId) else { continue }
+            let status = (job["status"] as? String ?? "").lowercased()
+            if status == "failed" || status == "error" {
+                banner = (job["error"] as? String) ?? "Flyer failed"
+                bannerIsError = true
+                return nil
+            }
+            if let share = job["share_id"] as? String, !share.isEmpty {
+                return SitePublicLink.flyer(share)
+            }
+            if status == "completed" || status == "done" {
+                return nil
+            }
+        }
+        return nil
     }
 }
 
