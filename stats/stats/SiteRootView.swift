@@ -301,8 +301,16 @@ struct SiteGamesView: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text("\(g.gameName ?? "") · \(g.gameType ?? "")").font(.headline)
                                 SiteGameDateLabel(raw: g.gameDateOnly ?? g.gameDate)
-                                Text(g.displayWinners.joined(separator: ", ")).foregroundStyle(.green)
-                                Text(g.displayLosers.joined(separator: ", ")).foregroundStyle(.red)
+                                HStack {
+                                    Text(g.displayWinners.joined(separator: ", ")).foregroundStyle(.green)
+                                    Spacer()
+                                    if let s = g.winnerScore { Text("\(s)").foregroundStyle(.green) }
+                                }
+                                HStack {
+                                    Text(g.displayLosers.joined(separator: ", ")).foregroundStyle(.red)
+                                    Spacer()
+                                    if let s = g.loserScore { Text("\(s)").foregroundStyle(.red) }
+                                }
                                 if let c = g.comment, !c.isEmpty { Text(c).font(.caption).italic() }
                             }
                             .swipeActions {
