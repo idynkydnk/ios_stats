@@ -81,12 +81,7 @@ struct SitePlayerDetailView: View {
             if let error { Text(error).foregroundStyle(.red).padding() }
             if let p = payload {
                 HStack {
-                    AsyncImage(url: URL(string: p.photoUrl ?? "")) { img in
-                        img.resizable().scaledToFill()
-                    } placeholder: {
-                        Circle().fill(Color.gray.opacity(0.3)).overlay(Text(String(name.prefix(1))))
-                    }
-                    .frame(width: 72, height: 72).clipShape(Circle())
+                    SitePlayerAvatar(name: p.name, size: 72)
                     VStack(alignment: .leading) {
                         Text(p.name).font(.title2.bold())
                         if let nick = p.nickname, !nick.isEmpty { Text(nick).foregroundStyle(.secondary) }

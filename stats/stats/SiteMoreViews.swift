@@ -77,12 +77,7 @@ struct SitePlayersView: View {
                     SiteEditPlayerView(player: p)
                 } label: {
                     HStack {
-                        AsyncImage(url: URL(string: p.photoUrl ?? "")) { img in
-                            img.resizable().scaledToFill()
-                        } placeholder: {
-                            Circle().fill(Color.gray.opacity(0.3))
-                        }
-                        .frame(width: 36, height: 36).clipShape(Circle())
+                        SitePlayerAvatar(name: p.name, size: 36)
                         VStack(alignment: .leading) {
                             Text(p.name)
                             Text("\(p.games ?? 0) games").font(.caption).foregroundStyle(.secondary)
@@ -117,6 +112,8 @@ struct SiteEditPlayerView: View {
     @State private var height: String
     @State private var dob: String
     @State private var error: String?
+    @State private var banner: String?
+    @State private var saving = false
     @State private var picker: PhotosPickerItem?
     @ObservedObject private var auth = SiteAuthManager.shared
 
@@ -132,21 +129,33 @@ struct SiteEditPlayerView: View {
     var body: some View {
         Form {
             if let error { Text(error).foregroundStyle(.red) }
-            AsyncImage(url: URL(string: player.photoUrl ?? "")) { img in
-                img.resizable().scaledToFill()
-            } placeholder: { Color.gray.opacity(0.2) }
-            .frame(height: 160).clipped()
+            if let banner { SiteAddBanner(text: banner, isError: false) }
+            HStack {
+                Spacer()
+                SitePlayerAvatar(name: player.name, size: 96)
+                Spacer()
+            }
+            .listRowBackground(Color.clear)
+
             if auth.isLoggedIn {
                 PhotosPicker("Upload face photo", selection: $picker, matching: .images)
-            }
-            TextField("Name", text: $name)
-            TextField("Nickname", text: $nickname)
-            TextField("Email", text: $email)
-            TextField("Height", text: $height)
-            TextField("Date of birth", text: $dob)
-            if auth.isLoggedIn {
+                TextField("Name", text: $name)
+                TextField("Nickname", text: $nickname)
+                TextField("Email", text: $email)
+                    .textInputAutocapitalization(.never)
+                    .keyboardType(.emailAddress)
+                TextField("Height", text: $height)
+                TextField("Date of birth", text: $dob)
                 Button("Save") { Task { await save() } }
+                    .disabled(saving || name.trimmingCharacters(in: .whitespaces).isEmpty)
+            } else {
+                profileRow("Name", player.name)
+                profileRow("Nickname", player.nickname)
+                profileRow("Email", player.email)
+                profileRow("Height", player.height)
+                profileRow("Date of birth", player.dateOfBirth)
             }
+
             NavigationLink("Doubles stats") {
                 SitePlayerDetailView(name: player.name, year: String(Calendar.current.component(.year, from: Date())), section: .doubles)
             }
@@ -154,15 +163,27 @@ struct SiteEditPlayerView: View {
         .navigationTitle(player.name)
         .onChange(of: picker) { _, item in
             Task {
-                guard let item, let data = try? await item.loadTransferable(type: Data.self) else { return }
+                guard auth.isLoggedIn, let item, let data = try? await item.loadTransferable(type: Data.self) else { return }
                 do {
                     try await PythonAnywhereClient.shared.uploadPlayerPhoto(name: player.name, imageData: data, filename: "photo.jpg")
+                    banner = "Photo updated"
                 } catch { self.error = error.localizedDescription }
             }
         }
     }
 
+    @ViewBuilder
+    private func profileRow(_ label: String, _ value: String?) -> some View {
+        if let value, !value.trimmingCharacters(in: .whitespaces).isEmpty {
+            LabeledContent(label, value: value)
+        }
+    }
+
     private func save() async {
+        guard auth.isLoggedIn else { return }
+        saving = true
+        error = nil
+        banner = nil
         do {
             if name != player.name {
                 try await PythonAnywhereClient.shared.renamePlayer(oldName: player.name, newName: name)
@@ -174,7 +195,9 @@ struct SiteEditPlayerView: View {
                 "height": height,
                 "birthday": dob,
             ])
+            banner = "Profile saved"
         } catch { self.error = error.localizedDescription }
+        saving = false
     }
 }
 
