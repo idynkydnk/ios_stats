@@ -253,6 +253,9 @@ struct SiteGamesView: View {
     @State private var other: [OtherGame] = []
     @State private var search = ""
     @State private var error: String?
+    @State private var banner: String?
+    @State private var bannerIsError = false
+    @State private var successTick = 0
     @ObservedObject private var network = NetworkMonitor.shared
     @ObservedObject private var queue = SiteOfflineQueue.shared
 
@@ -261,7 +264,14 @@ struct SiteGamesView: View {
             VStack {
                 SectionYearBar(section: $section, selectedYear: $selectedYear, years: years)
                 TextField("Search", text: $search).textFieldStyle(.roundedBorder).padding(.horizontal)
-                if let error { Text(error).foregroundStyle(.red).font(.footnote) }
+                if let banner {
+                    SiteAddBanner(text: banner, isError: bannerIsError)
+                        .padding(.horizontal)
+                }
+                if let error {
+                    SiteAddBanner(text: error, isError: true)
+                        .padding(.horizontal)
+                }
                 List {
                     switch section {
                     case .doubles:
@@ -332,8 +342,13 @@ struct SiteGamesView: View {
                     SiteCopyLinkButton(url: SitePublicLink.games(section: section, year: selectedYear))
                 }
             }
+            .sensoryFeedback(.success, trigger: successTick)
             .refreshable { await load() }
-            .task(id: "\(section.rawValue)-\(selectedYear)") { await load() }
+            .task(id: "\(section.rawValue)-\(selectedYear)") {
+                banner = nil
+                error = nil
+                await load()
+            }
         }
     }
 
@@ -372,22 +387,48 @@ struct SiteGamesView: View {
         }
     }
 
+    private func showDeletedBanner(offline: Bool = false) {
+        error = nil
+        bannerIsError = false
+        banner = offline ? "Deleted offline — will sync" : "Game deleted"
+        successTick += 1
+    }
+
     private func deleteDoubles(_ g: DoublesGame) async {
         if !network.isConnected {
             queue.enqueue(method: "DELETE", path: "/api/doubles/games/\(g.id)", body: nil)
             doubles.removeAll { $0.id == g.id }
+            showDeletedBanner(offline: true)
             return
         }
-        do { try await PythonAnywhereClient.shared.deleteDoubles(id: g.id); await load() }
-        catch { self.error = error.localizedDescription }
+        do {
+            try await PythonAnywhereClient.shared.deleteDoubles(id: g.id)
+            showDeletedBanner()
+            await load()
+        } catch {
+            banner = nil
+            self.error = error.localizedDescription
+        }
     }
     private func deleteVollis(_ g: VollisGame) async {
-        do { try await PythonAnywhereClient.shared.deleteVollis(id: g.id); await load() }
-        catch { self.error = error.localizedDescription }
+        do {
+            try await PythonAnywhereClient.shared.deleteVollis(id: g.id)
+            showDeletedBanner()
+            await load()
+        } catch {
+            banner = nil
+            self.error = error.localizedDescription
+        }
     }
     private func deleteOther(_ g: OtherGame) async {
-        do { try await PythonAnywhereClient.shared.deleteOther(id: g.id); await load() }
-        catch { self.error = error.localizedDescription }
+        do {
+            try await PythonAnywhereClient.shared.deleteOther(id: g.id)
+            showDeletedBanner()
+            await load()
+        } catch {
+            banner = nil
+            self.error = error.localizedDescription
+        }
     }
 }
 
