@@ -282,32 +282,25 @@ struct SiteGamesView: View {
                         }
                     case .vollis:
                         ForEach(filteredVollis) { g in
-                            VStack(alignment: .leading) {
-                                Text(g.date, style: .date).font(.caption).foregroundStyle(.secondary)
-                                HStack {
-                                    Text("\(g.winner ?? "")  \(g.winnerScore ?? 0)").foregroundStyle(.green)
-                                    Spacer()
-                                    Text("\(g.loserScore ?? 0)  \(g.loser ?? "")").foregroundStyle(.red)
+                            VollisGameRow(game: g)
+                                .swipeActions {
+                                    if canEdit {
+                                        Button("Edit") { onEditVollis(g) }
+                                        Button("Delete", role: .destructive) { Task { await deleteVollis(g) } }
+                                    }
                                 }
-                            }
-                            .swipeActions {
-                                if canEdit {
-                                    Button("Edit") { onEditVollis(g) }
-                                    Button("Delete", role: .destructive) { Task { await deleteVollis(g) } }
+                                .contextMenu {
+                                    if canEdit {
+                                        Button("Edit") { onEditVollis(g) }
+                                        Button("Delete", role: .destructive) { Task { await deleteVollis(g) } }
+                                    }
                                 }
-                            }
-                            .contextMenu {
-                                if canEdit {
-                                    Button("Edit") { onEditVollis(g) }
-                                    Button("Delete", role: .destructive) { Task { await deleteVollis(g) } }
-                                }
-                            }
                         }
                     case .other:
                         ForEach(filteredOther) { g in
                             VStack(alignment: .leading, spacing: 4) {
                                 Text("\(g.gameName ?? "") · \(g.gameType ?? "")").font(.headline)
-                                Text((g.gameDateOnly ?? g.gameDate) ?? "").font(.caption).foregroundStyle(.secondary)
+                                SiteGameDateLabel(raw: g.gameDateOnly ?? g.gameDate)
                                 Text(g.displayWinners.joined(separator: ", ")).foregroundStyle(.green)
                                 Text(g.displayLosers.joined(separator: ", ")).foregroundStyle(.red)
                                 if let c = g.comment, !c.isEmpty { Text(c).font(.caption).italic() }
@@ -391,11 +384,27 @@ struct SiteGamesView: View {
     }
 }
 
+struct SiteGameDateLabel: View {
+    var raw: String?
+
+    var body: some View {
+        Group {
+            if let date = DoublesGame.parseDate(raw) {
+                Text(date, style: .date)
+            } else if let raw, !raw.isEmpty {
+                Text(raw)
+            }
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    }
+}
+
 struct DoublesGameRow: View {
     var game: DoublesGame
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(game.date, style: .date).font(.caption).foregroundStyle(.secondary)
+            SiteGameDateLabel(raw: game.gameDate)
             HStack {
                 Text("\(game.winner1 ?? "") & \(game.winner2 ?? "")").foregroundStyle(.green)
                 Spacer()
@@ -409,6 +418,35 @@ struct DoublesGameRow: View {
             if !game.comment.isEmpty { Text(game.comment).font(.caption).italic() }
             if let by = game.updatedBy, !by.isEmpty {
                 Text("by \(by)").font(.caption2).foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+struct VollisGameRow: View {
+    var game: VollisGame
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            SiteGameDateLabel(raw: game.gameDate)
+            HStack(alignment: .center, spacing: 8) {
+                Text(game.winner ?? "")
+                    .foregroundStyle(.green)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                HStack(spacing: 10) {
+                    Text("\(game.winnerScore ?? 0)")
+                        .foregroundStyle(.green)
+                    Text("\(game.loserScore ?? 0)")
+                        .foregroundStyle(.red)
+                }
+                .fontWeight(.semibold)
+                .monospacedDigit()
+                Text(game.loser ?? "")
+                    .foregroundStyle(.red)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
             }
         }
     }

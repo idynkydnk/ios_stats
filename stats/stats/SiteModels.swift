@@ -127,14 +127,35 @@ struct DoublesGame: Codable, Identifiable, Hashable {
 
     static func parseDate(_ raw: String?) -> Date? {
         guard let raw, !raw.isEmpty else { return nil }
-        let s = raw.replacingOccurrences(of: "T", with: " ").replacingOccurrences(of: "Z", with: "")
-        let formats = ["yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd HH:mm:ss.SSSSSS", "yyyy-MM-dd"]
+        var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Site dates often end with a zone label, e.g. "03/18/2026 07:11 PM (PDT)".
+        // Drop it and parse as a local calendar date so the listed day matches the site.
+        if s.hasSuffix(")"), let open = s.lastIndex(of: "(") {
+            s = String(s[..<open]).trimmingCharacters(in: .whitespaces)
+        }
+        s = s.replacingOccurrences(of: "T", with: " ")
+        if s.hasSuffix("Z") { s.removeLast() }
+
+        let formats = [
+            "yyyy-MM-dd HH:mm:ss.SSSSSS",
+            "yyyy-MM-dd HH:mm:ss",
+            "yyyy-MM-dd HH:mm",
+            "yyyy-MM-dd",
+            "MM/dd/yyyy hh:mm:ss a",
+            "MM/dd/yyyy h:mm:ss a",
+            "MM/dd/yyyy hh:mm a",
+            "MM/dd/yyyy h:mm a",
+            "MM/dd/yyyy HH:mm:ss",
+            "MM/dd/yyyy",
+            "MM/dd/yy hh:mm a",
+            "MM/dd/yy h:mm a",
+            "MM/dd/yy",
+        ]
         let df = DateFormatter()
         df.locale = Locale(identifier: "en_US_POSIX")
         df.timeZone = TimeZone.current
         for f in formats {
             df.dateFormat = f
-            if let d = df.date(from: String(s.prefix(f.count + 4))) { return d }
             if let d = df.date(from: s) { return d }
         }
         return ISO8601DateFormatter().date(from: raw)
