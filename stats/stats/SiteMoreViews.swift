@@ -24,7 +24,9 @@ struct SiteMoreView: View {
                 Section("Browse") {
                     NavigationLink("Players") { SitePlayersView() }
                     NavigationLink("Player network") { SiteNetworkView() }
-                    NavigationLink("Tournaments") { SiteTournamentsView() }
+                    if auth.isLoggedIn {
+                        NavigationLink("Tournaments") { SiteTournamentsView() }
+                    }
                     NavigationLink("Volleyball") { SiteVolleyballView() }
                 }
                 if auth.isLoggedIn {
