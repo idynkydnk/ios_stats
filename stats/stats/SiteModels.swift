@@ -232,6 +232,31 @@ struct VollisStatsPayload: Codable {
     var stats: [RankingRow]
 }
 
+struct OtherGamePlayer: Codable, Hashable {
+    var name: String
+    var score: Int?
+
+    init(name: String, score: Int? = nil) {
+        self.name = name
+        self.score = score
+    }
+
+    init(from decoder: Decoder) throws {
+        if let single = try? decoder.singleValueContainer(), let s = try? single.decode(String.self) {
+            name = s
+            score = nil
+            return
+        }
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = (try? c.decode(String.self, forKey: .name)) ?? ""
+        if let v = try? c.decode(Int.self, forKey: .score) { score = v }
+        else if let v = try? c.decode(String.self, forKey: .score) { score = Int(v) }
+        else { score = nil }
+    }
+
+    enum CodingKeys: String, CodingKey { case name, score }
+}
+
 struct OtherGame: Codable, Identifiable, Hashable {
     var gameId: Int?
     var jsonId: Int?
@@ -243,8 +268,8 @@ struct OtherGame: Codable, Identifiable, Hashable {
     var updatedAt: String?
     var winnerScore: Int?
     var loserScore: Int?
-    var winners: [String]?
-    var losers: [String]?
+    var winners: [OtherGamePlayer]?
+    var losers: [OtherGamePlayer]?
     var winner1: String?
     var winner2: String?
     var loser1: String?
@@ -258,14 +283,51 @@ struct OtherGame: Codable, Identifiable, Hashable {
         case jsonId = "id"
     }
 
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        gameId = Self.flexInt(c, .gameId)
+        jsonId = Self.flexInt(c, .jsonId)
+        gameDate = try c.decodeIfPresent(String.self, forKey: .gameDate)
+        gameDateOnly = try c.decodeIfPresent(String.self, forKey: .gameDateOnly)
+        gameType = try c.decodeIfPresent(String.self, forKey: .gameType)
+        gameName = try c.decodeIfPresent(String.self, forKey: .gameName)
+        comment = try c.decodeIfPresent(String.self, forKey: .comment)
+        updatedAt = try c.decodeIfPresent(String.self, forKey: .updatedAt)
+        winnerScore = Self.flexInt(c, .winnerScore)
+        loserScore = Self.flexInt(c, .loserScore)
+        if let players = try? c.decode([OtherGamePlayer].self, forKey: .winners) {
+            winners = players
+        } else if let names = try? c.decode([String].self, forKey: .winners) {
+            winners = names.map { OtherGamePlayer(name: $0) }
+        }
+        if let players = try? c.decode([OtherGamePlayer].self, forKey: .losers) {
+            losers = players
+        } else if let names = try? c.decode([String].self, forKey: .losers) {
+            losers = names.map { OtherGamePlayer(name: $0) }
+        }
+        winner1 = try c.decodeIfPresent(String.self, forKey: .winner1)
+        winner2 = try c.decodeIfPresent(String.self, forKey: .winner2)
+        loser1 = try c.decodeIfPresent(String.self, forKey: .loser1)
+        loser2 = try c.decodeIfPresent(String.self, forKey: .loser2)
+    }
+
     var displayWinners: [String] {
-        if let winners, !winners.isEmpty { return winners }
+        let names = (winners ?? []).map(\.name).filter { !$0.isEmpty }
+        if !names.isEmpty { return names }
         return [winner1, winner2].compactMap { $0 }.filter { !$0.isEmpty }
     }
 
     var displayLosers: [String] {
-        if let losers, !losers.isEmpty { return losers }
+        let names = (losers ?? []).map(\.name).filter { !$0.isEmpty }
+        if !names.isEmpty { return names }
         return [loser1, loser2].compactMap { $0 }.filter { !$0.isEmpty }
+    }
+
+    private static func flexInt(_ c: KeyedDecodingContainer<CodingKeys>, _ key: CodingKeys) -> Int? {
+        if let v = try? c.decode(Int.self, forKey: key) { return v }
+        if let v = try? c.decode(Double.self, forKey: key) { return Int(v) }
+        if let v = try? c.decode(String.self, forKey: key) { return Int(v) }
+        return nil
     }
 }
 

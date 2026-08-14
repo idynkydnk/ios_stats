@@ -39,6 +39,10 @@ enum SitePublicLink {
         page("volleyball_stats", normalizedYear(year))
     }
 
+    static func recap(_ shareId: String) -> URL? {
+        page("recap", shareId)
+    }
+
     static func normalizedYear(_ raw: String) -> String {
         if raw.isEmpty || raw == "All" { return "All years" }
         return raw

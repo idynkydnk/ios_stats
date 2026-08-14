@@ -304,7 +304,7 @@ final class PythonAnywhereClient {
         try await postJSONDict("/api/parse_voice_doubles", json: ["transcript": transcript])
     }
 
-    func generateAISummary(gameType: String, gameIds: [String], promptStyle: String, customPrompt: String) async throws -> Int {
+    func generateAISummary(gameType: String, gameIds: [String], promptStyle: String = "default", customPrompt: String = "") async throws -> Int {
         struct Resp: Decodable { var success: Bool?; var jobId: Int?; var error: String? }
         let r: Resp = try await postJSON("/api/ai/summary", json: [
             "game_type": gameType,
