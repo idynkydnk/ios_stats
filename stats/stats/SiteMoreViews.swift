@@ -312,57 +312,294 @@ struct SiteVolleyballView: View {
     }
 }
 
+struct AISummaryPick: Identifiable, Hashable {
+    var id: String
+    var dateRaw: String?
+    var subtitle: String?
+    var winners: String
+    var losers: String
+    var winnerScore: Int?
+    var loserScore: Int?
+
+    var dayKey: String {
+        if let date = DoublesGame.parseDate(dateRaw) {
+            let f = DateFormatter()
+            f.dateFormat = "yyyy-MM-dd"
+            return f.string(from: date)
+        }
+        return String((dateRaw ?? "").prefix(10))
+    }
+}
+
 struct SiteAISummaryView: View {
-    @State private var query = ""
     @State private var gameType = "doubles"
-    @State private var results: [[String: Any]] = []
+    @State private var query = ""
+    @State private var games: [AISummaryPick] = []
     @State private var selected: Set<String> = []
-    @State private var style = "default"
-    @State private var custom = ""
-    @State private var message: String?
-    @State private var jobId: Int?
+    @State private var banner: String?
+    @State private var bannerIsError = false
+    @State private var shareURL: URL?
+    @State private var loading = false
+    @State private var generating = false
+    @State private var searchTask: Task<Void, Never>?
 
     var body: some View {
-        Form {
+        VStack(spacing: 0) {
             Picker("Type", selection: $gameType) {
                 Text("Doubles").tag("doubles")
                 Text("Vollis").tag("vollis")
                 Text("Other").tag("other")
             }
-            TextField("Search games", text: $query)
-            Button("Search") { Task { await search() } }
-            ForEach(results.indices, id: \.self) { i in
-                let row = results[i]
-                let id = "\(row["id"] ?? i)"
-                Button {
-                    if selected.contains(id) { selected.remove(id) } else { selected.insert(id) }
-                } label: {
-                    HStack {
-                        Image(systemName: selected.contains(id) ? "checkmark.circle.fill" : "circle")
-                        Text(String(describing: row["summary"] ?? row["label"] ?? id)).font(.caption)
+            .pickerStyle(.segmented)
+            .padding(.horizontal)
+            .padding(.top, 8)
+
+            TextField("Search players or games", text: $query)
+                .textFieldStyle(.roundedBorder)
+                .padding(.horizontal)
+                .padding(.top, 10)
+                .onSubmit { Task { await runSearch(query) } }
+
+            HStack {
+                Button("Select latest day") { selectLatestDay() }
+                Button("Clear") { selected.removeAll() }
+                Spacer()
+                Text("\(selected.count) selected")
+                    .foregroundStyle(.secondary)
+            }
+            .font(.subheadline)
+            .padding(.horizontal)
+            .padding(.vertical, 8)
+
+            if let banner {
+                SiteAddBanner(text: banner, isError: bannerIsError)
+                    .padding(.horizontal)
+            }
+            if let shareURL {
+                HStack(spacing: 12) {
+                    ShareLink(item: shareURL)
+                    SiteCopyLinkButton(url: shareURL)
+                    Link("Open", destination: shareURL)
+                }
+                .padding(.horizontal)
+                .padding(.bottom, 8)
+            }
+
+            if loading {
+                ProgressView().padding()
+            }
+
+            List(games) { game in
+                Button { toggle(game.id) } label: {
+                    HStack(alignment: .top, spacing: 12) {
+                        Image(systemName: selected.contains(game.id) ? "checkmark.circle.fill" : "circle")
+                            .foregroundStyle(selected.contains(game.id) ? SiteAddAccent.orange : .secondary)
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                if let date = DoublesGame.parseDate(game.dateRaw) {
+                                    Text(date, style: .date)
+                                } else if let raw = game.dateRaw, !raw.isEmpty {
+                                    Text(raw)
+                                }
+                                if let subtitle = game.subtitle, !subtitle.isEmpty {
+                                    Text("· \(subtitle)")
+                                }
+                            }
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            HStack {
+                                Text(game.winners).foregroundStyle(.green)
+                                Spacer()
+                                if let s = game.winnerScore { Text("\(s)").foregroundStyle(.green) }
+                            }
+                            HStack {
+                                Text(game.losers).foregroundStyle(.red)
+                                Spacer()
+                                if let s = game.loserScore { Text("\(s)").foregroundStyle(.red) }
+                            }
+                        }
                     }
                 }
+                .buttonStyle(.plain)
             }
-            TextField("Style", text: $style)
-            TextField("Custom prompt", text: $custom, axis: .vertical)
-            Button("Generate recap") { Task { await generate() } }
-            if let message { Text(message) }
-            if let jobId { Text("Job #\(jobId)") }
+            .listStyle(.plain)
+
+            SiteAddActionButton(
+                title: generating ? "Creating recap…" : "Create recap",
+                filled: true,
+                disabled: generating || selected.isEmpty
+            ) {
+                Task { await generate() }
+            }
+            .padding()
         }
         .navigationTitle("AI Summary")
+        .task(id: gameType) {
+            query = ""
+            await loadRecent()
+        }
+        .onChange(of: query) { _, q in
+            searchTask?.cancel()
+            searchTask = Task {
+                try? await Task.sleep(nanoseconds: 350_000_000)
+                guard !Task.isCancelled else { return }
+                await runSearch(q)
+            }
+        }
     }
 
-    private func search() async {
-        results = (try? await PythonAnywhereClient.shared.searchAIGames(q: query, gameType: gameType)) ?? []
+    private func toggle(_ id: String) {
+        if selected.contains(id) { selected.remove(id) } else { selected.insert(id) }
+    }
+
+    private func selectLatestDay() {
+        guard let day = games.first?.dayKey, !day.isEmpty else { return }
+        selected = Set(games.filter { $0.dayKey == day }.map(\.id))
+    }
+
+    private func loadRecent() async {
+        loading = true
+        banner = nil
+        shareURL = nil
+        selected = []
+        let year = String(Calendar.current.component(.year, from: Date()))
+        do {
+            switch gameType {
+            case "vollis":
+                let rows = try await PythonAnywhereClient.shared.vollisGames(year: year).games
+                games = rows.map { g in
+                    AISummaryPick(
+                        id: String(g.id),
+                        dateRaw: g.gameDate,
+                        winners: g.winner ?? "",
+                        losers: g.loser ?? "",
+                        winnerScore: g.winnerScore,
+                        loserScore: g.loserScore
+                    )
+                }
+            case "other":
+                let rows = try await PythonAnywhereClient.shared.otherGames(year: year).games
+                games = rows.map { g in
+                    AISummaryPick(
+                        id: String(g.id),
+                        dateRaw: g.gameDateOnly ?? g.gameDate,
+                        subtitle: g.gameName,
+                        winners: g.displayWinners.joined(separator: ", "),
+                        losers: g.displayLosers.joined(separator: ", "),
+                        winnerScore: g.winnerScore,
+                        loserScore: g.loserScore
+                    )
+                }
+            default:
+                let rows = try await PythonAnywhereClient.shared.doublesGames(year: year).games
+                games = rows.prefix(40).map { g in
+                    AISummaryPick(
+                        id: String(g.id),
+                        dateRaw: g.gameDate,
+                        winners: [g.winner1, g.winner2].compactMap { $0 }.joined(separator: " & "),
+                        losers: [g.loser1, g.loser2].compactMap { $0 }.joined(separator: " & "),
+                        winnerScore: g.winnerScore,
+                        loserScore: g.loserScore
+                    )
+                }
+            }
+            if gameType != "doubles" {
+                games = Array(games.prefix(40))
+            }
+            selectLatestDay()
+        } catch {
+            banner = error.localizedDescription
+            bannerIsError = true
+            games = []
+        }
+        loading = false
+    }
+
+    private func runSearch(_ raw: String) async {
+        let q = raw.trimmingCharacters(in: .whitespaces)
+        if q.isEmpty {
+            await loadRecent()
+            return
+        }
+        loading = true
+        let rows = (try? await PythonAnywhereClient.shared.searchAIGames(q: q, gameType: gameType)) ?? []
+        games = rows.compactMap(Self.pick(fromSearch:))
+        selected = []
+        loading = false
     }
 
     private func generate() async {
+        generating = true
+        banner = nil
+        shareURL = nil
+        bannerIsError = false
         do {
-            jobId = try await PythonAnywhereClient.shared.generateAISummary(
-                gameType: gameType, gameIds: Array(selected), promptStyle: style, customPrompt: custom
+            let jobId = try await PythonAnywhereClient.shared.generateAISummary(
+                gameType: gameType,
+                gameIds: Array(selected)
             )
-            message = "Queued recap job."
-        } catch { message = error.localizedDescription }
+            banner = "Creating recap…"
+            if let url = await waitForRecap(jobId: jobId) {
+                shareURL = url
+                banner = "Recap ready"
+            } else {
+                banner = "Recap queued. Check Recaps in a minute."
+            }
+        } catch {
+            banner = error.localizedDescription
+            bannerIsError = true
+        }
+        generating = false
+    }
+
+    private func waitForRecap(jobId: Int) async -> URL? {
+        for i in 0..<30 {
+            if i > 0 { try? await Task.sleep(nanoseconds: 2_000_000_000) }
+            guard let job = try? await PythonAnywhereClient.shared.aiJob(id: jobId) else { continue }
+            let status = (job["status"] as? String ?? "").lowercased()
+            if status == "failed" || status == "error" {
+                banner = (job["error"] as? String) ?? "Recap failed"
+                bannerIsError = true
+                return nil
+            }
+            if let share = job["share_id"] as? String, !share.isEmpty {
+                return SitePublicLink.recap(share)
+            }
+            if status == "completed" || status == "done" {
+                return nil
+            }
+        }
+        return nil
+    }
+
+    private static func pick(fromSearch row: [String: Any]) -> AISummaryPick? {
+        let id = row["id"] as? Int ?? Int("\(row["id"] ?? "")")
+        guard let id else { return nil }
+        return AISummaryPick(
+            id: String(id),
+            dateRaw: row["date"] as? String,
+            subtitle: row["game_name"] as? String,
+            winners: names(row["winners"] ?? row["winner_names"]),
+            losers: names(row["losers"] ?? row["loser_names"]),
+            winnerScore: intValue(row["winner_score"]),
+            loserScore: intValue(row["loser_score"])
+        )
+    }
+
+    private static func names(_ raw: Any?) -> String {
+        if let s = raw as? String { return s }
+        if let a = raw as? [String] { return a.filter { !$0.isEmpty }.joined(separator: ", ") }
+        if let a = raw as? [[String: Any]] {
+            return a.compactMap { $0["name"] as? String }.filter { !$0.isEmpty }.joined(separator: ", ")
+        }
+        return ""
+    }
+
+    private static func intValue(_ raw: Any?) -> Int? {
+        if let i = raw as? Int { return i }
+        if let d = raw as? Double { return Int(d) }
+        if let s = raw as? String { return Int(s) }
+        return nil
     }
 }
 
