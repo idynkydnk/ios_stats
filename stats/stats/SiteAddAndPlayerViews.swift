@@ -208,6 +208,7 @@ struct SitePlayerDetailView: View {
 
 struct LoginView: View {
     @ObservedObject private var auth = SiteAuthManager.shared
+    @Environment(\.dismiss) private var dismiss
     @State private var username = ""
     @State private var password = ""
     @State private var busy = false
@@ -216,18 +217,27 @@ struct LoginView: View {
     var body: some View {
         Form {
             if let error { Text(error).foregroundStyle(.red) }
-            TextField("Username", text: $username).textInputAutocapitalization(.never)
+            TextField("Username", text: $username)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
             SecureField("Password", text: $password)
-            Button("Sign in") {
-                Task {
-                    busy = true
-                    do {
-                        try await auth.login(username: username, password: password)
-                    } catch { self.error = error.localizedDescription }
-                    busy = false
-                }
-            }.disabled(busy || username.isEmpty || password.isEmpty)
+            Button(busy ? "Signing in…" : "Sign in") {
+                Task { await signIn() }
+            }
+            .disabled(busy || username.isEmpty || password.isEmpty)
         }
         .navigationTitle("Login")
+    }
+
+    private func signIn() async {
+        busy = true
+        error = nil
+        do {
+            try await auth.login(username: username, password: password)
+            dismiss()
+        } catch {
+            self.error = error.localizedDescription
+        }
+        busy = false
     }
 }
