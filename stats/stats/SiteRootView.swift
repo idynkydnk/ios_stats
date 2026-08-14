@@ -42,12 +42,22 @@ struct SiteRootView: View {
         }
         .tint(Color(red: 1, green: 0.45, blue: 0.3))
         .overlay(alignment: .top) {
-            if !queue.items.isEmpty {
-                Text("\(queue.items.count) change(s) waiting to sync")
-                    .font(.caption)
-                    .padding(8)
-                    .frame(maxWidth: .infinity)
-                    .background(Color.orange.opacity(0.9))
+            VStack(spacing: 0) {
+                if let welcome = auth.welcomeMessage {
+                    Text(welcome)
+                        .font(.subheadline.weight(.semibold))
+                        .padding(10)
+                        .frame(maxWidth: .infinity)
+                        .background(Color.green.opacity(0.92))
+                        .foregroundStyle(.black)
+                }
+                if !queue.items.isEmpty {
+                    Text("\(queue.items.count) change(s) waiting to sync")
+                        .font(.caption)
+                        .padding(8)
+                        .frame(maxWidth: .infinity)
+                        .background(Color.orange.opacity(0.9))
+                }
             }
         }
         .task {
@@ -59,6 +69,14 @@ struct SiteRootView: View {
         }
         .onChange(of: network.isConnected) { _, online in
             if online { Task { await queue.flush() } }
+        }
+        .onChange(of: auth.welcomeMessage) { _, message in
+            guard message != nil else { return }
+            selectedTab = 0
+            Task {
+                try? await Task.sleep(nanoseconds: 2_400_000_000)
+                auth.clearWelcome()
+            }
         }
     }
 

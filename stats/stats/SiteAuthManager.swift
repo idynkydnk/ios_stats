@@ -13,6 +13,7 @@ final class SiteAuthManager: ObservableObject {
     @Published private(set) var username: String?
     @Published private(set) var isAdmin: Bool = false
     @Published var lastError: String?
+    @Published private(set) var welcomeMessage: String?
 
     var isLoggedIn: Bool { token != nil && !(token?.isEmpty ?? true) }
 
@@ -31,6 +32,7 @@ final class SiteAuthManager: ObservableObject {
             UserDefaults.standard.set(me.username, forKey: self.usernameKey)
             UserDefaults.standard.set(me.isAdmin, forKey: self.adminKey)
             self.lastError = nil
+            self.welcomeMessage = "Logged in as \(me.username)"
         }
     }
 
@@ -78,6 +80,11 @@ final class SiteAuthManager: ObservableObject {
         isAdmin = false
         UserDefaults.standard.removeObject(forKey: usernameKey)
         UserDefaults.standard.removeObject(forKey: adminKey)
+        welcomeMessage = nil
+    }
+
+    func clearWelcome() {
+        welcomeMessage = nil
     }
 }
 
