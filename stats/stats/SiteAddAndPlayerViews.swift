@@ -145,11 +145,19 @@ struct SitePlayerDetailView: View {
                     }
                     .padding(.horizontal)
                 }
-                Text("Games").font(.headline).padding()
+                Text("Games").font(.headline).padding(.horizontal).padding(.top)
                 if section == .doubles {
-                    ForEach(p.games ?? []) { g in
-                        DoublesGameRow(game: g).padding(.horizontal)
+                    VStack(spacing: 12) {
+                        ForEach(p.games ?? []) { g in
+                            DoublesGameRow(game: g)
+                                .padding(12)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(Color(.secondarySystemFill))
+                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                        }
                     }
+                    .padding(.horizontal)
+                    .padding(.bottom, 24)
                 }
             }
         }

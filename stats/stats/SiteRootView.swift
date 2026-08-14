@@ -395,7 +395,11 @@ struct DoublesGameRow: View {
     var game: DoublesGame
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(game.date, style: .date).font(.caption).foregroundStyle(.secondary)
+            if let date = DoublesGame.parseDate(game.gameDate) {
+                Text(date, style: .date).font(.caption).foregroundStyle(.secondary)
+            } else if let raw = game.gameDate, !raw.isEmpty {
+                Text(raw).font(.caption).foregroundStyle(.secondary)
+            }
             HStack {
                 Text("\(game.winner1 ?? "") & \(game.winner2 ?? "")").foregroundStyle(.green)
                 Spacer()
