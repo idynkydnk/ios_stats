@@ -825,7 +825,7 @@ struct SiteAISummaryView: View {
             }
             .padding(.horizontal)
             .padding(.top)
-            Text("Includes an illustration. Players with a saved AI character use that; others use their face photo. This can take a few minutes.")
+            Text("Includes an illustration. Players with a saved AI character use that; others use their face photo. About 5 minutes — you can leave after you tap Create. Check Recaps when it’s done.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .padding(.horizontal)
@@ -936,12 +936,12 @@ struct SiteAISummaryView: View {
                 gameType: gameType,
                 gameIds: Array(selected)
             )
-            banner = "Creating recap with illustration…"
+            banner = "Working in the background. You can leave and check Recaps in about 5 minutes."
             if let url = await waitForRecap(jobId: jobId) {
                 shareURL = url
                 banner = "Recap ready"
             } else {
-                banner = "Recap queued. Check Recaps in a few minutes."
+                banner = "Still working in the background. Check Recaps in a few minutes."
             }
         } catch {
             banner = error.localizedDescription
@@ -1198,6 +1198,9 @@ struct SiteFlyerView: View {
                 ) {
                     Task { await create() }
                 }
+                Text("About 5 minutes — you can leave after you tap Create. Come back here when it’s done.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             .padding()
             .padding(.bottom, 40)
@@ -1311,12 +1314,12 @@ struct SiteFlyerView: View {
                 "location": location.trimmingCharacters(in: .whitespaces),
                 "image_details": imageDetails.trimmingCharacters(in: .whitespacesAndNewlines),
             ])
-            banner = "Creating flyer…"
+            banner = "Working in the background. You can leave and come back in about 5 minutes."
             if let url = await waitForFlyer(jobId: id) {
                 shareURL = url
                 banner = "Flyer ready"
             } else {
-                banner = "Flyer queued. It will show up shortly."
+                banner = "Still working in the background. Come back here in a few minutes."
             }
         } catch {
             banner = error.localizedDescription
