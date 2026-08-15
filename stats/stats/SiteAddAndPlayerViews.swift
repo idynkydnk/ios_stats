@@ -75,20 +75,14 @@ struct SitePlayerDetailView: View {
     var section: GameSection
     @State private var payload: DoublesPlayerPayload?
     @State private var error: String?
+    @ObservedObject private var auth = SiteAuthManager.shared
 
     var body: some View {
         ScrollView {
             if let error { Text(error).foregroundStyle(.red).padding() }
             if let p = payload {
                 HStack {
-                    SitePlayerAvatar(name: p.name, size: 72)
-                    VStack(alignment: .leading) {
-                        Text(p.name).font(.title2.bold())
-                        if let nick = p.nickname, !nick.isEmpty { Text(nick).foregroundStyle(.secondary) }
-                        if let r = p.rating, let rank = p.rank {
-                            Text("Rating \(Int(r)) · #\(rank) of \(p.totalRanked ?? 0)")
-                        }
-                    }
+                    playerIdentity(p)
                     Spacer()
                 }.padding()
                 if let s = p.stats {
@@ -144,7 +138,7 @@ struct SitePlayerDetailView: View {
                 if section == .doubles {
                     VStack(spacing: 12) {
                         ForEach(p.games ?? []) { g in
-                            DoublesGameRow(game: g)
+                            DoublesGameRow(game: g, year: year, section: section)
                                 .padding(12)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .background(Color(.secondarySystemFill))
@@ -158,11 +152,50 @@ struct SitePlayerDetailView: View {
         }
         .navigationTitle(name)
         .toolbar {
+            if auth.isLoggedIn {
+                ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink("Edit") {
+                        SiteEditPlayerView(name: payload?.name ?? name)
+                    }
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 SiteCopyLinkButton(url: SitePublicLink.player(section: section, year: payload?.year ?? year, name: payload?.name ?? name))
             }
         }
         .task { await load() }
+    }
+
+    @ViewBuilder
+    private func playerIdentity(_ p: DoublesPlayerPayload) -> some View {
+        if auth.isLoggedIn {
+            NavigationLink {
+                SiteEditPlayerView(name: p.name)
+            } label: {
+                playerIdentityLabel(p)
+            }
+            .buttonStyle(.plain)
+        } else {
+            playerIdentityLabel(p)
+        }
+    }
+
+    private func playerIdentityLabel(_ p: DoublesPlayerPayload) -> some View {
+        HStack {
+            SitePlayerAvatar(name: p.name, size: 72)
+            VStack(alignment: .leading) {
+                Text(p.name).font(.title2.bold())
+                if let nick = p.nickname, !nick.isEmpty { Text(nick).foregroundStyle(.secondary) }
+                if let r = p.rating, let rank = p.rank {
+                    Text("Rating \(Int(r)) · #\(rank) of \(p.totalRanked ?? 0)")
+                }
+                if auth.isLoggedIn {
+                    Text("Edit player")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.tint)
+                }
+            }
+        }
     }
 
     private func matchupRow(name: String, wins: Int, losses: Int, winPct: Double) -> some View {

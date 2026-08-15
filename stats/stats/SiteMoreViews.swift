@@ -107,25 +107,43 @@ struct SitePlayersView: View {
 }
 
 struct SiteEditPlayerView: View {
-    var player: SitePlayer
+    @State private var canonicalName: String
     @State private var name: String
     @State private var nickname: String
     @State private var email: String
     @State private var height: String
     @State private var dob: String
+    @State private var traits: [String]
+    @State private var newTrait = ""
     @State private var error: String?
     @State private var banner: String?
     @State private var saving = false
+    @State private var traitsBusy = false
     @State private var picker: PhotosPickerItem?
+    @State private var aiImageUrl: String?
+    @State private var aiBusy = false
     @ObservedObject private var auth = SiteAuthManager.shared
 
     init(player: SitePlayer) {
-        self.player = player
+        _canonicalName = State(initialValue: player.name)
         _name = State(initialValue: player.name)
         _nickname = State(initialValue: player.nickname ?? "")
         _email = State(initialValue: player.email ?? "")
         _height = State(initialValue: player.height ?? "")
         _dob = State(initialValue: player.dateOfBirth ?? "")
+        _traits = State(initialValue: player.aiImageTraits ?? [])
+        _aiImageUrl = State(initialValue: player.aiImageUrl)
+    }
+
+    init(name: String) {
+        _canonicalName = State(initialValue: name)
+        _name = State(initialValue: name)
+        _nickname = State(initialValue: "")
+        _email = State(initialValue: "")
+        _height = State(initialValue: "")
+        _dob = State(initialValue: "")
+        _traits = State(initialValue: [])
+        _aiImageUrl = State(initialValue: nil)
     }
 
     var body: some View {
@@ -134,40 +152,123 @@ struct SiteEditPlayerView: View {
             if let banner { SiteAddBanner(text: banner, isError: false) }
             HStack {
                 Spacer()
-                SitePlayerAvatar(name: player.name, size: 96)
+                SitePlayerAvatar(name: canonicalName, size: 96)
                 Spacer()
             }
             .listRowBackground(Color.clear)
 
             if auth.isLoggedIn {
                 PhotosPicker("Upload face photo", selection: $picker, matching: .images)
-                TextField("Name", text: $name)
-                TextField("Nickname", text: $nickname)
-                TextField("Email", text: $email)
-                    .textInputAutocapitalization(.never)
-                    .keyboardType(.emailAddress)
-                TextField("Height", text: $height)
-                TextField("Date of birth", text: $dob)
-                Button("Save") { Task { await save() } }
-                    .disabled(saving || name.trimmingCharacters(in: .whitespaces).isEmpty)
+                Section {
+                    if let url = SitePublicLink.absolute(aiImageUrl) {
+                        AsyncImage(url: url) { phase in
+                            switch phase {
+                            case .success(let img):
+                                img.resizable().scaledToFit()
+                            default:
+                                RoundedRectangle(cornerRadius: 10)
+                                    .fill(Color.gray.opacity(0.2))
+                                    .overlay { if aiBusy { ProgressView() } }
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 220)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                    } else {
+                        Text(aiBusy ? "Creating AI character…" : "No AI character yet")
+                            .foregroundStyle(.secondary)
+                    }
+                    Button(aiImageUrl == nil ? "Create AI character" : "Remake AI character") {
+                        Task { await generateAICharacter() }
+                    }
+                    .disabled(aiBusy)
+                    Text("Saved for recaps and flyers. If this player has no AI character, group pictures use their face photo.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } header: {
+                    Text("AI character")
+                }
+                Section {
+                    if traits.isEmpty {
+                        Text("No signature-look phrases yet")
+                            .foregroundStyle(.secondary)
+                    }
+                    ForEach(Array(traits.enumerated()), id: \.offset) { index, phrase in
+                        HStack(alignment: .top) {
+                            Text(phrase)
+                            Spacer()
+                            Button {
+                                Task { await removeTrait(at: index) }
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.borderless)
+                            .disabled(traitsBusy)
+                            .accessibilityLabel("Delete phrase")
+                        }
+                    }
+                    HStack {
+                        TextField("e.g. always wears an oversized bucket hat", text: $newTrait)
+                            .onSubmit { Task { await addTrait() } }
+                        Button("Add") { Task { await addTrait() } }
+                            .disabled(traitsBusy || newTrait.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                    Text("Separate details for the AI to exaggerate in recaps and flyers.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } header: {
+                    Text("Signature look")
+                }
+                Section("Profile") {
+                    TextField("Name", text: $name)
+                    TextField("Nickname", text: $nickname)
+                    TextField("Email", text: $email)
+                        .textInputAutocapitalization(.never)
+                        .keyboardType(.emailAddress)
+                    TextField("Height", text: $height)
+                    TextField("Date of birth", text: $dob)
+                    Button("Save") { Task { await save() } }
+                        .disabled(saving || name.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
             } else {
-                profileRow("Name", player.name)
-                profileRow("Nickname", player.nickname)
-                profileRow("Email", player.email)
-                profileRow("Height", player.height)
-                profileRow("Date of birth", player.dateOfBirth)
+                if let url = SitePublicLink.absolute(aiImageUrl) {
+                    Section("AI character") {
+                        AsyncImage(url: url) { phase in
+                            if case .success(let img) = phase {
+                                img.resizable().scaledToFit()
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 220)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                    }
+                }
+                if !traits.isEmpty {
+                    Section("Signature look") {
+                        ForEach(Array(traits.enumerated()), id: \.offset) { _, phrase in
+                            Text(phrase)
+                        }
+                    }
+                }
+                profileRow("Name", canonicalName)
+                profileRow("Nickname", nickname)
+                profileRow("Email", email)
+                profileRow("Height", height)
+                profileRow("Date of birth", dob)
             }
 
             NavigationLink("Doubles stats") {
-                SitePlayerDetailView(name: player.name, year: String(Calendar.current.component(.year, from: Date())), section: .doubles)
+                SitePlayerDetailView(name: canonicalName, year: String(Calendar.current.component(.year, from: Date())), section: .doubles)
             }
         }
-        .navigationTitle(player.name)
+        .navigationTitle(canonicalName)
+        .task { await refreshFromServer() }
         .onChange(of: picker) { _, item in
             Task {
                 guard auth.isLoggedIn, let item, let data = try? await item.loadTransferable(type: Data.self) else { return }
                 do {
-                    try await PythonAnywhereClient.shared.uploadPlayerPhoto(name: player.name, imageData: data, filename: "photo.jpg")
+                    try await PythonAnywhereClient.shared.uploadPlayerPhoto(name: canonicalName, imageData: data, filename: "photo.jpg")
                     banner = "Photo updated"
                 } catch { self.error = error.localizedDescription }
             }
@@ -181,17 +282,35 @@ struct SiteEditPlayerView: View {
         }
     }
 
+    private func apply(_ player: SitePlayer) {
+        canonicalName = player.name
+        name = player.name
+        nickname = player.nickname ?? ""
+        email = player.email ?? ""
+        height = player.height ?? ""
+        dob = player.dateOfBirth ?? ""
+        traits = player.aiImageTraits ?? []
+        aiImageUrl = player.aiImageUrl
+    }
+
+    private func refreshFromServer() async {
+        guard let player = try? await PythonAnywhereClient.shared.player(named: canonicalName) else { return }
+        apply(player)
+    }
+
     private func save() async {
         guard auth.isLoggedIn else { return }
         saving = true
         error = nil
         banner = nil
         do {
-            if name != player.name {
-                try await PythonAnywhereClient.shared.renamePlayer(oldName: player.name, newName: name)
+            let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed != canonicalName {
+                try await PythonAnywhereClient.shared.renamePlayer(oldName: canonicalName, newName: trimmed)
+                canonicalName = trimmed
             }
             try await PythonAnywhereClient.shared.updatePlayerInfo([
-                "player_name": name,
+                "player_name": canonicalName,
                 "nickname": nickname,
                 "email": email,
                 "height": height,
@@ -200,6 +319,78 @@ struct SiteEditPlayerView: View {
             banner = "Profile saved"
         } catch { self.error = error.localizedDescription }
         saving = false
+    }
+
+    private func addTrait() async {
+        let phrase = newTrait.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !phrase.isEmpty else { return }
+        await saveTraits(traits + [phrase])
+        if error == nil { newTrait = "" }
+    }
+
+    private func removeTrait(at index: Int) async {
+        guard traits.indices.contains(index) else { return }
+        var next = traits
+        next.remove(at: index)
+        await saveTraits(next)
+    }
+
+    private func saveTraits(_ next: [String]) async {
+        guard auth.isLoggedIn else { return }
+        traitsBusy = true
+        error = nil
+        do {
+            traits = try await PythonAnywhereClient.shared.savePlayerAIImageTraits(name: canonicalName, phrases: next)
+        } catch {
+            self.error = error.localizedDescription
+        }
+        traitsBusy = false
+    }
+
+    private func generateAICharacter() async {
+        guard auth.isLoggedIn else { return }
+        aiBusy = true
+        error = nil
+        banner = nil
+        do {
+            let result = try await PythonAnywhereClient.shared.generatePlayerAIImage(name: canonicalName)
+            if let url = result.imageUrl, !url.isEmpty {
+                aiImageUrl = url
+                banner = "AI character saved"
+            } else if let jobId = result.jobId {
+                banner = "Creating AI character…"
+                if let url = await waitForPlayerAIImage(jobId: jobId) {
+                    aiImageUrl = url
+                    banner = "AI character saved"
+                } else if error == nil {
+                    banner = "Still generating. Check this player again in a minute."
+                }
+            }
+        } catch {
+            self.error = error.localizedDescription
+        }
+        aiBusy = false
+    }
+
+    private func waitForPlayerAIImage(jobId: Int) async -> String? {
+        for i in 0..<90 {
+            if i > 0 { try? await Task.sleep(nanoseconds: 4_000_000_000) }
+            guard let job = try? await PythonAnywhereClient.shared.aiJob(id: jobId) else { continue }
+            let status = (job["status"] as? String ?? "").lowercased()
+            if status == "failed" || status == "error" {
+                error = (job["error"] as? String) ?? "AI character failed"
+                return nil
+            }
+            if status == "completed" || status == "complete" {
+                if let url = job["ai_image_url"] as? String, !url.isEmpty { return url }
+                if let url = job["result_summary"] as? String,
+                   url.contains("/static/") || url.hasPrefix("http") {
+                    return url
+                }
+                return nil
+            }
+        }
+        return nil
     }
 }
 
@@ -284,6 +475,7 @@ struct SiteNetworkPersonView: View {
     var payload: NetworkPayload
     @State private var mode = NetworkMode.partners
     @State private var minGames = 1
+    @ObservedObject private var auth = SiteAuthManager.shared
 
     private enum NetworkMode: String, CaseIterable, Identifiable {
         case partners, shared
@@ -364,6 +556,13 @@ struct SiteNetworkPersonView: View {
         }
         .navigationTitle(name)
         .toolbar {
+            if auth.isLoggedIn {
+                ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink("Edit") {
+                        SiteEditPlayerView(name: name)
+                    }
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 NavigationLink("Stats") {
                     SitePlayerDetailView(name: name, year: year, section: .doubles)
@@ -624,7 +823,13 @@ struct SiteAISummaryView: View {
             ) {
                 Task { await generate() }
             }
-            .padding()
+            .padding(.horizontal)
+            .padding(.top)
+            Text("Includes an illustration. Players with a saved AI character use that; others use their face photo. This can take a few minutes.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal)
+                .padding(.bottom)
         }
         .navigationTitle("AI Summary")
         .task(id: gameType) {
@@ -731,12 +936,12 @@ struct SiteAISummaryView: View {
                 gameType: gameType,
                 gameIds: Array(selected)
             )
-            banner = "Creating recap…"
+            banner = "Creating recap with illustration…"
             if let url = await waitForRecap(jobId: jobId) {
                 shareURL = url
                 banner = "Recap ready"
             } else {
-                banner = "Recap queued. Check Recaps in a minute."
+                banner = "Recap queued. Check Recaps in a few minutes."
             }
         } catch {
             banner = error.localizedDescription
@@ -746,8 +951,8 @@ struct SiteAISummaryView: View {
     }
 
     private func waitForRecap(jobId: Int) async -> URL? {
-        for i in 0..<30 {
-            if i > 0 { try? await Task.sleep(nanoseconds: 2_000_000_000) }
+        for i in 0..<90 {
+            if i > 0 { try? await Task.sleep(nanoseconds: 4_000_000_000) }
             guard let job = try? await PythonAnywhereClient.shared.aiJob(id: jobId) else { continue }
             let status = (job["status"] as? String ?? "").lowercased()
             if status == "failed" || status == "error" {
@@ -1121,8 +1326,8 @@ struct SiteFlyerView: View {
     }
 
     private func waitForFlyer(jobId: Int) async -> URL? {
-        for i in 0..<30 {
-            if i > 0 { try? await Task.sleep(nanoseconds: 2_000_000_000) }
+        for i in 0..<90 {
+            if i > 0 { try? await Task.sleep(nanoseconds: 4_000_000_000) }
             guard let job = try? await PythonAnywhereClient.shared.aiJob(id: jobId) else { continue }
             let status = (job["status"] as? String ?? "").lowercased()
             if status == "failed" || status == "error" {

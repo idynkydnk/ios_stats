@@ -54,6 +54,13 @@ enum SitePublicLink {
         return URL(string: "\(host)/player_face_thumb/\(encoded)?size=\(size)")
     }
 
+    static func absolute(_ raw: String?) -> URL? {
+        guard let raw, !raw.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+        if raw.hasPrefix("http://") || raw.hasPrefix("https://") { return URL(string: raw) }
+        let path = raw.hasPrefix("/") ? raw : "/\(raw)"
+        return URL(string: host + path)
+    }
+
     static func normalizedYear(_ raw: String) -> String {
         if raw.isEmpty || raw == "All" { return "All years" }
         return raw

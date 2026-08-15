@@ -136,26 +136,32 @@ struct SiteAddDoublesView: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Today's Stats").font(.headline).padding(.top, 8)
             ForEach(Array(dash.stats.enumerated()), id: \.element.id) { idx, row in
-                HStack {
-                    Text("\(idx + 1)").foregroundStyle(.secondary).frame(width: 24, alignment: .leading)
-                    Text(row.name).frame(maxWidth: .infinity, alignment: .leading)
-                    if let pm = row.plusMinus {
-                        Text(pm > 0 ? "+\(pm)" : "\(pm)")
-                            .foregroundStyle(pm >= 0 ? Color.green : Color.red)
-                            .frame(width: 36, alignment: .trailing)
+                NavigationLink {
+                    SitePlayerDetailView(name: row.name, year: String(Calendar.current.component(.year, from: Date())), section: .doubles)
+                } label: {
+                    HStack {
+                        Text("\(idx + 1)").foregroundStyle(.secondary).frame(width: 24, alignment: .leading)
+                        Text(row.name).frame(maxWidth: .infinity, alignment: .leading)
+                        if let pm = row.plusMinus {
+                            Text(pm > 0 ? "+\(pm)" : "\(pm)")
+                                .foregroundStyle(pm >= 0 ? Color.green : Color.red)
+                                .frame(width: 36, alignment: .trailing)
+                        }
+                        Text("\(row.wins)").foregroundStyle(.green).frame(width: 28, alignment: .trailing)
+                        Text("\(row.losses)").foregroundStyle(.red).frame(width: 28, alignment: .trailing)
+                        Text(row.winPctDisplay).frame(width: 44, alignment: .trailing)
                     }
-                    Text("\(row.wins)").foregroundStyle(.green).frame(width: 28, alignment: .trailing)
-                    Text("\(row.losses)").foregroundStyle(.red).frame(width: 28, alignment: .trailing)
-                    Text(row.winPctDisplay).frame(width: 44, alignment: .trailing)
+                    .font(.subheadline)
+                    .foregroundStyle(.primary)
                 }
-                .font(.subheadline)
+                .buttonStyle(.plain)
             }
             Text("Today's Games").font(.headline).padding(.top, 8)
             if dash.games.isEmpty {
                 Text("No doubles played today yet.").foregroundStyle(.secondary)
             } else {
                 ForEach(dash.games) { g in
-                    DoublesGameRow(game: g)
+                    DoublesGameRow(game: g, year: String(Calendar.current.component(.year, from: Date())), section: .doubles)
                         .padding(.vertical, 4)
                 }
             }

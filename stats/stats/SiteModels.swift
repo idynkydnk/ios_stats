@@ -398,13 +398,14 @@ struct SitePlayer: Codable, Identifiable {
     var games: Int?
     var firstGame: String?
     var photoUrl: String?
+    var aiImageUrl: String?
     var aiImageTraits: [String]?
 
     var id: String { "\(playerId ?? 0)-\(name)" }
 
     enum CodingKeys: String, CodingKey {
         case playerId = "id"
-        case name, nickname, email, dateOfBirth, height, games, firstGame, photoUrl, aiImageTraits
+        case name, nickname, email, dateOfBirth, height, games, firstGame, photoUrl, aiImageUrl, aiImageTraits
     }
 }
 

@@ -99,23 +99,32 @@ struct SectionYearBar: View {
     @Binding var section: GameSection
     @Binding var selectedYear: String
     var years: [String]
+    @Binding var search: String
+    var searchPrompt: String
 
     var body: some View {
-        VStack(spacing: 8) {
-            Picker("Type", selection: $section) {
-                ForEach(GameSection.allCases) { s in
-                    Text(s.title).tag(s)
+        VStack(spacing: 6) {
+            HStack(spacing: 8) {
+                Picker("Type", selection: $section) {
+                    ForEach(GameSection.allCases) { s in
+                        Text(s.title).tag(s)
+                    }
                 }
-            }
-            .pickerStyle(.segmented)
-            Picker("Year", selection: $selectedYear) {
-                ForEach(normalizedYears, id: \.self) { y in
-                    Text(y == "All years" ? "All" : y).tag(displayTag(y))
+                .pickerStyle(.segmented)
+                Picker("Year", selection: $selectedYear) {
+                    ForEach(normalizedYears, id: \.self) { y in
+                        Text(y == "All years" ? "All" : y).tag(displayTag(y))
+                    }
                 }
+                .pickerStyle(.menu)
+                .fixedSize()
             }
-            .pickerStyle(.menu)
+            TextField(searchPrompt, text: $search)
+                .textFieldStyle(.roundedBorder)
         }
         .padding(.horizontal)
+        .padding(.top, 4)
+        .padding(.bottom, 6)
     }
 
     private var normalizedYears: [String] {
@@ -185,50 +194,50 @@ struct SiteStatsView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                SectionYearBar(section: $section, selectedYear: $selectedYear, years: years)
-                TextField("Search players...", text: $search)
-                    .textFieldStyle(.roundedBorder)
-                    .padding(.horizontal)
-                if loading { ProgressView().padding() }
-                if let error { Text(error).foregroundStyle(.red).padding() }
-                switch section {
-                case .doubles:
-                    if let d = doubles {
-                        if d.showingPreviousYear {
-                            Text("No games yet this year. Showing \(d.displayYear).")
-                                .font(.footnote).foregroundStyle(.secondary).padding(.horizontal)
+            VStack(spacing: 0) {
+                SectionYearBar(section: $section, selectedYear: $selectedYear, years: years, search: $search, searchPrompt: "Search players...")
+                ScrollView {
+                    if loading { ProgressView().padding() }
+                    if let error { Text(error).foregroundStyle(.red).padding() }
+                    switch section {
+                    case .doubles:
+                        if let d = doubles {
+                            if d.showingPreviousYear {
+                                Text("No games yet this year. Showing \(d.displayYear).")
+                                    .font(.footnote).foregroundStyle(.secondary).padding(.horizontal)
+                            }
+                            if !d.todayStats.isEmpty {
+                                RankingTable(title: "Today's Stats", rows: filter(d.todayStats), showRating: false, showPlusMinus: true, year: d.displayYear, section: .doubles)
+                            }
+                            RankingTable(title: "Ranked", rows: filter(d.stats), showRating: true, year: d.displayYear, section: .doubles)
+                            if !d.rareStats.isEmpty {
+                                RankingTable(title: "Fewer than \(d.minimumGames) games", rows: filter(d.rareStats), showRating: true, year: d.displayYear, section: .doubles)
+                            }
                         }
-                        if !d.todayStats.isEmpty {
-                            RankingTable(title: "Today's Stats", rows: filter(d.todayStats), showRating: false, showPlusMinus: true, year: d.displayYear, section: .doubles)
+                    case .vollis:
+                        if let v = vollis {
+                            RankingTable(title: nil, rows: filter(v.stats), showRating: false, year: v.displayYear, section: .vollis)
                         }
-                        RankingTable(title: "Ranked", rows: filter(d.stats), showRating: true, year: d.displayYear, section: .doubles)
-                        if !d.rareStats.isEmpty {
-                            RankingTable(title: "Fewer than \(d.minimumGames) games", rows: filter(d.rareStats), showRating: true, year: d.displayYear, section: .doubles)
-                        }
-                    }
-                case .vollis:
-                    if let v = vollis {
-                        RankingTable(title: nil, rows: filter(v.stats), showRating: false, year: v.displayYear, section: .vollis)
-                    }
-                case .other:
-                    if let o = other {
-                        ForEach(o.gameCards) { card in
-                            RankingTable(title: card.gameName, rows: filter(card.stats), showRating: false, year: o.displayYear, section: .other)
-                            if !card.rareStats.isEmpty {
-                                RankingTable(title: "\(card.gameName ?? "") · rare", rows: filter(card.rareStats), showRating: false, year: o.displayYear, section: .other)
+                    case .other:
+                        if let o = other {
+                            ForEach(o.gameCards) { card in
+                                RankingTable(title: card.gameName, rows: filter(card.stats), showRating: false, year: o.displayYear, section: .other)
+                                if !card.rareStats.isEmpty {
+                                    RankingTable(title: "\(card.gameName ?? "") · rare", rows: filter(card.rareStats), showRating: false, year: o.displayYear, section: .other)
+                                }
                             }
                         }
                     }
                 }
+                .refreshable { await load() }
             }
-            .navigationTitle("Stats")
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     SiteCopyLinkButton(url: SitePublicLink.stats(section: section, year: selectedYear))
                 }
             }
-            .refreshable { await load() }
             .task(id: "\(section.rawValue)-\(selectedYear)") { await load() }
         }
     }
@@ -279,9 +288,8 @@ struct SiteGamesView: View {
 
     var body: some View {
         NavigationStack {
-            VStack {
-                SectionYearBar(section: $section, selectedYear: $selectedYear, years: years)
-                TextField("Search", text: $search).textFieldStyle(.roundedBorder).padding(.horizontal)
+            VStack(spacing: 0) {
+                SectionYearBar(section: $section, selectedYear: $selectedYear, years: years, search: $search, searchPrompt: "Search")
                 if let banner {
                     SiteAddBanner(text: banner, isError: bannerIsError)
                         .padding(.horizontal)
@@ -294,7 +302,7 @@ struct SiteGamesView: View {
                     switch section {
                     case .doubles:
                         ForEach(filteredDoubles) { g in
-                            DoublesGameRow(game: g)
+                            DoublesGameRow(game: g, year: selectedYear, section: .doubles)
                                 .swipeActions {
                                     if canEdit {
                                         Button("Edit") { onEditDoubles(g) }
@@ -310,7 +318,7 @@ struct SiteGamesView: View {
                         }
                     case .vollis:
                         ForEach(filteredVollis) { g in
-                            VollisGameRow(game: g)
+                            VollisGameRow(game: g, year: selectedYear, section: .vollis)
                                 .swipeActions {
                                     if canEdit {
                                         Button("Edit") { onEditVollis(g) }
@@ -330,12 +338,12 @@ struct SiteGamesView: View {
                                 Text("\(g.gameName ?? "") · \(g.gameType ?? "")").font(.headline)
                                 SiteGameDateLabel(raw: g.gameDateOnly ?? g.gameDate)
                                 HStack {
-                                    Text(g.displayWinners.joined(separator: ", ")).foregroundStyle(.green)
+                                    SitePlayerNamesLine(names: g.displayWinners, year: selectedYear, section: .other, color: .green)
                                     Spacer()
                                     if let s = g.winnerScore { Text("\(s)").foregroundStyle(.green) }
                                 }
                                 HStack {
-                                    Text(g.displayLosers.joined(separator: ", ")).foregroundStyle(.red)
+                                    SitePlayerNamesLine(names: g.displayLosers, year: selectedYear, section: .other, color: .red)
                                     Spacer()
                                     if let s = g.loserScore { Text("\(s)").foregroundStyle(.red) }
                                 }
@@ -355,7 +363,8 @@ struct SiteGamesView: View {
                     }
                 }
             }
-            .navigationTitle("Games")
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     SiteCopyLinkButton(url: SitePublicLink.games(section: section, year: selectedYear))
@@ -451,6 +460,30 @@ struct SiteGamesView: View {
     }
 }
 
+struct SitePlayerNamesLine: View {
+    var names: [String]
+    var year: String
+    var section: GameSection
+    var color: Color
+    var separator: String = ", "
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(Array(names.enumerated()), id: \.offset) { i, name in
+                if i > 0 {
+                    Text(separator).foregroundStyle(color)
+                }
+                NavigationLink {
+                    SitePlayerDetailView(name: name, year: year, section: section)
+                } label: {
+                    Text(name).foregroundStyle(color)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+}
+
 struct SiteGameDateLabel: View {
     var raw: String?
 
@@ -469,16 +502,18 @@ struct SiteGameDateLabel: View {
 
 struct DoublesGameRow: View {
     var game: DoublesGame
+    var year: String? = nil
+    var section: GameSection = .doubles
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             SiteGameDateLabel(raw: game.gameDate)
             HStack {
-                Text("\(game.winner1 ?? "") & \(game.winner2 ?? "")").foregroundStyle(.green)
+                playerPair(game.winner1, game.winner2, color: .green)
                 Spacer()
                 Text("\(game.winnerScore ?? 0)")
             }
             HStack {
-                Text("\(game.loser1 ?? "") & \(game.loser2 ?? "")").foregroundStyle(.red)
+                playerPair(game.loser1, game.loser2, color: .red)
                 Spacer()
                 Text("\(game.loserScore ?? 0)")
             }
@@ -488,16 +523,42 @@ struct DoublesGameRow: View {
             }
         }
     }
+
+    @ViewBuilder
+    private func playerPair(_ a: String?, _ b: String?, color: Color) -> some View {
+        HStack(spacing: 4) {
+            playerName(a, color: color)
+            Text("&").foregroundStyle(color)
+            playerName(b, color: color)
+        }
+    }
+
+    @ViewBuilder
+    private func playerName(_ raw: String?, color: Color) -> some View {
+        if let name = raw, !name.isEmpty {
+            if let year {
+                NavigationLink {
+                    SitePlayerDetailView(name: name, year: year, section: section)
+                } label: {
+                    Text(name).foregroundStyle(color)
+                }
+                .buttonStyle(.plain)
+            } else {
+                Text(name).foregroundStyle(color)
+            }
+        }
+    }
 }
 
 struct VollisGameRow: View {
     var game: VollisGame
+    var year: String? = nil
+    var section: GameSection = .vollis
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             SiteGameDateLabel(raw: game.gameDate)
             HStack(alignment: .center, spacing: 8) {
-                Text(game.winner ?? "")
-                    .foregroundStyle(.green)
+                playerName(game.winner, color: .green)
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -509,11 +570,26 @@ struct VollisGameRow: View {
                 }
                 .fontWeight(.semibold)
                 .monospacedDigit()
-                Text(game.loser ?? "")
-                    .foregroundStyle(.red)
+                playerName(game.loser, color: .red)
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
                     .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func playerName(_ raw: String?, color: Color) -> some View {
+        if let name = raw, !name.isEmpty {
+            if let year {
+                NavigationLink {
+                    SitePlayerDetailView(name: name, year: year, section: section)
+                } label: {
+                    Text(name).foregroundStyle(color)
+                }
+                .buttonStyle(.plain)
+            } else {
+                Text(name).foregroundStyle(color)
             }
         }
     }

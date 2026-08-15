@@ -157,6 +157,14 @@ final class PythonAnywhereClient {
         return w.players
     }
 
+    func player(named name: String) async throws -> SitePlayer? {
+        let needle = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !needle.isEmpty else { return nil }
+        return try await players().first {
+            $0.name.compare(needle, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
+        }
+    }
+
     func addPlayer(fullName: String, email: String? = nil) async throws {
         struct Resp: Decodable { var success: Bool?; var error: String? }
         var payload: [String: Any] = ["full_name": fullName]
@@ -304,16 +312,45 @@ final class PythonAnywhereClient {
         try await postJSONDict("/api/parse_voice_doubles", json: ["transcript": transcript])
     }
 
-    func generateAISummary(gameType: String, gameIds: [String], promptStyle: String = "default", customPrompt: String = "") async throws -> Int {
+    func generateAISummary(gameType: String, gameIds: [String], promptStyle: String = "default", customPrompt: String = "", imageMode: String = "image") async throws -> Int {
         struct Resp: Decodable { var success: Bool?; var jobId: Int?; var error: String? }
         let r: Resp = try await postJSON("/api/ai/summary", json: [
             "game_type": gameType,
             "game_ids": gameIds,
             "prompt_style": promptStyle,
             "custom_prompt": customPrompt,
+            "image_mode": imageMode,
         ])
         if let id = r.jobId { return id }
         throw SiteAPIError.message(r.error ?? "Could not queue recap")
+    }
+
+    func savePlayerAIImageTraits(name: String, phrases: [String]) async throws -> [String] {
+        struct Resp: Decodable {
+            var success: Bool?
+            var phrases: [String]?
+            var error: String?
+        }
+        let encoded = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? name
+        let r: Resp = try await postJSON("/api/player_ai_image_traits/\(encoded)/", json: ["phrases": phrases])
+        if r.success == false { throw SiteAPIError.message(r.error ?? "Could not save signature look") }
+        return r.phrases ?? phrases
+    }
+
+    func generatePlayerAIImage(name: String) async throws -> (jobId: Int?, imageUrl: String?) {
+        struct Resp: Decodable {
+            var success: Bool?
+            var jobId: Int?
+            var aiImageUrl: String?
+            var error: String?
+        }
+        let encoded = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? name
+        let r: Resp = try await postJSON("/api/player_ai_image/\(encoded)/", json: [String: String]())
+        if r.success == false { throw SiteAPIError.message(r.error ?? "Could not create AI character") }
+        if r.jobId == nil && (r.aiImageUrl ?? "").isEmpty {
+            throw SiteAPIError.message(r.error ?? "Could not create AI character")
+        }
+        return (r.jobId, r.aiImageUrl)
     }
 
     func recaps() async throws -> [RecapItem] {
