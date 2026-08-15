@@ -185,7 +185,7 @@ struct SiteEditPlayerView: View {
                     .disabled(aiBusy)
                     PhotosPicker("Upload AI character", selection: $characterPicker, matching: .images)
                         .disabled(aiBusy)
-                    Text("A full-body person with this face and every signature look, including props (a motorhome look means a motorhome in the picture). Recaps and flyers add the sport. Generate one, or upload your own picture. Takes about a minute to generate — you can leave after you tap Create. If they don’t have a character yet, group pictures use their face photo.")
+                    Text("A full-body person with this face and every signature look, including props (a motorhome look means a motorhome in the picture). Recaps and flyers add the sport. Generate one, or upload your own picture. Takes about a minute to generate — you can leave after you tap Create. If they don’t have a character yet, group pictures use their face photo. Players with no photo, signature look, or character are left out of group pictures.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } header: {
@@ -1164,7 +1164,7 @@ struct SiteAIRosterView: View {
     private var rosterHint: String {
         switch kind {
         case .recap:
-            return "Tap a player to edit their face photo, signature look, and AI character. Players need a photo, signature look, or saved AI character to appear in the illustration. If someone has no AI character yet, the group picture uses their face photo."
+            return "Tap a player to edit their face photo, signature look, and AI character. Players need a photo, signature look, or saved AI character to appear in the illustration. If someone has no AI character yet, the group picture uses their face photo. Players with none of those are left out."
         case .flyer:
             return "Tap a player to edit their face photo, signature look, and AI character. Flyers use a saved AI character when one exists; otherwise they need a face photo."
         }
@@ -1296,7 +1296,7 @@ struct SiteAIStyleView: View {
                 Text("Illustration")
                     .font(.headline)
                     .padding(.top, 8)
-                Text("Include one AI-generated group illustration, or publish text only. Uses each player's saved AI character when they have one; otherwise face photos and/or signature looks.")
+                Text("Include one AI-generated group illustration, or publish text only. Uses each player's saved AI character when they have one; otherwise face photos and/or signature looks. Players with none of those are left out.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Text("Extra illustration details (optional)")
