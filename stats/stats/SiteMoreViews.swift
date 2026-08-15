@@ -175,14 +175,14 @@ struct SiteEditPlayerView: View {
                         .frame(height: 220)
                         .clipShape(RoundedRectangle(cornerRadius: 10))
                     } else {
-                        Text(aiBusy ? "Creating AI character…" : "No AI character yet")
+                        Text(aiBusy ? "Working in the background…" : "No AI character yet")
                             .foregroundStyle(.secondary)
                     }
                     Button(aiImageUrl == nil ? "Create AI character" : "Remake AI character") {
                         Task { await generateAICharacter() }
                     }
                     .disabled(aiBusy)
-                    Text("Saved for recaps and flyers. If this player has no AI character, group pictures use their face photo.")
+                    Text("A blank full-body person with this face and signature looks. Recaps and flyers add the sport and extra props. Takes about a minute — you can leave after you tap Create. If they don’t have a character yet, group pictures use their face photo.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } header: {
@@ -358,7 +358,7 @@ struct SiteEditPlayerView: View {
                 aiImageUrl = url
                 banner = "AI character saved"
             } else if let jobId = result.jobId {
-                banner = "Creating AI character…"
+                banner = "Working in the background. You can leave and check this player again in a minute."
                 if let url = await waitForPlayerAIImage(jobId: jobId) {
                     aiImageUrl = url
                     banner = "AI character saved"
