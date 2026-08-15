@@ -186,8 +186,25 @@ final class PythonAnywhereClient {
     }
 
     func uploadPlayerPhoto(name: String, imageData: Data, filename: String) async throws {
+        struct Msg: Decodable { var success: Bool?; var error: String? }
         let encoded = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? name
-        try await upload("/api/player_photo/\(encoded)/", imageData: imageData, filename: filename)
+        let r: Msg = try await upload("/api/player_photo/\(encoded)/", imageData: imageData, filename: filename)
+        if r.success == false { throw SiteAPIError.message(r.error ?? "Upload failed") }
+    }
+
+    func uploadPlayerAIImage(name: String, imageData: Data, filename: String) async throws -> String {
+        struct Resp: Decodable {
+            var success: Bool?
+            var aiImageUrl: String?
+            var error: String?
+        }
+        let encoded = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? name
+        let r: Resp = try await upload("/api/player_ai_image/\(encoded)/", imageData: imageData, filename: filename)
+        if r.success == false { throw SiteAPIError.message(r.error ?? "Upload failed") }
+        guard let url = r.aiImageUrl, !url.isEmpty else {
+            throw SiteAPIError.message(r.error ?? "Upload failed")
+        }
+        return url
     }
 
     func searchPlayers(q: String) async throws -> [[String: Any]] {
@@ -312,7 +329,14 @@ final class PythonAnywhereClient {
         try await postJSONDict("/api/parse_voice_doubles", json: ["transcript": transcript])
     }
 
-    func generateAISummary(gameType: String, gameIds: [String], promptStyle: String = "default", customPrompt: String = "", imageMode: String = "image") async throws -> Int {
+    func generateAISummary(
+        gameType: String,
+        gameIds: [String],
+        promptStyle: String = "default",
+        customPrompt: String = "",
+        imageMode: String = "image",
+        imageDetails: String = ""
+    ) async throws -> Int {
         struct Resp: Decodable { var success: Bool?; var jobId: Int?; var error: String? }
         let r: Resp = try await postJSON("/api/ai/summary", json: [
             "game_type": gameType,
@@ -320,9 +344,27 @@ final class PythonAnywhereClient {
             "prompt_style": promptStyle,
             "custom_prompt": customPrompt,
             "image_mode": imageMode,
+            "image_details": imageDetails,
         ])
         if let id = r.jobId { return id }
         throw SiteAPIError.message(r.error ?? "Could not queue recap")
+    }
+
+    func aiRoster(gameType: String, gameIds: [String]) async throws -> [SitePlayer] {
+        struct Wrap: Codable { var players: [SitePlayer] }
+        let w: Wrap = try await postJSON("/api/ai/roster", json: [
+            "game_type": gameType,
+            "game_ids": gameIds,
+        ])
+        return w.players
+    }
+
+    func aiRoster(players: [String]) async throws -> [SitePlayer] {
+        struct Wrap: Codable { var players: [SitePlayer] }
+        let w: Wrap = try await postJSON("/api/ai/roster", json: [
+            "players": players,
+        ])
+        return w.players
     }
 
     func savePlayerAIImageTraits(name: String, phrases: [String]) async throws -> [String] {
@@ -486,7 +528,7 @@ final class PythonAnywhereClient {
         try throwIfNeeded(data, resp)
     }
 
-    private func upload(_ path: String, imageData: Data, filename: String) async throws {
+    private func upload<T: Decodable>(_ path: String, imageData: Data, filename: String) async throws -> T {
         let boundary = "Boundary-\(UUID().uuidString)"
         var req = request(path, method: "POST", authed: true)
         req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
@@ -497,8 +539,7 @@ final class PythonAnywhereClient {
         body.append(imageData)
         body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
         req.httpBody = body
-        let (data, resp) = try await session.data(for: req)
-        try throwIfNeeded(data, resp)
+        return try await decode(req)
     }
 
     private func decode<T: Decodable>(_ req: URLRequest) async throws -> T {

@@ -164,6 +164,7 @@ struct SitePlayerDetailView: View {
             }
         }
         .task { await load() }
+        .refreshable { await load() }
     }
 
     @ViewBuilder

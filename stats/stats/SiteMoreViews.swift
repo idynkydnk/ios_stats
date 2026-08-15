@@ -120,6 +120,7 @@ struct SiteEditPlayerView: View {
     @State private var saving = false
     @State private var traitsBusy = false
     @State private var picker: PhotosPickerItem?
+    @State private var characterPicker: PhotosPickerItem?
     @State private var aiImageUrl: String?
     @State private var aiBusy = false
     @ObservedObject private var auth = SiteAuthManager.shared
@@ -182,7 +183,9 @@ struct SiteEditPlayerView: View {
                         Task { await generateAICharacter() }
                     }
                     .disabled(aiBusy)
-                    Text("A blank full-body person with this face and signature looks. Recaps and flyers add the sport and extra props. Takes about a minute — you can leave after you tap Create. If they don’t have a character yet, group pictures use their face photo.")
+                    PhotosPicker("Upload AI character", selection: $characterPicker, matching: .images)
+                        .disabled(aiBusy)
+                    Text("A full-body person with this face and every signature look, including props (a motorhome look means a motorhome in the picture). Recaps and flyers add the sport. Generate one, or upload your own picture. Takes about a minute to generate — you can leave after you tap Create. If they don’t have a character yet, group pictures use their face photo.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } header: {
@@ -264,6 +267,7 @@ struct SiteEditPlayerView: View {
         }
         .navigationTitle(canonicalName)
         .task { await refreshFromServer() }
+        .refreshable { await refreshFromServer() }
         .onChange(of: picker) { _, item in
             Task {
                 guard auth.isLoggedIn, let item, let data = try? await item.loadTransferable(type: Data.self) else { return }
@@ -271,6 +275,24 @@ struct SiteEditPlayerView: View {
                     try await PythonAnywhereClient.shared.uploadPlayerPhoto(name: canonicalName, imageData: data, filename: "photo.jpg")
                     banner = "Photo updated"
                 } catch { self.error = error.localizedDescription }
+            }
+        }
+        .onChange(of: characterPicker) { _, item in
+            Task {
+                guard auth.isLoggedIn, let item, let data = try? await item.loadTransferable(type: Data.self) else { return }
+                aiBusy = true
+                error = nil
+                banner = nil
+                do {
+                    let url = try await PythonAnywhereClient.shared.uploadPlayerAIImage(
+                        name: canonicalName, imageData: data, filename: "character.jpg"
+                    )
+                    aiImageUrl = url
+                    banner = "AI character uploaded"
+                } catch {
+                    self.error = error.localizedDescription
+                }
+                aiBusy = false
             }
         }
     }
@@ -440,8 +462,18 @@ struct SiteNetworkView: View {
                     }
                 }
                 .listStyle(.plain)
-            } else if loading {
-                ProgressView().padding()
+                .refreshable { await load() }
+            } else {
+                ScrollView {
+                    if loading {
+                        ProgressView().padding()
+                    } else {
+                        Text("Pull down to reload.")
+                            .foregroundStyle(.secondary)
+                            .padding()
+                    }
+                }
+                .refreshable { await load() }
             }
         }
         .navigationTitle("Network")
@@ -661,6 +693,7 @@ struct SiteTournamentsView: View {
         }
         .navigationTitle("Tournaments")
         .task { await load() }
+        .refreshable { await load() }
     }
 
     private func load() async {
@@ -690,6 +723,11 @@ struct SiteVolleyballView: View {
                 ForEach(p.gameCards) { card in
                     RankingTable(title: card.gameName, rows: card.stats, showRating: false, year: year, section: .other)
                 }
+            } else {
+                Text("Pull down to reload.")
+                    .foregroundStyle(.secondary)
+                    .padding()
+                    .frame(maxWidth: .infinity)
             }
         }
         .navigationTitle("Volleyball")
@@ -698,9 +736,12 @@ struct SiteVolleyballView: View {
                 SiteCopyLinkButton(url: SitePublicLink.volleyball(year: year))
             }
         }
-        .task {
-            payload = try? await PythonAnywhereClient.shared.volleyballStats(year: year)
-        }
+        .task { await load() }
+        .refreshable { await load() }
+    }
+
+    private func load() async {
+        payload = try? await PythonAnywhereClient.shared.volleyballStats(year: year)
     }
 }
 
@@ -730,10 +771,9 @@ struct SiteAISummaryView: View {
     @State private var selected: Set<String> = []
     @State private var banner: String?
     @State private var bannerIsError = false
-    @State private var shareURL: URL?
     @State private var loading = false
-    @State private var generating = false
     @State private var searchTask: Task<Void, Never>?
+    @State private var showRoster = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -766,15 +806,6 @@ struct SiteAISummaryView: View {
             if let banner {
                 SiteAddBanner(text: banner, isError: bannerIsError)
                     .padding(.horizontal)
-            }
-            if let shareURL {
-                HStack(spacing: 12) {
-                    ShareLink(item: shareURL)
-                    SiteCopyLinkButton(url: shareURL)
-                    Link("Open", destination: shareURL)
-                }
-                .padding(.horizontal)
-                .padding(.bottom, 8)
             }
 
             if loading {
@@ -815,26 +846,30 @@ struct SiteAISummaryView: View {
                 .buttonStyle(.plain)
             }
             .listStyle(.plain)
+            .refreshable { await reloadGames() }
 
             SiteAddActionButton(
-                title: generating ? "Creating recap…" : "Create recap",
+                title: "Continue",
                 filled: true,
-                disabled: generating || selected.isEmpty
+                disabled: selected.isEmpty
             ) {
-                Task { await generate() }
+                showRoster = true
             }
             .padding(.horizontal)
             .padding(.top)
-            Text("Includes an illustration. Players with a saved AI character use that; others use their face photo. About 5 minutes — you can leave after you tap Create. Check Recaps when it’s done.")
+            Text("Next: review player photos, signature looks, and AI characters.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .padding(.horizontal)
                 .padding(.bottom)
         }
         .navigationTitle("AI Summary")
+        .navigationDestination(isPresented: $showRoster) {
+            SiteAIRosterView(kind: .recap(gameType: gameType, gameIds: Array(selected)))
+        }
         .task(id: gameType) {
             query = ""
-            await loadRecent()
+            await loadRecent(resetSelection: true)
         }
         .onChange(of: query) { _, q in
             searchTask?.cancel()
@@ -855,11 +890,21 @@ struct SiteAISummaryView: View {
         selected = Set(games.filter { $0.dayKey == day }.map(\.id))
     }
 
-    private func loadRecent() async {
+    private func reloadGames() async {
+        let q = query.trimmingCharacters(in: .whitespaces)
+        if q.isEmpty {
+            await loadRecent(resetSelection: false)
+        } else {
+            await runSearch(q)
+        }
+    }
+
+    private func loadRecent(resetSelection: Bool = true) async {
         loading = true
-        banner = nil
-        shareURL = nil
-        selected = []
+        if resetSelection {
+            banner = nil
+            selected = []
+        }
         let year = String(Calendar.current.component(.year, from: Date()))
         do {
             switch gameType {
@@ -904,7 +949,12 @@ struct SiteAISummaryView: View {
             if gameType != "doubles" {
                 games = Array(games.prefix(40))
             }
-            selectLatestDay()
+            if resetSelection {
+                selectLatestDay()
+            } else {
+                let ids = Set(games.map(\.id))
+                selected = selected.intersection(ids)
+            }
         } catch {
             banner = error.localizedDescription
             bannerIsError = true
@@ -924,50 +974,6 @@ struct SiteAISummaryView: View {
         games = rows.compactMap(Self.pick(fromSearch:))
         selected = []
         loading = false
-    }
-
-    private func generate() async {
-        generating = true
-        banner = nil
-        shareURL = nil
-        bannerIsError = false
-        do {
-            let jobId = try await PythonAnywhereClient.shared.generateAISummary(
-                gameType: gameType,
-                gameIds: Array(selected)
-            )
-            banner = "Working in the background. You can leave and check Recaps in about 5 minutes."
-            if let url = await waitForRecap(jobId: jobId) {
-                shareURL = url
-                banner = "Recap ready"
-            } else {
-                banner = "Still working in the background. Check Recaps in a few minutes."
-            }
-        } catch {
-            banner = error.localizedDescription
-            bannerIsError = true
-        }
-        generating = false
-    }
-
-    private func waitForRecap(jobId: Int) async -> URL? {
-        for i in 0..<90 {
-            if i > 0 { try? await Task.sleep(nanoseconds: 4_000_000_000) }
-            guard let job = try? await PythonAnywhereClient.shared.aiJob(id: jobId) else { continue }
-            let status = (job["status"] as? String ?? "").lowercased()
-            if status == "failed" || status == "error" {
-                banner = (job["error"] as? String) ?? "Recap failed"
-                bannerIsError = true
-                return nil
-            }
-            if let share = job["share_id"] as? String, !share.isEmpty {
-                return SitePublicLink.recap(share)
-            }
-            if status == "completed" || status == "done" {
-                return nil
-            }
-        }
-        return nil
     }
 
     private static func pick(fromSearch row: [String: Any]) -> AISummaryPick? {
@@ -1001,52 +1007,250 @@ struct SiteAISummaryView: View {
     }
 }
 
-struct SiteRecapsView: View {
-    @State private var items: [RecapItem] = []
-    var body: some View {
-        List(items) { r in
-            VStack(alignment: .leading) {
-                Text(r.headline ?? "Recap").font(.headline)
-                if let url = r.shareUrl, let u = URL(string: url) {
-                    HStack {
-                        ShareLink(item: u)
-                        SiteCopyLinkButton(url: u)
-                        Link("Open", destination: u)
-                    }
-                }
-                if let img = r.heroImageUrl, let u = URL(string: img) {
-                    AsyncImage(url: u) { i in i.resizable().scaledToFit() } placeholder: { ProgressView() }
-                }
-            }
-        }
-        .navigationTitle("AI Recaps")
-        .task { items = (try? await PythonAnywhereClient.shared.recaps()) ?? [] }
-    }
+struct SiteFlyerDraft: Hashable {
+    var players: [String]
+    var gameType: String
+    var gameName: String
+    var eventDate: String
+    var eventTime: String
+    var location: String
+    var imageDetails: String
 }
 
-struct SiteFlyerView: View {
-    enum Field: Hashable { case player, location, details }
+struct SiteAIRosterView: View {
+    enum Kind: Hashable {
+        case recap(gameType: String, gameIds: [String])
+        case flyer(SiteFlyerDraft)
+    }
 
-    @State private var gameType = "doubles"
-    @State private var playerQuery = ""
-    @State private var selected: [String] = []
-    @State private var recent: [String] = []
-    @State private var allPlayers: [String] = []
-    @State private var location = ""
-    @State private var eventDate = Date()
-    @State private var eventTime = Calendar.current.date(bySettingHour: 17, minute: 0, second: 0, of: Date()) ?? Date()
-    @State private var imageDetails = ""
+    var kind: Kind
+    @State private var players: [SitePlayer] = []
+    @State private var error: String?
+    @State private var loading = false
+    @State private var showStyle = false
+    @State private var editingName: String?
+    @State private var creating = false
     @State private var banner: String?
     @State private var bannerIsError = false
     @State private var shareURL: URL?
-    @State private var saving = false
-    @FocusState private var focused: Field?
 
-    private let timePresets = [16, 17, 18, 19, 20]
+    var body: some View {
+        List {
+            Section {
+                Text(rosterSummary)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Text("Review player pictures & signature looks")
+                    .font(.headline)
+            }
+            if let banner {
+                SiteAddBanner(text: banner, isError: bannerIsError)
+            }
+            if let shareURL {
+                HStack {
+                    ShareLink(item: shareURL)
+                    SiteCopyLinkButton(url: shareURL)
+                    Link("Open", destination: shareURL)
+                }
+            }
+            if let error {
+                Text(error).foregroundStyle(.red)
+            }
+            if loading && players.isEmpty {
+                ProgressView()
+            }
+            if players.isEmpty, error == nil, !loading {
+                Text(emptyRosterText)
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(players) { player in
+                Button {
+                    editingName = player.name
+                } label: {
+                    HStack(alignment: .top, spacing: 12) {
+                        SitePlayerAvatar(name: player.name, size: 52)
+                        if let url = SitePublicLink.absolute(player.aiImageUrl) {
+                            AsyncImage(url: url) { phase in
+                                if case .success(let img) = phase {
+                                    img.resizable().scaledToFill()
+                                } else {
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .fill(Color.gray.opacity(0.2))
+                                }
+                            }
+                            .frame(width: 40, height: 40)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                        }
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(player.name).font(.headline)
+                            Text("Edit photo & look")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            HStack(spacing: 6) {
+                                Image(systemName: player.isReadyForIllustration ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
+                                Text(readyText(for: player))
+                            }
+                            .font(.caption)
+                            .foregroundStyle(player.isReadyForIllustration ? .green : .orange)
+                            if let traits = player.aiImageTraits, !traits.isEmpty {
+                                Text(traits.joined(separator: " · "))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(2)
+                            } else {
+                                Text("No signature look yet")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .navigationTitle("Player looks")
+        .safeAreaInset(edge: .bottom) {
+            VStack(spacing: 8) {
+                Text(rosterHint)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                switch kind {
+                case .recap:
+                    SiteAddActionButton(title: "Continue to style", filled: true) {
+                        showStyle = true
+                    }
+                case .flyer:
+                    SiteAddActionButton(
+                        title: creating ? "Creating flyer…" : "Create flyer",
+                        filled: true,
+                        disabled: creating || players.isEmpty
+                    ) {
+                        Task { await createFlyer() }
+                    }
+                }
+            }
+            .padding()
+            .background(.bar)
+        }
+        .navigationDestination(item: $editingName) { name in
+            SiteEditPlayerView(name: name)
+        }
+        .navigationDestination(isPresented: $showStyle) {
+            if case let .recap(gameType, gameIds) = kind {
+                SiteAIStyleView(gameType: gameType, gameIds: gameIds)
+            }
+        }
+        .refreshable { await load() }
+        .onAppear { Task { await load() } }
+        .onChange(of: editingName) { _, name in
+            if name == nil { Task { await load() } }
+        }
+    }
+
+    private var rosterSummary: String {
+        switch kind {
+        case let .recap(_, gameIds):
+            let games = gameIds.count
+            let people = players.count
+            return "\(games) game\(games == 1 ? "" : "s") selected · \(people) player\(people == 1 ? "" : "s")"
+        case .flyer:
+            let people = players.count
+            return "\(people) player\(people == 1 ? "" : "s") selected"
+        }
+    }
+
+    private var rosterHint: String {
+        switch kind {
+        case .recap:
+            return "Tap a player to edit their face photo, signature look, and AI character. Players need a photo, signature look, or saved AI character to appear in the illustration. If someone has no AI character yet, the group picture uses their face photo."
+        case .flyer:
+            return "Tap a player to edit their face photo, signature look, and AI character. Flyers use a saved AI character when one exists; otherwise they need a face photo."
+        }
+    }
+
+    private var emptyRosterText: String {
+        switch kind {
+        case .recap: return "No players found for the selected games."
+        case .flyer: return "No players selected."
+        }
+    }
+
+    private func readyText(for player: SitePlayer) -> String {
+        switch kind {
+        case .recap:
+            return player.isReadyForIllustration ? "Ready for illustration" : "Needs photo or signature look"
+        case .flyer:
+            return player.isReadyForIllustration ? "Ready for flyer" : "Needs face photo or AI character"
+        }
+    }
+
+    private func load() async {
+        loading = true
+        do {
+            switch kind {
+            case let .recap(gameType, gameIds):
+                players = try await PythonAnywhereClient.shared.aiRoster(gameType: gameType, gameIds: gameIds)
+            case let .flyer(draft):
+                players = try await PythonAnywhereClient.shared.aiRoster(players: draft.players)
+            }
+            error = nil
+        } catch {
+            self.error = error.localizedDescription
+        }
+        loading = false
+    }
+
+    private func createFlyer() async {
+        guard case let .flyer(draft) = kind else { return }
+        creating = true
+        banner = nil
+        shareURL = nil
+        bannerIsError = false
+        do {
+            let id = try await PythonAnywhereClient.shared.createFlyer([
+                "players": draft.players,
+                "game_type": draft.gameType,
+                "game_name": draft.gameName,
+                "event_date": draft.eventDate,
+                "event_time": draft.eventTime,
+                "location": draft.location,
+                "image_details": draft.imageDetails,
+            ])
+            banner = "Working in the background. You can leave and come back in about 5 minutes."
+            let result = await siteWaitForAIShare(jobId: id, recap: false)
+            if let url = result.url {
+                shareURL = url
+                banner = "Flyer ready"
+            } else if let err = result.error {
+                banner = err
+                bannerIsError = true
+            } else {
+                banner = "Still working in the background. Come back here in a few minutes."
+            }
+        } catch {
+            banner = error.localizedDescription
+            bannerIsError = true
+        }
+        creating = false
+    }
+}
+
+struct SiteAIStyleView: View {
+    var gameType: String
+    var gameIds: [String]
+    @State private var promptStyle = "default"
+    @State private var customPrompt = ""
+    @State private var imageDetails = ""
+    @State private var generating = false
+    @State private var banner: String?
+    @State private var bannerIsError = false
+    @State private var shareURL: URL?
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 16) {
                 if let banner {
                     SiteAddBanner(text: banner, isError: bannerIsError)
                 }
@@ -1058,12 +1262,266 @@ struct SiteFlyerView: View {
                     }
                 }
 
+                Text("Writing style")
+                    .font(.headline)
+                styleCard(
+                    id: "default",
+                    title: "Standard Recap",
+                    subtitle: "Clear summary from the game data",
+                    detail: "Writes a factual recap from the scores, stats, and comments — no invented persona or gimmick voice."
+                )
+                styleCard(
+                    id: "custom",
+                    title: "Custom Prompt",
+                    subtitle: "Write your own style",
+                    detail: "Describe the tone, style, and personality you want."
+                )
+                if promptStyle == "custom" {
+                    ZStack(alignment: .topLeading) {
+                        if customPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            Text("Example: Keep it short and punchy, focus on upsets and funny comments…")
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 12)
+                        }
+                        TextEditor(text: $customPrompt)
+                            .scrollContentBackground(.hidden)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 8)
+                            .frame(minHeight: 100)
+                    }
+                    .background(RoundedRectangle(cornerRadius: 10).fill(Color(.secondarySystemFill)))
+                }
+
+                Text("Illustration")
+                    .font(.headline)
+                    .padding(.top, 8)
+                Text("Include one AI-generated group illustration, or publish text only. Uses each player's saved AI character when they have one; otherwise face photos and/or signature looks.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text("Extra illustration details (optional)")
+                    .font(.subheadline.weight(.semibold))
+                ZStack(alignment: .topLeading) {
+                    if imageDetails.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text("Example: sunset beach background, everyone celebrating at the net…")
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 12)
+                    }
+                    TextEditor(text: $imageDetails)
+                        .scrollContentBackground(.hidden)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
+                        .frame(minHeight: 80)
+                }
+                .background(RoundedRectangle(cornerRadius: 10).fill(Color(.secondarySystemFill)))
+                Text("Only used when you choose With illustration.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                HStack(spacing: 10) {
+                    SiteAddActionButton(
+                        title: generating ? "Writing…" : "Text only",
+                        filled: false,
+                        disabled: generating || !canGenerate
+                    ) {
+                        Task { await generate(imageMode: "none") }
+                    }
+                    SiteAddActionButton(
+                        title: generating ? "Creating recap…" : "With illustration",
+                        filled: true,
+                        disabled: generating || !canGenerate
+                    ) {
+                        Task { await generate(imageMode: "image") }
+                    }
+                }
+                Text("Illustration can take about 5 minutes — you can leave after you tap generate and check Recaps.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding()
+            .padding(.bottom, 24)
+        }
+        .navigationTitle("AI style")
+        .scrollDismissesKeyboard(.interactively)
+    }
+
+    private var canGenerate: Bool {
+        if promptStyle == "custom" {
+            return !customPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        return true
+    }
+
+    private func styleCard(id: String, title: String, subtitle: String, detail: String) -> some View {
+        let selected = promptStyle == id
+        return Button {
+            promptStyle = id
+        } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text(title).font(.subheadline.weight(.semibold))
+                    Spacer()
+                    Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                        .foregroundStyle(selected ? SiteAddAccent.orange : .secondary)
+                }
+                Text(subtitle).font(.caption).foregroundStyle(.secondary)
+                Text(detail).font(.caption).foregroundStyle(.secondary)
+            }
+            .padding()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(selected ? SiteAddAccent.orange.opacity(0.15) : Color(.secondarySystemFill))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(selected ? SiteAddAccent.orange : Color.clear, lineWidth: 2)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func generate(imageMode: String) async {
+        generating = true
+        banner = nil
+        shareURL = nil
+        bannerIsError = false
+        do {
+            let jobId = try await PythonAnywhereClient.shared.generateAISummary(
+                gameType: gameType,
+                gameIds: gameIds,
+                promptStyle: promptStyle,
+                customPrompt: promptStyle == "custom" ? customPrompt : "",
+                imageMode: imageMode,
+                imageDetails: imageDetails
+            )
+            banner = imageMode == "image"
+                ? "Working in the background. You can leave and check Recaps in about 5 minutes."
+                : "Working in the background. You can leave and check Recaps."
+            let result = await siteWaitForAIShare(jobId: jobId, recap: true)
+            if let url = result.url {
+                shareURL = url
+                banner = "Recap ready"
+            } else if let err = result.error {
+                banner = err
+                bannerIsError = true
+            } else {
+                banner = "Still working in the background. Check Recaps in a few minutes."
+            }
+        } catch {
+            banner = error.localizedDescription
+            bannerIsError = true
+        }
+        generating = false
+    }
+}
+
+private func siteWaitForAIShare(jobId: Int, recap: Bool) async -> (url: URL?, error: String?) {
+    for i in 0..<90 {
+        if i > 0 { try? await Task.sleep(nanoseconds: 4_000_000_000) }
+        guard let job = try? await PythonAnywhereClient.shared.aiJob(id: jobId) else { continue }
+        let status = (job["status"] as? String ?? "").lowercased()
+        if status == "failed" || status == "error" {
+            return (nil, (job["error"] as? String) ?? (recap ? "Recap failed" : "Flyer failed"))
+        }
+        if let share = job["share_id"] as? String, !share.isEmpty {
+            let url = recap ? SitePublicLink.recap(share) : SitePublicLink.flyer(share)
+            return (url, nil)
+        }
+        if status == "completed" || status == "done" {
+            return (nil, nil)
+        }
+    }
+    return (nil, nil)
+}
+
+struct SiteRecapsView: View {
+    @State private var items: [RecapItem] = []
+    @State private var error: String?
+
+    var body: some View {
+        List {
+            if let error {
+                Text(error).foregroundStyle(.red)
+            }
+            if items.isEmpty, error == nil {
+                Text("No recaps yet. Pull down to refresh.")
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(items) { r in
+                VStack(alignment: .leading) {
+                    Text(r.headline ?? "Recap").font(.headline)
+                    if let url = r.shareUrl, let u = URL(string: url) {
+                        HStack {
+                            ShareLink(item: u)
+                            SiteCopyLinkButton(url: u)
+                            Link("Open", destination: u)
+                        }
+                    }
+                    if let img = r.heroImageUrl, let u = URL(string: img) {
+                        AsyncImage(url: u) { i in i.resizable().scaledToFit() } placeholder: { ProgressView() }
+                    }
+                }
+            }
+        }
+        .navigationTitle("AI Recaps")
+        .task { await load() }
+        .refreshable { await load() }
+    }
+
+    private func load() async {
+        do {
+            items = try await PythonAnywhereClient.shared.recaps()
+            error = nil
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+}
+
+struct SiteFlyerView: View {
+    enum Field: Hashable { case player, location, details }
+
+    @State private var gameType = "doubles"
+    @State private var gameName = ""
+    @State private var playerQuery = ""
+    @State private var selected: [String] = []
+    @State private var recent: [String] = []
+    @State private var allPlayers: [String] = []
+    @State private var location = ""
+    @State private var eventDate = Date()
+    @State private var eventTime = Calendar.current.date(bySettingHour: 17, minute: 0, second: 0, of: Date()) ?? Date()
+    @State private var imageDetails = ""
+    @State private var banner: String?
+    @State private var bannerIsError = false
+    @State private var showRoster = false
+    @FocusState private var focused: Field?
+
+    private let timePresets = [16, 17, 18, 19, 20]
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                if let banner {
+                    SiteAddBanner(text: banner, isError: bannerIsError)
+                }
+
                 Picker("Game", selection: $gameType) {
                     Text("Doubles").tag("doubles")
                     Text("Vollis").tag("vollis")
                     Text("Other").tag("other")
                 }
                 .pickerStyle(.segmented)
+
+                if gameType == "other" {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Game name")
+                            .font(.subheadline.weight(.semibold))
+                        TextField("e.g. Spikeball night", text: $gameName)
+                            .textFieldStyle(.roundedBorder)
+                    }
+                }
 
                 Text("Who’s playing")
                     .font(.subheadline.weight(.semibold))
@@ -1192,13 +1650,15 @@ struct SiteFlyerView: View {
                 }
 
                 SiteAddActionButton(
-                    title: saving ? "Creating flyer…" : "Create flyer",
+                    title: "Continue",
                     filled: true,
-                    disabled: saving || selected.isEmpty || location.trimmingCharacters(in: .whitespaces).isEmpty
+                    disabled: selected.isEmpty
+                        || location.trimmingCharacters(in: .whitespaces).isEmpty
+                        || (gameType == "other" && gameName.trimmingCharacters(in: .whitespaces).isEmpty)
                 ) {
-                    Task { await create() }
+                    showRoster = true
                 }
-                Text("About 5 minutes — you can leave after you tap Create. Come back here when it’s done.")
+                Text("Next: review player photos, signature looks, and AI characters.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -1207,6 +1667,9 @@ struct SiteFlyerView: View {
         }
         .scrollDismissesKeyboard(.interactively)
         .navigationTitle("Flyer")
+        .navigationDestination(isPresented: $showRoster) {
+            SiteAIRosterView(kind: .flyer(flyerDraft))
+        }
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()
@@ -1214,6 +1677,7 @@ struct SiteFlyerView: View {
             }
         }
         .task { await loadPlayers() }
+        .refreshable { await loadPlayers() }
         .onChange(of: gameType) { _, _ in
             Task { await loadRecent() }
         }
@@ -1294,58 +1758,22 @@ struct SiteFlyerView: View {
         }
     }
 
-    private func create() async {
-        saving = true
-        banner = nil
-        shareURL = nil
-        bannerIsError = false
+    private var flyerDraft: SiteFlyerDraft {
         let dateFmt = DateFormatter()
         dateFmt.locale = Locale(identifier: "en_US_POSIX")
         dateFmt.dateFormat = "yyyy-MM-dd"
         let timeFmt = DateFormatter()
         timeFmt.locale = Locale(identifier: "en_US_POSIX")
         timeFmt.dateFormat = "h:mm a"
-        do {
-            let id = try await PythonAnywhereClient.shared.createFlyer([
-                "players": selected,
-                "game_type": gameType,
-                "event_date": dateFmt.string(from: eventDate),
-                "event_time": timeFmt.string(from: eventTime),
-                "location": location.trimmingCharacters(in: .whitespaces),
-                "image_details": imageDetails.trimmingCharacters(in: .whitespacesAndNewlines),
-            ])
-            banner = "Working in the background. You can leave and come back in about 5 minutes."
-            if let url = await waitForFlyer(jobId: id) {
-                shareURL = url
-                banner = "Flyer ready"
-            } else {
-                banner = "Still working in the background. Come back here in a few minutes."
-            }
-        } catch {
-            banner = error.localizedDescription
-            bannerIsError = true
-        }
-        saving = false
-    }
-
-    private func waitForFlyer(jobId: Int) async -> URL? {
-        for i in 0..<90 {
-            if i > 0 { try? await Task.sleep(nanoseconds: 4_000_000_000) }
-            guard let job = try? await PythonAnywhereClient.shared.aiJob(id: jobId) else { continue }
-            let status = (job["status"] as? String ?? "").lowercased()
-            if status == "failed" || status == "error" {
-                banner = (job["error"] as? String) ?? "Flyer failed"
-                bannerIsError = true
-                return nil
-            }
-            if let share = job["share_id"] as? String, !share.isEmpty {
-                return SitePublicLink.flyer(share)
-            }
-            if status == "completed" || status == "done" {
-                return nil
-            }
-        }
-        return nil
+        return SiteFlyerDraft(
+            players: selected,
+            gameType: gameType,
+            gameName: gameType == "other" ? gameName.trimmingCharacters(in: .whitespaces) : "",
+            eventDate: dateFmt.string(from: eventDate),
+            eventTime: timeFmt.string(from: eventTime),
+            location: location.trimmingCharacters(in: .whitespaces),
+            imageDetails: imageDetails.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
     }
 }
 
@@ -1526,10 +1954,13 @@ struct SiteAdminView: View {
             }
         }
         .navigationTitle("Admin")
-        .task {
-            overview = (try? await PythonAnywhereClient.shared.adminOverview()) ?? [:]
-            let act = (try? await PythonAnywhereClient.shared.adminActivity()) ?? [:]
-            activity = act["entries"] as? [[String: Any]] ?? []
-        }
+        .task { await load() }
+        .refreshable { await load() }
+    }
+
+    private func load() async {
+        overview = (try? await PythonAnywhereClient.shared.adminOverview()) ?? [:]
+        let act = (try? await PythonAnywhereClient.shared.adminActivity()) ?? [:]
+        activity = act["entries"] as? [[String: Any]] ?? []
     }
 }

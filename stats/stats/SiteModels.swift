@@ -403,6 +403,12 @@ struct SitePlayer: Codable, Identifiable {
 
     var id: String { "\(playerId ?? 0)-\(name)" }
 
+    var isReadyForIllustration: Bool {
+        !(photoUrl ?? "").isEmpty
+            || !(aiImageUrl ?? "").isEmpty
+            || !(aiImageTraits ?? []).isEmpty
+    }
+
     enum CodingKeys: String, CodingKey {
         case playerId = "id"
         case name, nickname, email, dateOfBirth, height, games, firstGame, photoUrl, aiImageUrl, aiImageTraits
