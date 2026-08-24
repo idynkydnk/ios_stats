@@ -28,11 +28,14 @@ struct SiteMoreView: View {
                         NavigationLink("Tournaments") { SiteTournamentsView() }
                     }
                     NavigationLink("Volleyball") { SiteVolleyballView() }
+                    if auth.isLoggedIn {
+                        NavigationLink("AI Recaps") { SiteRecapsView() }
+                        NavigationLink("Flyers") { SiteFlyersView() }
+                    }
                 }
                 if auth.isLoggedIn {
                     Section("Create") {
                         NavigationLink("AI Summary") { SiteAISummaryView() }
-                        NavigationLink("AI Recaps") { SiteRecapsView() }
                         NavigationLink("Create Flyer") { SiteFlyerView() }
                         NavigationLink("Add doubles by voice") { SiteVoiceAddView() }
                     }
@@ -1033,6 +1036,8 @@ struct SiteAIRosterView: View {
     @State private var banner: String?
     @State private var bannerIsError = false
     @State private var shareURL: URL?
+    @State private var flyerImageURL: URL?
+    @State private var flyerDownloadURL: URL?
 
     var body: some View {
         List {
@@ -1046,7 +1051,28 @@ struct SiteAIRosterView: View {
             if let banner {
                 SiteAddBanner(text: banner, isError: bannerIsError)
             }
-            if let shareURL {
+            if case .flyer = kind {
+                if let flyerImageURL {
+                    Text("Share the picture, not a link. Download it and post that image.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    AsyncImage(url: flyerImageURL) { phase in
+                        if case .success(let img) = phase {
+                            img.resizable().scaledToFit()
+                        } else {
+                            ProgressView()
+                        }
+                    }
+                    .frame(maxHeight: 280)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                }
+                if let flyerDownloadURL {
+                    SiteDownloadPictureButton(
+                        imageURL: flyerDownloadURL,
+                        filename: "flyer.jpg"
+                    )
+                }
+            } else if let shareURL {
                 HStack {
                     ShareLink(item: shareURL)
                     SiteCopyLinkButton(url: shareURL)
@@ -1166,7 +1192,7 @@ struct SiteAIRosterView: View {
         case .recap:
             return "Tap a player to edit their face photo, signature look, and AI character. Players need a photo, signature look, or saved AI character to appear in the illustration. If someone has no AI character yet, the group picture uses their face photo. Players with none of those are left out."
         case .flyer:
-            return "Tap a player to edit their face photo, signature look, and AI character. Flyers use a saved AI character when one exists; otherwise they need a face photo."
+            return "Tap a player to edit their face photo, signature look, and AI character. Flyers use a saved AI character when one exists; otherwise they need a face photo. When it’s ready, download the picture and share that — not a link."
         }
     }
 
@@ -1207,6 +1233,8 @@ struct SiteAIRosterView: View {
         creating = true
         banner = nil
         shareURL = nil
+        flyerImageURL = nil
+        flyerDownloadURL = nil
         bannerIsError = false
         do {
             let id = try await PythonAnywhereClient.shared.createFlyer([
@@ -1218,16 +1246,18 @@ struct SiteAIRosterView: View {
                 "location": draft.location,
                 "image_details": draft.imageDetails,
             ])
-            banner = "Working in the background. You can leave and come back in about 5 minutes."
+            banner = "Working in the background. You can leave and check Flyers in about 5 minutes."
             let result = await siteWaitForAIShare(jobId: id, recap: false)
-            if let url = result.url {
-                shareURL = url
-                banner = "Flyer ready"
+            if result.imageURL != nil || result.downloadURL != nil || result.pageURL != nil {
+                shareURL = result.pageURL
+                flyerImageURL = result.imageURL
+                flyerDownloadURL = result.downloadURL ?? result.imageURL
+                banner = "Flyer ready. Download the picture and share that — don’t send a link."
             } else if let err = result.error {
                 banner = err
                 bannerIsError = true
             } else {
-                banner = "Still working in the background. Come back here in a few minutes."
+                banner = "Still working in the background. Check Flyers in a few minutes."
             }
         } catch {
             banner = error.localizedDescription
@@ -1400,7 +1430,7 @@ struct SiteAIStyleView: View {
                 ? "Working in the background. You can leave and check Recaps in about 5 minutes."
                 : "Working in the background. You can leave and check Recaps."
             let result = await siteWaitForAIShare(jobId: jobId, recap: true)
-            if let url = result.url {
+            if let url = result.pageURL {
                 shareURL = url
                 banner = "Recap ready"
             } else if let err = result.error {
@@ -1417,23 +1447,37 @@ struct SiteAIStyleView: View {
     }
 }
 
-private func siteWaitForAIShare(jobId: Int, recap: Bool) async -> (url: URL?, error: String?) {
+private struct SiteAIShareResult {
+    var pageURL: URL?
+    var imageURL: URL?
+    var downloadURL: URL?
+    var error: String?
+}
+
+private func siteWaitForAIShare(jobId: Int, recap: Bool) async -> SiteAIShareResult {
     for i in 0..<90 {
         if i > 0 { try? await Task.sleep(nanoseconds: 4_000_000_000) }
         guard let job = try? await PythonAnywhereClient.shared.aiJob(id: jobId) else { continue }
         let status = (job["status"] as? String ?? "").lowercased()
         if status == "failed" || status == "error" {
-            return (nil, (job["error"] as? String) ?? (recap ? "Recap failed" : "Flyer failed"))
+            return SiteAIShareResult(error: (job["error"] as? String) ?? (recap ? "Recap failed" : "Flyer failed"))
         }
         if let share = job["share_id"] as? String, !share.isEmpty {
-            let url = recap ? SitePublicLink.recap(share) : SitePublicLink.flyer(share)
-            return (url, nil)
+            if recap {
+                return SiteAIShareResult(pageURL: SitePublicLink.recap(share))
+            }
+            return SiteAIShareResult(
+                pageURL: SitePublicLink.flyer(share),
+                imageURL: SitePublicLink.absolute(job["flyer_image_url"] as? String),
+                downloadURL: SitePublicLink.absolute(job["download_url"] as? String)
+                    ?? SitePublicLink.flyerDownload(share)
+            )
         }
         if status == "completed" || status == "done" {
-            return (nil, nil)
+            return SiteAIShareResult()
         }
     }
-    return (nil, nil)
+    return SiteAIShareResult()
 }
 
 struct SiteRecapsView: View {
@@ -1466,6 +1510,16 @@ struct SiteRecapsView: View {
             }
         }
         .navigationTitle("AI Recaps")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                NavigationLink {
+                    SiteAISummaryView()
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .accessibilityLabel("Create recap")
+            }
+        }
         .task { await load() }
         .refreshable { await load() }
     }
@@ -1476,6 +1530,108 @@ struct SiteRecapsView: View {
             error = nil
         } catch {
             self.error = error.localizedDescription
+        }
+    }
+}
+
+struct SiteFlyersView: View {
+    @State private var items: [FlyerItem] = []
+    @State private var error: String?
+
+    var body: some View {
+        List {
+            Section {
+                Text("Share the picture, not a link. Download it and post that image.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if let error {
+                Text(error).foregroundStyle(.red)
+            }
+            if items.isEmpty, error == nil {
+                Text("No flyers yet. Pull down to refresh, or create one from Create Flyer.")
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(items) { flyer in
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(flyer.title ?? "Flyer").font(.headline)
+                    flyerMeta(flyer)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    if let img = flyer.flyerImageUrl, let u = SitePublicLink.absolute(img) {
+                        AsyncImage(url: u) { phase in
+                            if case .success(let image) = phase {
+                                image.resizable().scaledToFit()
+                            } else {
+                                ProgressView()
+                            }
+                        }
+                        .frame(maxHeight: 280)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+                    if let download = downloadURL(for: flyer) {
+                        SiteDownloadPictureButton(
+                            imageURL: download,
+                            filename: "\(flyer.shareId ?? "flyer").jpg"
+                        )
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            .onDelete(perform: deleteFlyers)
+        }
+        .navigationTitle("Flyers")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                NavigationLink {
+                    SiteFlyerView()
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .accessibilityLabel("Create flyer")
+            }
+        }
+        .task { await load() }
+        .refreshable { await load() }
+    }
+
+    private func flyerMeta(_ flyer: FlyerItem) -> Text {
+        var parts: [String] = []
+        if let players = flyer.players, !players.isEmpty {
+            parts.append(players.joined(separator: ", "))
+        }
+        let when = [flyer.eventDate, flyer.eventTime].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " ")
+        if !when.isEmpty { parts.append(when) }
+        if let location = flyer.location, !location.isEmpty { parts.append(location) }
+        return Text(parts.joined(separator: " · "))
+    }
+
+    private func downloadURL(for flyer: FlyerItem) -> URL? {
+        if let raw = flyer.downloadUrl, let url = SitePublicLink.absolute(raw) { return url }
+        if let id = flyer.shareId { return SitePublicLink.flyerDownload(id) }
+        return SitePublicLink.absolute(flyer.flyerImageUrl)
+    }
+
+    private func load() async {
+        do {
+            items = try await PythonAnywhereClient.shared.flyers()
+            error = nil
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    private func deleteFlyers(at offsets: IndexSet) {
+        Task {
+            for index in offsets {
+                guard let id = items[index].shareId, !id.isEmpty else { continue }
+                do {
+                    try await PythonAnywhereClient.shared.deleteFlyer(shareId: id)
+                } catch {
+                    await MainActor.run { self.error = error.localizedDescription }
+                }
+            }
+            await load()
         }
     }
 }
@@ -1594,28 +1750,29 @@ struct SiteFlyerView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Time")
                         .font(.subheadline.weight(.semibold))
-                    HStack(spacing: 8) {
-                        ForEach(timePresets, id: \.self) { hour in
-                            let selectedHour = Calendar.current.component(.hour, from: eventTime) == hour
-                            Button { setTime(hour: hour) } label: {
-                                Text(timeLabel(hour))
-                                    .font(.subheadline.weight(.semibold))
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 8)
-                                    .background(selectedHour ? SiteAddAccent.orange : Color(.secondarySystemFill))
-                                    .foregroundStyle(selectedHour ? Color.black : Color.primary)
-                                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    DatePicker("Time", selection: $eventTime, displayedComponents: .hourAndMinute)
+                        .datePickerStyle(.wheel)
+                        .labelsHidden()
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 150)
+                        .clipped()
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(timePresets, id: \.self) { hour in
+                                let selectedPreset = isPresetSelected(hour)
+                                Button { setTime(hour: hour) } label: {
+                                    Text(timeLabel(hour))
+                                        .font(.subheadline.weight(.semibold))
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 8)
+                                        .background(selectedPreset ? SiteAddAccent.orange : Color(.secondarySystemFill))
+                                        .foregroundStyle(selectedPreset ? Color.black : Color.primary)
+                                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                                }
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
                         }
                     }
-                    DatePicker("Time", selection: $eventTime, displayedComponents: .hourAndMinute)
-                        .datePickerStyle(.compact)
-                        .labelsHidden()
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(RoundedRectangle(cornerRadius: 10).fill(Color(.secondarySystemFill)))
                 }
 
                 SiteAddTextRow(label: "Location", text: $location, field: .location, focus: $focused, submit: .next, onSubmit: {
@@ -1626,6 +1783,9 @@ struct SiteFlyerView: View {
                     Text("AI image details")
                         .font(.subheadline.weight(.semibold))
                     Text("Optional notes for the flyer image, like sunset, backyard, bring a friend…")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text("The flyer is a picture you download and share. Don’t send a website link.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     ZStack(alignment: .topLeading) {
@@ -1707,6 +1867,12 @@ struct SiteFlyerView: View {
 
     private func timeLabel(_ hour: Int) -> String {
         hour < 12 ? "\(hour) AM" : hour == 12 ? "12 PM" : "\(hour - 12) PM"
+    }
+
+    private func isPresetSelected(_ hour: Int) -> Bool {
+        let cal = Calendar.current
+        return cal.component(.hour, from: eventTime) == hour
+            && cal.component(.minute, from: eventTime) == 0
     }
 
     private func setTime(hour: Int) {
@@ -1901,66 +2067,5 @@ final class VoiceCapture: ObservableObject {
         request = nil
         isRecording = false
         if status == "Listening…" { status = "Stopped." }
-    }
-}
-
-struct SiteAdminView: View {
-    @State private var overview: [String: Any] = [:]
-    @State private var activity: [[String: Any]] = []
-    @State private var message: String?
-    @State private var newUser = ""
-    @State private var newPass = ""
-
-    var body: some View {
-        List {
-            if let message { Text(message) }
-            Section("Overview") {
-                Text(String(describing: overview["counts"] ?? "—"))
-                Text("DB \(overview["db_size_mb"] ?? "—") MB")
-            }
-            Section("Actions") {
-                Button("Backup database") { Task { try? await PythonAnywhereClient.shared.adminBackup(); message = "Backup started" } }
-                Button("Clear stats cache") { Task { try? await PythonAnywhereClient.shared.adminClearCache(); message = "Cache cleared" } }
-                Button("Send test email") { Task { do { try await PythonAnywhereClient.shared.adminTestEmail(); message = "Email sent" } catch { message = error.localizedDescription } } }
-            }
-            Section("Add user") {
-                TextField("Username", text: $newUser)
-                SecureField("Password", text: $newPass)
-                Button("Create") {
-                    Task {
-                        do {
-                            try await PythonAnywhereClient.shared.adminAddUser(username: newUser, password: newPass, isAdmin: false)
-                            message = "User created"
-                        } catch { message = error.localizedDescription }
-                    }
-                }
-            }
-            Section("Activity") {
-                ForEach(activity.indices, id: \.self) { i in
-                    let e = activity[i]
-                    VStack(alignment: .leading) {
-                        Text("\(e["username"] ?? "") · \(e["action"] ?? "")").font(.subheadline)
-                        Text("\(e["summary"] ?? "")").font(.caption).foregroundStyle(.secondary)
-                        if let id = e["id"] as? Int {
-                            Button("Undo") {
-                                Task {
-                                    do { try await PythonAnywhereClient.shared.adminUndo(id: id); message = "Undone" }
-                                    catch { message = error.localizedDescription }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        .navigationTitle("Admin")
-        .task { await load() }
-        .refreshable { await load() }
-    }
-
-    private func load() async {
-        overview = (try? await PythonAnywhereClient.shared.adminOverview()) ?? [:]
-        let act = (try? await PythonAnywhereClient.shared.adminActivity()) ?? [:]
-        activity = act["entries"] as? [[String: Any]] ?? []
     }
 }

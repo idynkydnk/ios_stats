@@ -142,18 +142,32 @@ struct SectionYearBar: View {
 
 struct RankingTable: View {
     var title: String?
+    var subtitle: String? = nil
     var rows: [RankingRow]
     var showRating: Bool
     var showPlusMinus: Bool = false
+    var sortLikeToday: Bool = false
     var year: String
     var section: GameSection
+
+    private var displayedRows: [RankingRow] {
+        sortLikeToday ? RankingRow.sortedForToday(rows) : rows
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if let title {
-                Text(title).font(.headline).padding(.horizontal)
+                HStack(alignment: .firstTextBaseline) {
+                    Text(title).font(.headline)
+                    Spacer()
+                    if let subtitle {
+                        Text(subtitle).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.horizontal)
             }
-            ForEach(Array(rows.enumerated()), id: \.element.id) { idx, row in
+            headerRow
+            ForEach(Array(displayedRows.enumerated()), id: \.element.id) { idx, row in
                 NavigationLink {
                     SitePlayerDetailView(name: row.name, year: year, section: section)
                 } label: {
@@ -163,14 +177,15 @@ struct RankingTable: View {
                         if showRating, let r = row.rating {
                             Text(String(format: "%.0f", r)).frame(width: 44, alignment: .trailing)
                         }
-                        if showPlusMinus, let pm = row.plusMinus {
-                            Text(pm > 0 ? "+\(pm)" : "\(pm)")
-                                .foregroundStyle(pm >= 0 ? Color.green : Color.red)
-                                .frame(width: 44, alignment: .trailing)
-                        }
                         Text("\(row.wins)").frame(width: 32, alignment: .trailing).foregroundStyle(.green)
                         Text("\(row.losses)").frame(width: 32, alignment: .trailing).foregroundStyle(.red)
                         Text(row.winPctDisplay).frame(width: 48, alignment: .trailing)
+                        if showPlusMinus {
+                            let pm = row.plusMinus ?? 0
+                            Text(pm > 0 ? "+\(pm)" : "\(pm)")
+                                .foregroundStyle(pm > 0 ? Color.green : pm < 0 ? Color.red : .secondary)
+                                .frame(width: 44, alignment: .trailing)
+                        }
                     }
                     .font(.subheadline)
                     .padding(.horizontal)
@@ -178,6 +193,21 @@ struct RankingTable: View {
                 }
             }
         }
+    }
+
+    private var headerRow: some View {
+        HStack {
+            Text("#").frame(width: 28, alignment: .leading)
+            Text("Player").frame(maxWidth: .infinity, alignment: .leading)
+            if showRating { Text("Rating").frame(width: 44, alignment: .trailing) }
+            Text("W").frame(width: 32, alignment: .trailing)
+            Text("L").frame(width: 32, alignment: .trailing)
+            Text("Win%").frame(width: 48, alignment: .trailing)
+            if showPlusMinus { Text("+/-").frame(width: 44, alignment: .trailing) }
+        }
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(.secondary)
+        .padding(.horizontal)
     }
 }
 
@@ -207,7 +237,16 @@ struct SiteStatsView: View {
                                     .font(.footnote).foregroundStyle(.secondary).padding(.horizontal)
                             }
                             if !d.todayStats.isEmpty {
-                                RankingTable(title: "Today's Stats", rows: filter(d.todayStats), showRating: false, showPlusMinus: true, year: d.displayYear, section: .doubles)
+                                RankingTable(
+                                    title: "Today's Stats",
+                                    subtitle: gameCountLabel(d.todayGameCount),
+                                    rows: filter(d.todayStats),
+                                    showRating: false,
+                                    showPlusMinus: true,
+                                    sortLikeToday: true,
+                                    year: d.displayYear,
+                                    section: .doubles
+                                )
                             }
                             RankingTable(title: "Ranked", rows: filter(d.stats), showRating: true, year: d.displayYear, section: .doubles)
                             if !d.rareStats.isEmpty {
@@ -216,10 +255,43 @@ struct SiteStatsView: View {
                         }
                     case .vollis:
                         if let v = vollis {
+                            if v.showingPreviousYear {
+                                Text("No games yet this year. Showing \(v.displayYear).")
+                                    .font(.footnote).foregroundStyle(.secondary).padding(.horizontal)
+                            }
+                            if let today = v.todayStats, !today.isEmpty {
+                                RankingTable(
+                                    title: "Today's Stats",
+                                    subtitle: gameCountLabel(v.todayGameCount ?? today.count),
+                                    rows: filter(today),
+                                    showRating: false,
+                                    showPlusMinus: true,
+                                    sortLikeToday: true,
+                                    year: v.displayYear,
+                                    section: .vollis
+                                )
+                            }
                             RankingTable(title: nil, rows: filter(v.stats), showRating: false, year: v.displayYear, section: .vollis)
                         }
                     case .other:
                         if let o = other {
+                            if o.showingPreviousYear {
+                                Text("No games yet this year. Showing \(o.displayYear).")
+                                    .font(.footnote).foregroundStyle(.secondary).padding(.horizontal)
+                            }
+                            ForEach(o.todayStatsByGame) { block in
+                                let count = block.gameCount ?? block.stats.count
+                                RankingTable(
+                                    title: "Today's \(block.gameName ?? "Other")",
+                                    subtitle: gameCountLabel(count),
+                                    rows: filter(block.stats),
+                                    showRating: false,
+                                    showPlusMinus: true,
+                                    sortLikeToday: true,
+                                    year: o.displayYear,
+                                    section: .other
+                                )
+                            }
                             ForEach(o.gameCards) { card in
                                 RankingTable(title: card.gameName, rows: filter(card.stats), showRating: false, year: o.displayYear, section: .other)
                                 if !card.rareStats.isEmpty {
@@ -248,6 +320,10 @@ struct SiteStatsView: View {
         return rows.filter { $0.name.lowercased().contains(q) }
     }
 
+    private func gameCountLabel(_ n: Int) -> String {
+        n == 1 ? "1 game" : "\(n) games"
+    }
+
     private func load() async {
         loading = true
         error = nil
@@ -257,7 +333,16 @@ struct SiteStatsView: View {
             case .doubles:
                 doubles = try await PythonAnywhereClient.shared.doublesStats(year: year)
             case .vollis:
-                vollis = try await PythonAnywhereClient.shared.vollisStats(year: year)
+                var payload = try await PythonAnywhereClient.shared.vollisStats(year: year)
+                if (payload.todayStats ?? []).isEmpty {
+                    let games = (try? await PythonAnywhereClient.shared.vollisGames(year: String(Calendar.current.component(.year, from: Date()))))?.games ?? []
+                    let todayGames = games.filter { siteIsToday($0.date) }
+                    if !todayGames.isEmpty {
+                        payload.todayStats = RankingRow.todayStats(fromVollis: todayGames)
+                        payload.todayGameCount = todayGames.count
+                    }
+                }
+                vollis = payload
             case .other:
                 other = try await PythonAnywhereClient.shared.otherStats(year: year)
             }
@@ -465,14 +550,10 @@ struct SitePlayerNamesLine: View {
     var year: String
     var section: GameSection
     var color: Color
-    var separator: String = ", "
 
     var body: some View {
-        HStack(spacing: 0) {
-            ForEach(Array(names.enumerated()), id: \.offset) { i, name in
-                if i > 0 {
-                    Text(separator).foregroundStyle(color)
-                }
+        HStack(spacing: 4) {
+            ForEach(Array(names.enumerated()), id: \.offset) { _, name in
                 NavigationLink {
                     SitePlayerDetailView(name: name, year: year, section: section)
                 } label: {
@@ -528,7 +609,6 @@ struct DoublesGameRow: View {
     private func playerPair(_ a: String?, _ b: String?, color: Color) -> some View {
         HStack(spacing: 4) {
             playerName(a, color: color)
-            Text("&").foregroundStyle(color)
             playerName(b, color: color)
         }
     }

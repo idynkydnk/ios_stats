@@ -6,11 +6,6 @@
 	objectVersion = 77;
 	objects = {
 
-/* Begin PBXBuildFile section */
-		GSIGN2E9C6A3900D8876E /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = GSIGN2E9C6A3900D8875E /* GoogleSignIn */; };
-		SUPABASE2E9C6A3900D8876E /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = SUPABASE2E9C6A3900D8875E /* Supabase */; };
-/* End PBXBuildFile section */
-
 /* Begin PBXFileReference section */
 		21A359822E9C6A3900D8875E /* stats.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = stats.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -45,8 +40,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				GSIGN2E9C6A3900D8876E /* GoogleSignIn in Frameworks */,
-				SUPABASE2E9C6A3900D8876E /* Supabase in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -89,8 +82,6 @@
 			);
 			name = stats;
 			packageProductDependencies = (
-				GSIGN2E9C6A3900D8875E /* GoogleSignIn */,
-				SUPABASE2E9C6A3900D8875E /* Supabase */,
 			);
 			productName = stats;
 			productReference = 21A359822E9C6A3900D8875E /* stats.app */;
@@ -121,8 +112,6 @@
 			mainGroup = 21A359792E9C6A3900D8875E;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				GSIGNPKG2E9C6A3900D8875E /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
-				SUPAPKG2E9C6A3900D8875E /* XCRemoteSwiftPackageReference "supabase-swift" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 21A359832E9C6A3900D8875E /* Products */;
@@ -317,8 +306,7 @@
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
-				MARKETING_VERSION = 5.4;
-				OTHER_LDFLAGS = "-ObjC";
+				MARKETING_VERSION = 5.7;
 				PRODUCT_BUNDLE_IDENTIFIER = com.kt.stats;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -375,8 +363,7 @@
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
-				MARKETING_VERSION = 5.4;
-				OTHER_LDFLAGS = "-ObjC";
+				MARKETING_VERSION = 5.7;
 				PRODUCT_BUNDLE_IDENTIFIER = com.kt.stats;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -413,38 +400,6 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
-
-/* Begin XCRemoteSwiftPackageReference section */
-		GSIGNPKG2E9C6A3900D8875E /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/google/GoogleSignIn-iOS";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 8.0.0;
-			};
-		};
-		SUPAPKG2E9C6A3900D8875E /* XCRemoteSwiftPackageReference "supabase-swift" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/supabase/supabase-swift";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 2.0.0;
-			};
-		};
-/* End XCRemoteSwiftPackageReference section */
-
-/* Begin XCSwiftPackageProductDependency section */
-		GSIGN2E9C6A3900D8875E /* GoogleSignIn */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = GSIGNPKG2E9C6A3900D8875E /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
-			productName = GoogleSignIn;
-		};
-		SUPABASE2E9C6A3900D8875E /* Supabase */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = SUPAPKG2E9C6A3900D8875E /* XCRemoteSwiftPackageReference "supabase-swift" */;
-			productName = Supabase;
-		};
-/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 21A3597A2E9C6A3900D8875E /* Project object */;
 }

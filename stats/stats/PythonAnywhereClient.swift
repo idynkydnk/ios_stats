@@ -401,6 +401,17 @@ final class PythonAnywhereClient {
         return w.recaps
     }
 
+    func flyers() async throws -> [FlyerItem] {
+        struct Wrap: Codable { var flyers: [FlyerItem] }
+        let w: Wrap = try await get("/api/flyers")
+        return w.flyers
+    }
+
+    func deleteFlyer(shareId: String) async throws {
+        let encoded = shareId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? shareId
+        try await delete("/api/flyers/\(encoded)")
+    }
+
     func createFlyer(_ fields: [String: Any]) async throws -> Int {
         struct Resp: Decodable { var success: Bool?; var jobId: Int?; var error: String? }
         let r: Resp = try await postJSON("/api/flyers", json: fields)
@@ -417,40 +428,80 @@ final class PythonAnywhereClient {
         return json["games"] as? [[String: Any]] ?? []
     }
 
-    func adminOverview() async throws -> [String: Any] { try await getJSON("/api/admin/overview") }
-    func adminActivity(page: Int = 1) async throws -> [String: Any] {
-        try await getJSON("/api/admin/activity", query: ["page": String(page)])
+    private struct AdminOk: Decodable {
+        var ok: Bool?
+        var error: String?
+        var message: String?
+        var filename: String?
+        var username: String?
+        var to: String?
     }
-    func adminUndo(id: Int) async throws {
-        struct Ok: Decodable { var ok: Bool?; var error: String? }
-        let r: Ok = try await postJSON("/api/admin/undo/\(id)", json: [String: String]())
+
+    func adminOverview() async throws -> AdminOverview {
+        try await get("/api/admin/overview")
+    }
+
+    func adminActivity(page: Int = 1, query: String? = nil, username: String? = nil, action: String? = nil) async throws -> AdminActivityPage {
+        var q: [String: String] = ["page": String(page), "per_page": "40"]
+        if let query, !query.isEmpty { q["q"] = query }
+        if let username, !username.isEmpty { q["username"] = username }
+        if let action, !action.isEmpty { q["action"] = action }
+        return try await get("/api/admin/activity", query: q)
+    }
+
+    func adminActivityEntry(id: Int) async throws -> AdminActivityEntry {
+        struct Wrap: Decodable { var entry: AdminActivityEntry }
+        let w: Wrap = try await get("/api/admin/activity/\(id)")
+        return w.entry
+    }
+
+    func adminUndo(id: Int) async throws -> String {
+        let r: AdminOk = try await postJSON("/api/admin/undo/\(id)", json: [String: String]())
         if r.ok == false { throw SiteAPIError.message(r.error ?? "Undo failed") }
+        return r.message ?? "Undone"
     }
+
     func adminAddUser(username: String, password: String, isAdmin: Bool) async throws {
-        struct Ok: Decodable { var ok: Bool?; var error: String? }
-        let r: Ok = try await postJSON("/api/admin/users", json: ["username": username, "password": password, "is_admin": isAdmin])
-        if let err = r.error, r.ok != true { throw SiteAPIError.message(err) }
+        let r: AdminOk = try await postJSON("/api/admin/users", json: [
+            "username": username,
+            "password": password,
+            "is_admin": isAdmin,
+        ])
+        if r.ok == false { throw SiteAPIError.message(r.error ?? "Could not create user") }
     }
+
     func adminResetPassword(username: String, password: String) async throws {
-        struct Ok: Decodable { var ok: Bool? }
-        let _: Ok = try await postJSON("/api/admin/users/reset_password", json: ["username": username, "password": password])
+        let r: AdminOk = try await postJSON("/api/admin/users/reset_password", json: [
+            "username": username,
+            "password": password,
+        ])
+        if r.ok == false { throw SiteAPIError.message(r.error ?? "Could not reset password") }
     }
+
     func adminToggleActive(username: String, active: Bool) async throws {
-        struct Ok: Decodable { var ok: Bool? }
-        let _: Ok = try await postJSON("/api/admin/users/toggle_active", json: ["username": username, "active": active])
+        let r: AdminOk = try await postJSON("/api/admin/users/toggle_active", json: [
+            "username": username,
+            "active": active,
+        ])
+        if r.ok == false { throw SiteAPIError.message(r.error ?? "Could not update user") }
     }
-    func adminBackup() async throws {
-        struct Ok: Decodable { var ok: Bool?; var filename: String? }
-        let _: Ok = try await postJSON("/api/admin/backup", json: [String: String]())
+
+    func adminBackup() async throws -> String {
+        let r: AdminOk = try await postJSON("/api/admin/backup", json: [String: String]())
+        if r.ok == false { throw SiteAPIError.message(r.error ?? "Backup failed") }
+        return r.filename ?? "Backup saved"
     }
+
     func adminClearCache() async throws {
-        struct Ok: Decodable { var ok: Bool? }
-        let _: Ok = try await postJSON("/api/admin/clear_cache", json: [String: String]())
+        let r: AdminOk = try await postJSON("/api/admin/clear_cache", json: [String: String]())
+        if r.ok == false { throw SiteAPIError.message(r.error ?? "Could not clear cache") }
     }
-    func adminTestEmail() async throws {
-        struct Ok: Decodable { var ok: Bool?; var error: String? }
-        let r: Ok = try await postJSON("/api/admin/test_email", json: [String: String]())
+
+    func adminTestEmail() async throws -> String {
+        let r: AdminOk = try await postJSON("/api/admin/test_email", json: [String: String]())
         if let err = r.error { throw SiteAPIError.message(err) }
+        if let to = r.to { return "Test email sent to \(to)" }
+        return "Test email sent"
     }
 
     // MARK: - HTTP

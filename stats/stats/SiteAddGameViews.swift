@@ -135,21 +135,20 @@ struct SiteAddDoublesView: View {
     private func todayBoard(_ dash: TodaysDoublesDashboard) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Today's Stats").font(.headline).padding(.top, 8)
-            ForEach(Array(dash.stats.enumerated()), id: \.element.id) { idx, row in
+            ForEach(Array(RankingRow.sortedForToday(dash.stats).enumerated()), id: \.element.id) { idx, row in
                 NavigationLink {
                     SitePlayerDetailView(name: row.name, year: String(Calendar.current.component(.year, from: Date())), section: .doubles)
                 } label: {
                     HStack {
                         Text("\(idx + 1)").foregroundStyle(.secondary).frame(width: 24, alignment: .leading)
                         Text(row.name).frame(maxWidth: .infinity, alignment: .leading)
-                        if let pm = row.plusMinus {
-                            Text(pm > 0 ? "+\(pm)" : "\(pm)")
-                                .foregroundStyle(pm >= 0 ? Color.green : Color.red)
-                                .frame(width: 36, alignment: .trailing)
-                        }
                         Text("\(row.wins)").foregroundStyle(.green).frame(width: 28, alignment: .trailing)
                         Text("\(row.losses)").foregroundStyle(.red).frame(width: 28, alignment: .trailing)
                         Text(row.winPctDisplay).frame(width: 44, alignment: .trailing)
+                        let pm = row.plusMinus ?? 0
+                        Text(pm > 0 ? "+\(pm)" : "\(pm)")
+                            .foregroundStyle(pm > 0 ? Color.green : pm < 0 ? Color.red : .secondary)
+                            .frame(width: 36, alignment: .trailing)
                     }
                     .font(.subheadline)
                     .foregroundStyle(.primary)
@@ -559,8 +558,8 @@ struct SiteAddOtherView: View {
                         ForEach(todayGames) { g in
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(g.gameName ?? "").font(.subheadline.weight(.semibold))
-                                Text(g.displayWinners.joined(separator: ", ")).foregroundStyle(.green).font(.caption)
-                                Text(g.displayLosers.joined(separator: ", ")).foregroundStyle(.red).font(.caption)
+                                Text(g.displayWinners.joined(separator: " ")).foregroundStyle(.green).font(.caption)
+                                Text(g.displayLosers.joined(separator: " ")).foregroundStyle(.red).font(.caption)
                             }
                             .padding(.vertical, 4)
                         }

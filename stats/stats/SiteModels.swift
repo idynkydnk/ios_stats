@@ -30,6 +30,23 @@ struct RankingRow: Codable, Identifiable {
 
     var gamesCount: Int { games ?? (wins + losses) }
 
+    /// Fraction 0...1, whether the API sent 0.75 or 75.
+    var winPctFraction: Double { winPct > 1.0 ? winPct / 100.0 : winPct }
+
+    /// Website today tables: win% desc, then +/- desc, then wins desc.
+    static func sortedForToday(_ rows: [RankingRow]) -> [RankingRow] {
+        rows.sorted { a, b in
+            if abs(a.winPctFraction - b.winPctFraction) > 0.0001 {
+                return a.winPctFraction > b.winPctFraction
+            }
+            let aPM = a.plusMinus ?? 0
+            let bPM = b.plusMinus ?? 0
+            if aPM != bPM { return aPM > bPM }
+            if a.wins != b.wins { return a.wins > b.wins }
+            return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
+        }
+    }
+
     init(name: String, wins: Int, losses: Int, winPct: Double, games: Int? = nil, rating: Double? = nil, plusMinus: Int? = nil) {
         self.name = name
         self.wins = wins
@@ -44,37 +61,63 @@ struct RankingRow: Codable, Identifiable {
         case name, wins, losses, winPct, games, rating, plusMinus
     }
 
+    private enum AltKeys: String, CodingKey {
+        case win_pct, plus_minus
+    }
+
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        let alt = try decoder.container(keyedBy: AltKeys.self)
         name = try c.decode(String.self, forKey: .name)
         wins = Self.int(c, .wins)
         losses = Self.int(c, .losses)
-        winPct = Self.double(c, .winPct)
+        winPct = Self.optionalDouble(c, .winPct) ?? Self.optionalDouble(alt, .win_pct) ?? 0
         games = Self.optionalInt(c, .games)
         rating = Self.optionalDouble(c, .rating)
-        plusMinus = Self.optionalInt(c, .plusMinus)
+        plusMinus = Self.optionalInt(c, .plusMinus) ?? Self.optionalInt(alt, .plus_minus)
     }
 
     private static func int(_ c: KeyedDecodingContainer<CodingKeys>, _ key: CodingKeys) -> Int {
         optionalInt(c, key) ?? 0
     }
 
-    private static func optionalInt(_ c: KeyedDecodingContainer<CodingKeys>, _ key: CodingKeys) -> Int? {
+    private static func optionalInt<K: CodingKey>(_ c: KeyedDecodingContainer<K>, _ key: K) -> Int? {
         if let v = try? c.decode(Int.self, forKey: key) { return v }
         if let v = try? c.decode(Double.self, forKey: key) { return Int(v) }
         if let v = try? c.decode(String.self, forKey: key) { return Int(v) }
         return nil
     }
 
-    private static func double(_ c: KeyedDecodingContainer<CodingKeys>, _ key: CodingKeys) -> Double {
-        optionalDouble(c, key) ?? 0
-    }
-
-    private static func optionalDouble(_ c: KeyedDecodingContainer<CodingKeys>, _ key: CodingKeys) -> Double? {
+    private static func optionalDouble<K: CodingKey>(_ c: KeyedDecodingContainer<K>, _ key: K) -> Double? {
         if let v = try? c.decode(Double.self, forKey: key) { return v }
         if let v = try? c.decode(Int.self, forKey: key) { return Double(v) }
         if let v = try? c.decode(String.self, forKey: key) { return Double(v) }
         return nil
+    }
+
+    static func todayStats(fromVollis games: [VollisGame]) -> [RankingRow] {
+        var map: [String: (wins: Int, losses: Int, plusMinus: Int)] = [:]
+        for game in games {
+            let margin = (game.winnerScore ?? 0) - (game.loserScore ?? 0)
+            if let winner = game.winner?.trimmingCharacters(in: .whitespaces), !winner.isEmpty {
+                let cur = map[winner] ?? (0, 0, 0)
+                map[winner] = (cur.wins + 1, cur.losses, cur.plusMinus + margin)
+            }
+            if let loser = game.loser?.trimmingCharacters(in: .whitespaces), !loser.isEmpty {
+                let cur = map[loser] ?? (0, 0, 0)
+                map[loser] = (cur.wins, cur.losses + 1, cur.plusMinus - margin)
+            }
+        }
+        return map.map { name, s in
+            let played = s.wins + s.losses
+            return RankingRow(
+                name: name,
+                wins: s.wins,
+                losses: s.losses,
+                winPct: played > 0 ? Double(s.wins) / Double(played) : 0,
+                plusMinus: s.plusMinus
+            )
+        }
     }
 }
 
@@ -109,21 +152,6 @@ struct DoublesGame: Codable, Identifiable, Hashable {
     }
 
     var comment: String { comments ?? "" }
-
-    func asLegacyGame() -> LegacyGame {
-        LegacyGame(
-            id: id,
-            date: date,
-            winner1: winner1 ?? "",
-            winner2: winner2 ?? "",
-            winnerScore: winnerScore ?? 0,
-            loser1: loser1 ?? "",
-            loser2: loser2 ?? "",
-            loserScore: loserScore ?? 0,
-            comment: comment,
-            recordName: String(id)
-        )
-    }
 
     static func parseDate(_ raw: String?) -> Date? {
         guard let raw, !raw.isEmpty else { return nil }
@@ -251,6 +279,8 @@ struct VollisStatsPayload: Codable {
     var showingPreviousYear: Bool
     var allYears: [String]
     var stats: [RankingRow]
+    var todayStats: [RankingRow]?
+    var todayGameCount: Int?
 }
 
 struct OtherGamePlayer: Codable, Hashable {
@@ -471,15 +501,6 @@ struct MePayload: Codable {
     var loggedIn: Bool
 }
 
-struct ActivityEntrySite: Codable, Identifiable {
-    var id: Int?
-    var username: String?
-    var action: String?
-    var summary: String?
-    var createdAt: String?
-    var undone: Bool?
-}
-
 struct SiteUser: Codable, Identifiable {
     var username: String
     var isAdmin: Bool?
@@ -488,6 +509,228 @@ struct SiteUser: Codable, Identifiable {
     var lastSeen: String?
     var lastLogin: String?
     var id: String { username }
+
+    var isAdminUser: Bool { isAdmin == true }
+    var isActiveUser: Bool { active ?? true }
+}
+
+struct AdminGameCounts: Codable {
+    var today: Int
+    var week: Int
+    var total: Int
+}
+
+struct AdminCounts: Codable {
+    var doubles: AdminGameCounts
+    var vollis: AdminGameCounts
+    var other: AdminGameCounts
+}
+
+struct AdminRecentGame: Codable {
+    var kind: String?
+    var gameDate: String?
+    var summary: String?
+}
+
+struct AdminActionCount: Codable, Identifiable {
+    var action: String
+    var count: Int
+    var id: String { action }
+}
+
+struct AdminActivityStats: Codable {
+    var total: Int
+    var today: Int
+    var todayByAction: [AdminActionCount]
+
+    enum CodingKeys: String, CodingKey {
+        case total, today, todayByAction
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        total = (try? c.decode(Int.self, forKey: .total)) ?? 0
+        today = (try? c.decode(Int.self, forKey: .today)) ?? 0
+        todayByAction = (try? c.decode([AdminActionCount].self, forKey: .todayByAction)) ?? []
+    }
+}
+
+struct AdminOverview: Codable {
+    var counts: AdminCounts
+    var recentGame: AdminRecentGame?
+    var dbSizeMb: Double?
+    var users: [SiteUser]
+    var emailConfigured: Bool
+    var activity: AdminActivityStats?
+
+    enum CodingKeys: String, CodingKey {
+        case counts, recentGame, dbSizeMb, users, emailConfigured, activity
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        counts = try c.decode(AdminCounts.self, forKey: .counts)
+        recentGame = try c.decodeIfPresent(AdminRecentGame.self, forKey: .recentGame)
+        if let d = try? c.decode(Double.self, forKey: .dbSizeMb) {
+            dbSizeMb = d
+        } else if let i = try? c.decode(Int.self, forKey: .dbSizeMb) {
+            dbSizeMb = Double(i)
+        } else {
+            dbSizeMb = nil
+        }
+        users = try c.decodeIfPresent([SiteUser].self, forKey: .users) ?? []
+        if c.contains(.emailConfigured) {
+            emailConfigured = AdminJSON.bool(c, .emailConfigured)
+        } else {
+            emailConfigured = true
+        }
+        activity = try c.decodeIfPresent(AdminActivityStats.self, forKey: .activity)
+    }
+}
+
+struct AdminActivityChange: Codable, Identifiable {
+    var field: String
+    var before: String?
+    var after: String?
+    var id: String { field }
+
+    static func diff(beforeJSON: String?, afterJSON: String?) -> [AdminActivityChange] {
+        func parse(_ raw: String?) -> [String: Any] {
+            guard let raw, let data = raw.data(using: .utf8),
+                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            else { return [:] }
+            return obj
+        }
+        let before = parse(beforeJSON)
+        let after = parse(afterJSON)
+        if before.isEmpty && after.isEmpty { return [] }
+        let keys = Set(before.keys).union(after.keys).sorted()
+        return keys.compactMap { key in
+            if key == "password_hash" { return nil }
+            let old = before[key]
+            let new = after[key]
+            if !before.isEmpty && !after.isEmpty && String(describing: old ?? "") == String(describing: new ?? "") {
+                return nil
+            }
+            return AdminActivityChange(
+                field: key,
+                before: old.map { String(describing: $0) },
+                after: new.map { String(describing: $0) }
+            )
+        }
+    }
+}
+
+struct AdminActivityEntry: Codable, Identifiable {
+    var id: Int
+    var createdAt: String?
+    var username: String
+    var action: String
+    var target: String?
+    var targetId: Int?
+    var summary: String?
+    var undone: Bool
+    var undoable: Bool
+    var undoKind: String?
+    var beforeJson: String?
+    var afterJson: String?
+    var changes: [AdminActivityChange]?
+
+    var resolvedChanges: [AdminActivityChange] {
+        if let changes, !changes.isEmpty { return changes }
+        return AdminActivityChange.diff(beforeJSON: beforeJson, afterJSON: afterJson)
+    }
+
+    var targetLabel: String? {
+        switch target {
+        case "doubles_game": return "Doubles"
+        case "vollis_game": return "Vollis"
+        case "other_game": return "Other"
+        default: return target?.replacingOccurrences(of: "_", with: " ").capitalized
+        }
+    }
+
+    var undoLabel: String {
+        if let undoKind, !undoKind.isEmpty { return "Undo \(undoKind)" }
+        return "Undo"
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, createdAt, username, action, target, targetId, summary
+        case undone, undoable, undoKind, beforeJson, afterJson, changes
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        if let v = try? c.decode(Int.self, forKey: .id) {
+            id = v
+        } else if let v = try? c.decode(String.self, forKey: .id), let i = Int(v) {
+            id = i
+        } else {
+            throw DecodingError.dataCorruptedError(forKey: .id, in: c, debugDescription: "Missing activity id")
+        }
+        createdAt = try c.decodeIfPresent(String.self, forKey: .createdAt)
+        username = (try? c.decode(String.self, forKey: .username)) ?? ""
+        action = (try? c.decode(String.self, forKey: .action)) ?? ""
+        target = try c.decodeIfPresent(String.self, forKey: .target)
+        if let v = try? c.decode(Int.self, forKey: .targetId) {
+            targetId = v
+        } else if let v = try? c.decode(String.self, forKey: .targetId) {
+            targetId = Int(v)
+        } else {
+            targetId = nil
+        }
+        summary = try? c.decode(String.self, forKey: .summary)
+        undone = AdminJSON.bool(c, .undone)
+        beforeJson = try? c.decode(String.self, forKey: .beforeJson)
+        afterJson = try? c.decode(String.self, forKey: .afterJson)
+        let decodedUndoable = c.contains(.undoable) ? AdminJSON.bool(c, .undoable) : nil
+        undoable = decodedUndoable ?? (
+            !undone
+            && targetId != nil
+            && ["doubles_game", "vollis_game", "other_game"].contains(target ?? "")
+            && (beforeJson != nil || afterJson != nil)
+        )
+        undoKind = try? c.decode(String.self, forKey: .undoKind)
+        changes = try? c.decode([AdminActivityChange].self, forKey: .changes)
+    }
+}
+
+struct AdminActivityPage: Codable {
+    var entries: [AdminActivityEntry]
+    var page: Int
+    var total: Int
+    var totalPages: Int?
+    var perPage: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case entries, page, total, totalPages, perPage
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        entries = try c.decodeIfPresent([AdminActivityEntry].self, forKey: .entries) ?? []
+        page = (try? c.decode(Int.self, forKey: .page)) ?? 1
+        total = (try? c.decode(Int.self, forKey: .total)) ?? entries.count
+        totalPages = try? c.decode(Int.self, forKey: .totalPages)
+        perPage = try? c.decode(Int.self, forKey: .perPage)
+    }
+
+    var hasMore: Bool {
+        if let totalPages { return page < totalPages }
+        return entries.count < total
+    }
+}
+
+private enum AdminJSON {
+    static func bool<K: CodingKey>(_ c: KeyedDecodingContainer<K>, _ key: K) -> Bool {
+        if let v = try? c.decode(Bool.self, forKey: key) { return v }
+        if let v = try? c.decode(Int.self, forKey: key) { return v != 0 }
+        if let v = try? c.decode(String.self, forKey: key) {
+            return ["1", "true", "yes"].contains(v.lowercased())
+        }
+        return false
+    }
 }
 
 struct RecapItem: Codable, Identifiable {
@@ -498,6 +741,21 @@ struct RecapItem: Codable, Identifiable {
     var headline: String?
     var summary: String?
     var id: String { shareId ?? [createdAt, headline].compactMap { $0 }.joined(separator: "|") }
+}
+
+struct FlyerItem: Codable, Identifiable {
+    var shareId: String?
+    var createdAt: String?
+    var flyerImageUrl: String?
+    var downloadUrl: String?
+    var viewUrl: String?
+    var title: String?
+    var players: [String]?
+    var gameType: String?
+    var eventDate: String?
+    var eventTime: String?
+    var location: String?
+    var id: String { shareId ?? [createdAt, title].compactMap { $0 }.joined(separator: "|") }
 }
 
 struct OfflineMutation: Codable, Identifiable {

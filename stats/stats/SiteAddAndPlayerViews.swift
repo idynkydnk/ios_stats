@@ -27,7 +27,8 @@ struct SiteAddHubView: View {
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 8) {
                                 addLink("AI Summary", systemImage: "sparkles") { SiteAISummaryView() }
-                                addLink("Flyer", systemImage: "megaphone") { SiteFlyerView() }
+                                addLink("New Flyer", systemImage: "megaphone") { SiteFlyerView() }
+                                addLink("Flyers", systemImage: "photo") { SiteFlyersView() }
                                 addLink("Recaps", systemImage: "text.bubble") { SiteRecapsView() }
                                 addLink("Voice", systemImage: "mic") { SiteVoiceAddView() }
                                 addLink("Tournament", systemImage: "trophy") { SiteTournamentsView() }
