@@ -470,6 +470,70 @@ struct AdminOverviewPane: View {
                         }
                     }
 
+                    AdminCard(title: "AI Recaps") {
+                        if overview.recentRecaps.isEmpty {
+                            Text("No published recaps yet.")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            ForEach(overview.recentRecaps.prefix(8)) { recap in
+                                AdminShareRow(
+                                    title: recap.title,
+                                    subtitle: [recap.username, recap.createdAt.map { _ in AdminTime.relative(recap.createdAt) }]
+                                        .compactMap { $0 }
+                                        .filter { !$0.isEmpty }
+                                        .joined(separator: " · "),
+                                    imageURL: recap.heroImageUrl,
+                                    url: SitePublicLink.absolute(recap.shareUrl)
+                                        ?? recap.shareId.flatMap(SitePublicLink.recap)
+                                )
+                            }
+                        }
+                        NavigationLink {
+                            SiteRecapsView()
+                        } label: {
+                            Text("See all recaps (\(overview.recapCount ?? overview.recentRecaps.count))")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(SiteAddAccent.orange)
+                        }
+                    }
+
+                    AdminCard(title: "AI Flyers") {
+                        if overview.recentFlyers.isEmpty {
+                            Text("No published flyers yet.")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            ForEach(overview.recentFlyers.prefix(8)) { flyer in
+                                AdminShareRow(
+                                    title: flyer.title ?? "Flyer",
+                                    subtitle: [flyer.username, flyer.createdAt.map { _ in AdminTime.relative(flyer.createdAt) }]
+                                        .compactMap { $0 }
+                                        .filter { !$0.isEmpty }
+                                        .joined(separator: " · "),
+                                    imageURL: flyer.flyerImageUrl,
+                                    url: SitePublicLink.absolute(flyer.viewUrl)
+                                        ?? flyer.shareId.flatMap(SitePublicLink.flyer)
+                                )
+                            }
+                        }
+                        NavigationLink {
+                            SiteFlyersView()
+                        } label: {
+                            Text("See all flyers (\(overview.flyerCount ?? overview.recentFlyers.count))")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(SiteAddAccent.orange)
+                        }
+                    }
+
+                    if !overview.recentJobs.isEmpty {
+                        AdminCard(title: "Recent AI jobs") {
+                            ForEach(overview.recentJobs.prefix(10)) { job in
+                                AdminJobRow(job: job)
+                            }
+                        }
+                    }
+
                     if let actions = overview.activity?.todayByAction, !actions.isEmpty {
                         AdminCard(title: "Today") {
                             ForEach(actions) { row in
@@ -776,6 +840,9 @@ struct AdminActivityDetailView: View {
                     Text(summary)
                         .font(.subheadline)
                 }
+                if let path = entry.itemPath, let url = SitePublicLink.absolute(path) {
+                    Link("Open page", destination: url)
+                }
                 if entry.undone {
                     Text("This change was undone.")
                         .font(.subheadline)
@@ -879,6 +946,11 @@ struct AdminActivityRow: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(compact ? 2 : 5)
             }
+            if let path = entry.itemPath, let url = SitePublicLink.absolute(path) {
+                Text(url.host == nil ? path : "Open page")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(SiteAddAccent.orange)
+            }
             HStack(spacing: 6) {
                 Text(AdminTime.relative(entry.createdAt))
                 if let target = entry.targetLabel {
@@ -891,6 +963,99 @@ struct AdminActivityRow: View {
         }
         .opacity(entry.undone ? 0.55 : 1)
         .padding(.vertical, 2)
+    }
+}
+
+struct AdminShareRow: View {
+    var title: String
+    var subtitle: String
+    var imageURL: String?
+    var url: URL?
+
+    var body: some View {
+        Group {
+            if let url {
+                Link(destination: url) { content }
+            } else {
+                content
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var content: some View {
+        HStack(spacing: 10) {
+            shareThumb
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                if !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    @ViewBuilder
+    private var shareThumb: some View {
+        if let imageURL, let u = SitePublicLink.absolute(imageURL) {
+            AsyncImage(url: u) { phase in
+                if case .success(let image) = phase {
+                    image.resizable().scaledToFill()
+                } else {
+                    Color.secondary.opacity(0.12)
+                }
+            }
+            .frame(width: 44, height: 44)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+        }
+    }
+}
+
+struct AdminJobRow: View {
+    var job: AdminAIJob
+
+    var body: some View {
+        Group {
+            if let url = SitePublicLink.absolute(job.itemUrl) {
+                Link(destination: url) { content }
+            } else {
+                content
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var content: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack {
+                Text(job.username ?? "unknown")
+                    .font(.subheadline.weight(.semibold))
+                Text(job.jobType ?? "recap")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text((job.status ?? "pending").capitalized)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(statusColor)
+            }
+            Text(job.error?.isEmpty == false ? job.error! : (job.resultSummary ?? AdminTime.relative(job.createdAt)))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+        }
+    }
+
+    private var statusColor: Color {
+        switch (job.status ?? "").lowercased() {
+        case "completed", "done": return SiteAddAccent.orange
+        case "failed": return .red
+        default: return .secondary
+        }
     }
 }
 

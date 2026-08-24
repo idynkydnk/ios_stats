@@ -562,9 +562,16 @@ struct AdminOverview: Codable {
     var users: [SiteUser]
     var emailConfigured: Bool
     var activity: AdminActivityStats?
+    var recentRecaps: [RecapItem]
+    var recentFlyers: [FlyerItem]
+    var recentJobs: [AdminAIJob]
+    var recapCount: Int?
+    var flyerCount: Int?
+    var jobCount: Int?
 
     enum CodingKeys: String, CodingKey {
         case counts, recentGame, dbSizeMb, users, emailConfigured, activity
+        case recentRecaps, recentFlyers, recentJobs, recapCount, flyerCount, jobCount
     }
 
     init(from decoder: Decoder) throws {
@@ -585,6 +592,50 @@ struct AdminOverview: Codable {
             emailConfigured = true
         }
         activity = try c.decodeIfPresent(AdminActivityStats.self, forKey: .activity)
+        recentRecaps = (try? c.decode([RecapItem].self, forKey: .recentRecaps)) ?? []
+        recentFlyers = (try? c.decode([FlyerItem].self, forKey: .recentFlyers)) ?? []
+        recentJobs = (try? c.decode([AdminAIJob].self, forKey: .recentJobs)) ?? []
+        recapCount = try? c.decode(Int.self, forKey: .recapCount)
+        flyerCount = try? c.decode(Int.self, forKey: .flyerCount)
+        jobCount = try? c.decode(Int.self, forKey: .jobCount)
+    }
+}
+
+struct AdminAIJob: Codable, Identifiable {
+    var id: Int
+    var createdAt: String?
+    var username: String?
+    var jobType: String?
+    var status: String?
+    var gameType: String?
+    var shareId: String?
+    var resultSummary: String?
+    var error: String?
+    var itemUrl: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, createdAt, username, jobType, status, gameType, shareId
+        case resultSummary, error, itemUrl
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        if let v = try? c.decode(Int.self, forKey: .id) {
+            id = v
+        } else if let v = try? c.decode(String.self, forKey: .id), let i = Int(v) {
+            id = i
+        } else {
+            id = 0
+        }
+        createdAt = try? c.decode(String.self, forKey: .createdAt)
+        username = try? c.decode(String.self, forKey: .username)
+        jobType = try? c.decode(String.self, forKey: .jobType)
+        status = try? c.decode(String.self, forKey: .status)
+        gameType = try? c.decode(String.self, forKey: .gameType)
+        shareId = try? c.decode(String.self, forKey: .shareId)
+        resultSummary = try? c.decode(String.self, forKey: .resultSummary)
+        error = try? c.decode(String.self, forKey: .error)
+        itemUrl = try? c.decode(String.self, forKey: .itemUrl)
     }
 }
 
@@ -635,6 +686,7 @@ struct AdminActivityEntry: Codable, Identifiable {
     var beforeJson: String?
     var afterJson: String?
     var changes: [AdminActivityChange]?
+    var itemPath: String?
 
     var resolvedChanges: [AdminActivityChange] {
         if let changes, !changes.isEmpty { return changes }
@@ -657,7 +709,7 @@ struct AdminActivityEntry: Codable, Identifiable {
 
     enum CodingKeys: String, CodingKey {
         case id, createdAt, username, action, target, targetId, summary
-        case undone, undoable, undoKind, beforeJson, afterJson, changes
+        case undone, undoable, undoKind, beforeJson, afterJson, changes, itemPath
     }
 
     init(from decoder: Decoder) throws {
@@ -693,6 +745,7 @@ struct AdminActivityEntry: Codable, Identifiable {
         )
         undoKind = try? c.decode(String.self, forKey: .undoKind)
         changes = try? c.decode([AdminActivityChange].self, forKey: .changes)
+        itemPath = try? c.decode(String.self, forKey: .itemPath)
     }
 }
 
@@ -739,8 +792,12 @@ struct RecapItem: Codable, Identifiable {
     var heroImageUrl: String?
     var shareUrl: String?
     var headline: String?
+    var subject: String?
     var summary: String?
-    var id: String { shareId ?? [createdAt, headline].compactMap { $0 }.joined(separator: "|") }
+    var username: String?
+    var gameType: String?
+    var id: String { shareId ?? [createdAt, headline, subject].compactMap { $0 }.joined(separator: "|") }
+    var title: String { (headline?.isEmpty == false ? headline : nil) ?? (subject?.isEmpty == false ? subject : nil) ?? "Recap" }
 }
 
 struct FlyerItem: Codable, Identifiable {
@@ -755,6 +812,7 @@ struct FlyerItem: Codable, Identifiable {
     var eventDate: String?
     var eventTime: String?
     var location: String?
+    var username: String?
     var id: String { shareId ?? [createdAt, title].compactMap { $0 }.joined(separator: "|") }
 }
 

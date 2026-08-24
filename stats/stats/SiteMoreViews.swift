@@ -1491,8 +1491,18 @@ struct SiteRecapsView: View {
                     .foregroundStyle(.secondary)
             }
             ForEach(items) { r in
-                VStack(alignment: .leading) {
-                    Text(r.headline ?? "Recap").font(.headline)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(r.title).font(.headline)
+                    HStack(spacing: 6) {
+                        if let user = r.username, !user.isEmpty {
+                            Text(user)
+                        }
+                        if let created = r.createdAt, !created.isEmpty {
+                            Text(AdminTime.relative(created))
+                        }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                     if let url = r.shareUrl, let u = URL(string: url) {
                         HStack {
                             ShareLink(item: u)
@@ -1506,7 +1516,7 @@ struct SiteRecapsView: View {
                 }
             }
         }
-        .navigationTitle("AI Recaps")
+        .navigationTitle(SiteAuthManager.shared.isAdmin ? "All recaps" : "AI Recaps")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 NavigationLink {
@@ -1552,6 +1562,11 @@ struct SiteFlyersView: View {
             ForEach(items) { flyer in
                 VStack(alignment: .leading, spacing: 8) {
                     Text(flyer.title ?? "Flyer").font(.headline)
+                    if let user = flyer.username, !user.isEmpty {
+                        Text(user)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                     flyerMeta(flyer)
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -1574,7 +1589,7 @@ struct SiteFlyersView: View {
             }
             .onDelete(perform: deleteFlyers)
         }
-        .navigationTitle("Flyers")
+        .navigationTitle(SiteAuthManager.shared.isAdmin ? "All flyers" : "Flyers")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 NavigationLink {
