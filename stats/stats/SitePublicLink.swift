@@ -1,6 +1,6 @@
 import SwiftUI
 import UIKit
-import UniformTypeIdentifiers
+import Photos
 
 enum SitePublicLink {
     static let host = "https://idynkydnk.pythonanywhere.com"
@@ -102,44 +102,42 @@ struct SiteCopyLinkButton: View {
     }
 }
 
-struct SiteShareableJPEG: Transferable {
-    var data: Data
-
-    static var transferRepresentation: some TransferRepresentation {
-        DataRepresentation(exportedContentType: .jpeg) { $0.data }
-    }
+struct SitePhotoSaveError: LocalizedError {
+    var message: String
+    var errorDescription: String? { message }
 }
 
-/// Downloads a JPEG and lets the user share the picture file — not a website link.
-struct SiteDownloadPictureButton: View {
+/// Saves a flyer JPEG to the photo library so it can be shared from Photos.
+struct SiteSaveFlyerPictureButton: View {
     var imageURL: URL
-    var filename: String
-    var label: String = "Download picture"
-    @State private var jpeg: Data?
     @State private var working = false
+    @State private var saved = false
     @State private var error: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if let jpeg {
-                ShareLink(
-                    item: SiteShareableJPEG(data: jpeg),
-                    preview: SharePreview(previewTitle, image: sharePreview(jpeg))
-                ) {
-                    Label("Share picture", systemImage: "square.and.arrow.up")
-                }
-            } else {
-                Button {
-                    Task { await download() }
-                } label: {
+            Button {
+                Task { await save() }
+            } label: {
+                HStack {
+                    Spacer()
                     if working {
                         ProgressView()
+                    } else if saved {
+                        Label("Saved to Photos", systemImage: "checkmark.circle.fill")
                     } else {
-                        Label(label, systemImage: "square.and.arrow.down")
+                        Label("Save to Photos", systemImage: "square.and.arrow.down")
                     }
+                    Spacer()
                 }
-                .disabled(working)
+                .font(.subheadline.weight(.semibold))
+                .padding(.vertical, 10)
+                .background(saved ? Color.green.opacity(0.18) : SiteAddAccent.orange)
+                .foregroundStyle(saved ? Color.green : Color.black)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
             }
+            .buttonStyle(.plain)
+            .disabled(working)
             if let error {
                 Text(error)
                     .font(.caption)
@@ -148,30 +146,30 @@ struct SiteDownloadPictureButton: View {
         }
     }
 
-    private var previewTitle: String {
-        filename.lowercased().hasSuffix(".jpg") ? String(filename.dropLast(4)) : filename
-    }
-
-    private func sharePreview(_ data: Data) -> Image {
-        if let ui = UIImage(data: data) {
-            return Image(uiImage: ui)
-        }
-        return Image(systemName: "photo")
-    }
-
-    private func download() async {
+    private func save() async {
         working = true
         error = nil
         defer { working = false }
         do {
             let (data, _) = try await URLSession.shared.data(from: imageURL)
-            guard !data.isEmpty else {
-                error = "Could not download picture"
+            guard let image = UIImage(data: data) else {
+                error = "Could not load picture"
                 return
             }
-            jpeg = data
+            try await saveToLibrary(image)
+            saved = true
         } catch {
             self.error = error.localizedDescription
+        }
+    }
+
+    private func saveToLibrary(_ image: UIImage) async throws {
+        let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
+        guard status == .authorized || status == .limited else {
+            throw SitePhotoSaveError(message: "Allow Photos access in Settings to save flyers.")
+        }
+        try await PHPhotoLibrary.shared().performChanges {
+            PHAssetChangeRequest.creationRequestForAsset(from: image)
         }
     }
 }

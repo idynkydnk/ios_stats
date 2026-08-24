@@ -1053,7 +1053,7 @@ struct SiteAIRosterView: View {
             }
             if case .flyer = kind {
                 if let flyerImageURL {
-                    Text("Share the picture, not a link. Download it and post that image.")
+                    Text("Save the picture to Photos, then share it from there. Don’t send a link.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     AsyncImage(url: flyerImageURL) { phase in
@@ -1067,10 +1067,7 @@ struct SiteAIRosterView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 12))
                 }
                 if let flyerDownloadURL {
-                    SiteDownloadPictureButton(
-                        imageURL: flyerDownloadURL,
-                        filename: "flyer.jpg"
-                    )
+                    SiteSaveFlyerPictureButton(imageURL: flyerDownloadURL)
                 }
             } else if let shareURL {
                 HStack {
@@ -1192,7 +1189,7 @@ struct SiteAIRosterView: View {
         case .recap:
             return "Tap a player to edit their face photo, signature look, and AI character. Players need a photo, signature look, or saved AI character to appear in the illustration. If someone has no AI character yet, the group picture uses their face photo. Players with none of those are left out."
         case .flyer:
-            return "Tap a player to edit their face photo, signature look, and AI character. Flyers use a saved AI character when one exists; otherwise they need a face photo. When it’s ready, download the picture and share that — not a link."
+            return "Tap a player to edit their face photo, signature look, and AI character. Flyers use a saved AI character when one exists; otherwise they need a face photo. When it’s ready, save the picture to Photos."
         }
     }
 
@@ -1252,7 +1249,7 @@ struct SiteAIRosterView: View {
                 shareURL = result.pageURL
                 flyerImageURL = result.imageURL
                 flyerDownloadURL = result.downloadURL ?? result.imageURL
-                banner = "Flyer ready. Download the picture and share that — don’t send a link."
+                banner = "Flyer ready. Save it to Photos, then share that picture — don’t send a link."
             } else if let err = result.error {
                 banner = err
                 bannerIsError = true
@@ -1541,7 +1538,7 @@ struct SiteFlyersView: View {
     var body: some View {
         List {
             Section {
-                Text("Share the picture, not a link. Download it and post that image.")
+                Text("Save the picture to Photos, then share it from there. Don’t send a link.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -1570,10 +1567,7 @@ struct SiteFlyersView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 12))
                     }
                     if let download = downloadURL(for: flyer) {
-                        SiteDownloadPictureButton(
-                            imageURL: download,
-                            filename: "\(flyer.shareId ?? "flyer").jpg"
-                        )
+                        SiteSaveFlyerPictureButton(imageURL: download)
                     }
                 }
                 .padding(.vertical, 4)
@@ -1785,7 +1779,7 @@ struct SiteFlyerView: View {
                     Text("Optional notes for the flyer image, like sunset, backyard, bring a friend…")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Text("The flyer is a picture you download and share. Don’t send a website link.")
+                    Text("The flyer is a picture you save to Photos and share from there. Don’t send a website link.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     ZStack(alignment: .topLeading) {

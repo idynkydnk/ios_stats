@@ -288,6 +288,7 @@
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.sports";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2025. All rights reserved.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "The microphone is used to speak doubles game results.";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Flyer pictures can be saved to your photo library.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Player photos can be uploaded to the shared stats site.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Voice entry turns spoken doubles results into a saved game.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -345,6 +346,7 @@
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.sports";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2025. All rights reserved.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "The microphone is used to speak doubles game results.";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Flyer pictures can be saved to your photo library.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Player photos can be uploaded to the shared stats site.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Voice entry turns spoken doubles results into a saved game.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
