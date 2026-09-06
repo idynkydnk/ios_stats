@@ -538,6 +538,18 @@ struct SiteUpdateChange: Codable, Identifiable, Hashable {
 
     var id: String { sha }
     var wasShared: Bool { alreadyShared == true }
+
+    var emailLine: String {
+        let detail = (body ?? "")
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty } ?? ""
+        if detail.isEmpty { return subject }
+        if detail.compare(subject, options: .caseInsensitive) == .orderedSame {
+            return subject
+        }
+        return "\(subject) — \(detail)"
+    }
 }
 
 struct SiteUpdateRecipient: Codable, Identifiable, Hashable {

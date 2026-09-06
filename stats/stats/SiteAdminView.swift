@@ -1205,7 +1205,7 @@ struct SiteUpdatesView: View {
     @State private var selectedUsers: Set<String> = []
     @State private var extraNotes = ""
     @State private var subject = "What's new on the stats site"
-    @State private var body = ""
+    @State private var messageBody = ""
     @State private var loading = false
     @State private var sending = false
     @State private var error: String?
@@ -1284,7 +1284,7 @@ struct SiteUpdatesView: View {
     private var usersStep: some View {
         Section("Message") {
             TextField("Subject", text: $subject)
-            TextField("Each line becomes a bullet", text: $body, axis: .vertical)
+            TextField("Each line becomes a bullet", text: $messageBody, axis: .vertical)
                 .lineLimit(6...12)
         }
         Section {
@@ -1360,8 +1360,8 @@ struct SiteUpdatesView: View {
             .split(whereSeparator: \.isNewline)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
-        lines.append(contentsOf: selected.map(\.subject))
-        body = lines.joined(separator: "\n")
+        lines.append(contentsOf: selected.map(\.emailLine))
+        messageBody = lines.joined(separator: "\n")
         if selectedUsers.isEmpty {
             selectedUsers = Set((payload?.recipients ?? []).filter(\.isEmailable).map(\.username))
         }
@@ -1396,7 +1396,7 @@ struct SiteUpdatesView: View {
                 extraNotes: extraNotes,
                 usernames: Array(selectedUsers),
                 subject: subject,
-                body: body
+                body: messageBody
             )
             step = 1
             extraNotes = ""
