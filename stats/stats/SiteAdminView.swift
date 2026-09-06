@@ -484,8 +484,8 @@ struct AdminOverviewPane: View {
                                         .filter { !$0.isEmpty }
                                         .joined(separator: " · "),
                                     imageURL: recap.heroImageUrl,
-                                    url: SitePublicLink.absolute(recap.shareUrl)
-                                        ?? recap.shareId.flatMap(SitePublicLink.recap)
+                                    url: recap.publicURL,
+                                    opensInApp: true
                                 )
                             }
                         }
@@ -583,12 +583,14 @@ struct AdminOverviewPane: View {
                         AdminActionButton(title: "Clear stats cache", systemImage: "arrow.clockwise") {
                             Task { await model.clearCache() }
                         }
-                        AdminActionButton(
-                            title: "Send test email",
-                            systemImage: "envelope",
-                            disabled: !model.emailConfigured
-                        ) {
+                        AdminActionButton(title: "Send test email", systemImage: "envelope", disabled: !model.emailConfigured) {
                             Task { await model.testEmail() }
+                        }
+                        NavigationLink {
+                            SiteUpdatesView()
+                        } label: {
+                            Label("Site updates", systemImage: "megaphone")
+                                .font(.subheadline.weight(.semibold))
                         }
                         if !model.emailConfigured {
                             Text("Email isn’t configured on the server.")
@@ -841,7 +843,13 @@ struct AdminActivityDetailView: View {
                         .font(.subheadline)
                 }
                 if let path = entry.itemPath, let url = SitePublicLink.absolute(path) {
-                    Link("Open page", destination: url)
+                    if url.path.contains("/recap/") {
+                        NavigationLink("View recap") {
+                            SiteRecapPageView(title: "Recap", url: url)
+                        }
+                    } else {
+                        Link("Open page", destination: url)
+                    }
                 }
                 if entry.undone {
                     Text("This change was undone.")
@@ -971,10 +979,17 @@ struct AdminShareRow: View {
     var subtitle: String
     var imageURL: String?
     var url: URL?
+    var opensInApp: Bool = false
 
     var body: some View {
         Group {
-            if let url {
+            if let url, opensInApp {
+                NavigationLink {
+                    SiteRecapPageView(title: title, url: url)
+                } label: {
+                    content
+                }
+            } else if let url {
                 Link(destination: url) { content }
             } else {
                 content
@@ -1021,13 +1036,28 @@ struct AdminJobRow: View {
 
     var body: some View {
         Group {
-            if let url = SitePublicLink.absolute(job.itemUrl) {
+            if let url = jobURL, url.path.contains("/recap/") {
+                NavigationLink {
+                    SiteRecapPageView(title: "Recap", url: url)
+                } label: {
+                    content
+                }
+            } else if let url = jobURL {
                 Link(destination: url) { content }
             } else {
                 content
             }
         }
         .buttonStyle(.plain)
+    }
+
+    private var jobURL: URL? {
+        if let url = SitePublicLink.absolute(job.itemUrl) { return url }
+        guard let shareId = job.shareId, !shareId.isEmpty else { return nil }
+        if (job.jobType ?? "recap").lowercased() == "flyer" {
+            return SitePublicLink.flyer(shareId)
+        }
+        return SitePublicLink.recap(shareId)
     }
 
     private var content: some View {
@@ -1165,5 +1195,216 @@ struct AdminMetaRow: View {
             Text(value).multilineTextAlignment(.trailing)
         }
         .font(.subheadline)
+    }
+}
+
+struct SiteUpdatesView: View {
+    @State private var step = 1
+    @State private var payload: SiteUpdatesPayload?
+    @State private var selectedShas: Set<String> = []
+    @State private var selectedUsers: Set<String> = []
+    @State private var extraNotes = ""
+    @State private var subject = "What's new on the stats site"
+    @State private var body = ""
+    @State private var loading = false
+    @State private var sending = false
+    @State private var error: String?
+    @State private var banner: String?
+
+    var body: some View {
+        Form {
+            if let error { Text(error).foregroundStyle(.red) }
+            if let banner { Text(banner).foregroundStyle(.green) }
+            if loading && payload == nil {
+                ProgressView("Loading changes…")
+            }
+            if step == 1 {
+                changesStep
+            } else {
+                usersStep
+            }
+        }
+        .navigationTitle("Site updates")
+        .navigationBarTitleDisplayMode(.inline)
+        .task { await load() }
+        .disabled(sending)
+    }
+
+    @ViewBuilder
+    private var changesStep: some View {
+        if let gitError = payload?.gitError, !gitError.isEmpty {
+            Section {
+                Text(gitError).foregroundStyle(.red)
+            }
+        }
+        Section {
+            Button("Select new changes") { selectChanges(newOnly: true) }
+            Button("Select all") { selectChanges(newOnly: false) }
+            Button("Select none") { selectedShas = [] }
+        }
+        Section {
+            ForEach(payload?.changes ?? []) { change in
+                Toggle(isOn: binding(forSha: change.sha)) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text(change.subject)
+                            if change.wasShared {
+                                Text("Already shared")
+                                    .font(.caption2.weight(.bold))
+                                    .foregroundStyle(.orange)
+                            }
+                        }
+                        Text("\(change.date ?? "") · \(change.shortSha ?? String(change.sha.prefix(7)))")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        if let detail = change.body, !detail.isEmpty {
+                            Text(detail)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+        } header: {
+            Text("What changed")
+        } footer: {
+            Text("These are recent website updates. Pick the ones worth telling people about. You can rewrite them on the next screen.")
+        }
+        Section("Extra note") {
+            TextField("Optional extra line", text: $extraNotes, axis: .vertical)
+                .lineLimit(3...6)
+        }
+        Section {
+            Button("Choose users") { goToUsers() }
+                .disabled(selectedShas.isEmpty && extraNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+    }
+
+    @ViewBuilder
+    private var usersStep: some View {
+        Section("Message") {
+            TextField("Subject", text: $subject)
+            TextField("Each line becomes a bullet", text: $body, axis: .vertical)
+                .lineLimit(6...12)
+        }
+        Section {
+            Button("Select everyone with email") {
+                selectedUsers = Set((payload?.recipients ?? []).filter(\.isEmailable).map(\.username))
+            }
+            Button("Select none") { selectedUsers = [] }
+        }
+        Section {
+            ForEach(payload?.recipients ?? []) { user in
+                Toggle(isOn: binding(forUser: user.username)) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(user.username)
+                        if let email = user.email, !email.isEmpty {
+                            Text(email + (user.playerName.map { " · \($0)" } ?? ""))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Text("No email on their player profile")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .disabled(!user.isEmailable)
+            }
+        } header: {
+            Text("Send to")
+        } footer: {
+            Text("Emails come from each user’s matching player profile.")
+        }
+        Section {
+            Button(sending ? "Sending…" : "Send update") {
+                Task { await send() }
+            }
+            .disabled(sending || selectedUsers.isEmpty)
+            Button("Back to changes") { step = 1 }
+        }
+    }
+
+    private func binding(forSha sha: String) -> Binding<Bool> {
+        Binding(
+            get: { selectedShas.contains(sha) },
+            set: { on in
+                if on { selectedShas.insert(sha) } else { selectedShas.remove(sha) }
+            }
+        )
+    }
+
+    private func binding(forUser username: String) -> Binding<Bool> {
+        Binding(
+            get: { selectedUsers.contains(username) },
+            set: { on in
+                if on { selectedUsers.insert(username) } else { selectedUsers.remove(username) }
+            }
+        )
+    }
+
+    private func selectChanges(newOnly: Bool) {
+        let items = payload?.changes ?? []
+        if newOnly {
+            selectedShas = Set(items.filter { !$0.wasShared }.map(\.sha))
+        } else {
+            selectedShas = Set(items.map(\.sha))
+        }
+    }
+
+    private func goToUsers() {
+        error = nil
+        banner = nil
+        let selected = (payload?.changes ?? []).filter { selectedShas.contains($0.sha) }
+        var lines = extraNotes
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        lines.append(contentsOf: selected.map(\.subject))
+        body = lines.joined(separator: "\n")
+        if selectedUsers.isEmpty {
+            selectedUsers = Set((payload?.recipients ?? []).filter(\.isEmailable).map(\.username))
+        }
+        if subject.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            subject = payload?.defaultSubject ?? "What's new on the stats site"
+        }
+        step = 2
+    }
+
+    private func load() async {
+        loading = true
+        error = nil
+        do {
+            let data = try await PythonAnywhereClient.shared.siteUpdates()
+            payload = data
+            if subject.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                subject = data.defaultSubject ?? subject
+            }
+        } catch {
+            self.error = error.localizedDescription
+        }
+        loading = false
+    }
+
+    private func send() async {
+        sending = true
+        error = nil
+        banner = nil
+        do {
+            banner = try await PythonAnywhereClient.shared.sendSiteUpdate(
+                shas: Array(selectedShas),
+                extraNotes: extraNotes,
+                usernames: Array(selectedUsers),
+                subject: subject,
+                body: body
+            )
+            step = 1
+            extraNotes = ""
+            selectedShas = []
+            await load()
+        } catch {
+            self.error = error.localizedDescription
+        }
+        sending = false
     }
 }

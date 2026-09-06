@@ -207,6 +207,45 @@ final class PythonAnywhereClient {
         return url
     }
 
+    func playerAIImage(name: String) async throws -> (imageUrl: String?, versions: [PlayerAIImageVersion], canDelete: Bool) {
+        struct Resp: Decodable {
+            var success: Bool?
+            var aiImageUrl: String?
+            var versions: [PlayerAIImageVersion]?
+            var canDelete: Bool?
+            var error: String?
+        }
+        let encoded = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? name
+        let r: Resp = try await get("/api/player_ai_image/\(encoded)/")
+        if r.success == false { throw SiteAPIError.message(r.error ?? "Could not load AI character") }
+        return (r.aiImageUrl, r.versions ?? [], r.canDelete == true)
+    }
+
+    func restorePlayerAIImage(name: String, path: String) async throws -> (imageUrl: String?, versions: [PlayerAIImageVersion]) {
+        try await mutatePlayerAIImage(name: name, json: ["restore_path": path])
+    }
+
+    func deletePlayerAIImageVersion(name: String, path: String) async throws -> (imageUrl: String?, versions: [PlayerAIImageVersion]) {
+        try await mutatePlayerAIImage(name: name, json: ["delete_path": path])
+    }
+
+    func removePlayerAIImage(name: String) async throws -> (imageUrl: String?, versions: [PlayerAIImageVersion]) {
+        try await mutatePlayerAIImage(name: name, json: ["remove": "1"])
+    }
+
+    private func mutatePlayerAIImage(name: String, json: [String: String]) async throws -> (imageUrl: String?, versions: [PlayerAIImageVersion]) {
+        struct Resp: Decodable {
+            var success: Bool?
+            var aiImageUrl: String?
+            var versions: [PlayerAIImageVersion]?
+            var error: String?
+        }
+        let encoded = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? name
+        let r: Resp = try await postJSON("/api/player_ai_image/\(encoded)/", json: json)
+        if r.success == false { throw SiteAPIError.message(r.error ?? "Could not update AI character") }
+        return (r.aiImageUrl, r.versions ?? [])
+    }
+
     func searchPlayers(q: String) async throws -> [[String: Any]] {
         let raw = try await getRaw("/api/search_all_players", query: ["q": q])
         let obj = try JSONSerialization.jsonObject(with: raw)
@@ -280,7 +319,8 @@ final class PythonAnywhereClient {
                     updatedAt: nil,
                     comments: g["comment"] as? String ?? g["comments"] as? String,
                     enteredTimezone: nil,
-                    updatedBy: nil
+                    updatedBy: nil,
+                    location: g["location"] as? String
                 ))
             }
         }
@@ -502,6 +542,36 @@ final class PythonAnywhereClient {
         if let err = r.error { throw SiteAPIError.message(err) }
         if let to = r.to { return "Test email sent to \(to)" }
         return "Test email sent"
+    }
+
+    func siteUpdates() async throws -> SiteUpdatesPayload {
+        try await get("/api/admin/site-updates")
+    }
+
+    func sendSiteUpdate(shas: [String], extraNotes: String, usernames: [String], subject: String, body: String) async throws -> String {
+        struct Resp: Decodable {
+            var success: Bool?
+            var sent: Int?
+            var error: String?
+            var errors: [String]?
+            var usernames: [String]?
+        }
+        let r: Resp = try await postJSON("/api/admin/site-updates", json: [
+            "shas": shas,
+            "extra_notes": extraNotes,
+            "usernames": usernames,
+            "subject": subject,
+            "body": body,
+        ])
+        if r.success == false {
+            throw SiteAPIError.message(r.error ?? "Could not send that update")
+        }
+        let names = (r.usernames ?? []).joined(separator: ", ")
+        let sent = r.sent ?? 0
+        if let failures = r.errors, !failures.isEmpty {
+            return "Sent \(sent), but some failed: \(failures.joined(separator: "; "))"
+        }
+        return "Sent to \(sent) user(s)\(names.isEmpty ? "" : ": \(names)")"
     }
 
     // MARK: - HTTP

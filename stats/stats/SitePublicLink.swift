@@ -84,6 +84,7 @@ enum SitePublicLink {
 
 struct SiteCopyLinkButton: View {
     var url: URL?
+    var showsTitle: Bool = false
     @State private var copied = false
 
     var body: some View {
@@ -95,9 +96,29 @@ struct SiteCopyLinkButton: View {
                     copied = false
                 }
             } label: {
-                Image(systemName: copied ? "checkmark" : "link")
+                if showsTitle {
+                    Label(copied ? "Copied" : "Link", systemImage: copied ? "checkmark" : "link")
+                } else {
+                    Image(systemName: copied ? "checkmark" : "link")
+                }
             }
-            .accessibilityLabel(copied ? "Copied" : "Copy web link")
+            .accessibilityLabel(copied ? "Copied" : "Copy link")
+        }
+    }
+}
+
+struct SiteRecapActions: View {
+    var title: String
+    var url: URL
+
+    var body: some View {
+        HStack(spacing: 12) {
+            NavigationLink {
+                SiteRecapPageView(title: title, url: url)
+            } label: {
+                Text("View")
+            }
+            SiteCopyLinkButton(url: url, showsTitle: true)
         }
     }
 }

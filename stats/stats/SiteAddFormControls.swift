@@ -43,6 +43,21 @@ func siteIsToday(_ date: Date) -> Bool {
     Calendar.current.isDateInToday(date)
 }
 
+private func siteLastGameLocationKey() -> String {
+    let username = SiteAuthManager.shared.username?.lowercased() ?? "default"
+    return "com.kt.stats.lastGameLocation.\(username)"
+}
+
+func siteLastGameLocation() -> String {
+    UserDefaults.standard.string(forKey: siteLastGameLocationKey()) ?? ""
+}
+
+func siteRememberGameLocation(_ location: String) {
+    let clean = location.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !clean.isEmpty else { return }
+    UserDefaults.standard.set(clean, forKey: siteLastGameLocationKey())
+}
+
 struct SiteAddTextRow<Field: Hashable>: View {
     var label: String
     @Binding var text: String

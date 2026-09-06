@@ -43,6 +43,7 @@ struct SiteMoreView: View {
                 if auth.isAdmin {
                     Section("Admin") {
                         NavigationLink("Admin dashboard") { SiteAdminView() }
+                        NavigationLink("Site updates") { SiteUpdatesView() }
                     }
                 }
             }
@@ -126,6 +127,7 @@ struct SiteEditPlayerView: View {
     @State private var characterPicker: PhotosPickerItem?
     @State private var aiImageUrl: String?
     @State private var aiBusy = false
+    @State private var aiVersions: [PlayerAIImageVersion] = []
     @ObservedObject private var auth = SiteAuthManager.shared
 
     init(player: SitePlayer) {
@@ -188,11 +190,58 @@ struct SiteEditPlayerView: View {
                     .disabled(aiBusy)
                     PhotosPicker("Upload AI character", selection: $characterPicker, matching: .images)
                         .disabled(aiBusy)
-                    Text("A full-body person with this face and every signature look, including props (a motorhome look means a motorhome in the picture). Recaps and flyers add the sport. Generate one, or upload your own picture. Takes about a minute to generate — you can leave after you tap Create. If they don’t have a character yet, group pictures use their face photo. Players with no photo, signature look, or character are left out of group pictures.")
+                    if auth.isAdmin, aiImageUrl != nil {
+                        Button("Stop using character", role: .destructive) {
+                            Task { await unpublishAICharacter() }
+                        }
+                        .disabled(aiBusy)
+                    }
+                    Text("A full-body person with this face and every signature look, including props (a motorhome look means a motorhome in the picture). Recaps and flyers add the sport. Generate one, or upload your own picture. Takes about a minute to generate — you can leave after you tap Create. Replacing a picture keeps the previous one so Kyle can switch it back. If they don’t have a character yet, group pictures use their face photo. Players with no photo, signature look, or character are left out of group pictures.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } header: {
                     Text("AI character")
+                }
+                if auth.isAdmin, !aiVersions.isEmpty {
+                    Section {
+                        ForEach(aiVersions) { version in
+                            HStack(alignment: .top, spacing: 12) {
+                                if let url = SitePublicLink.absolute(version.url) {
+                                    AsyncImage(url: url) { phase in
+                                        if case .success(let img) = phase {
+                                            img.resizable().scaledToFit()
+                                        } else {
+                                            RoundedRectangle(cornerRadius: 8)
+                                                .fill(Color.gray.opacity(0.2))
+                                        }
+                                    }
+                                    .frame(width: 72, height: 96)
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                                }
+                                VStack(alignment: .leading, spacing: 8) {
+                                    if version.isCurrent {
+                                        Text("In use")
+                                            .font(.subheadline.weight(.semibold))
+                                            .foregroundStyle(.secondary)
+                                    } else {
+                                        Button("Use this picture") {
+                                            Task { await restoreAICharacter(version.path) }
+                                        }
+                                        .disabled(aiBusy)
+                                    }
+                                    Button("Delete", role: .destructive) {
+                                        Task { await deleteAICharacterVersion(version.path) }
+                                    }
+                                    .disabled(aiBusy)
+                                }
+                                Spacer()
+                            }
+                        }
+                    } header: {
+                        Text("Previous pictures")
+                    } footer: {
+                        Text("Other people can replace a character picture, but only you can delete one or switch back.")
+                    }
                 }
                 Section {
                     if traits.isEmpty {
@@ -292,6 +341,7 @@ struct SiteEditPlayerView: View {
                     )
                     aiImageUrl = url
                     banner = "AI character uploaded"
+                    await refreshAIVersions()
                 } catch {
                     self.error = error.localizedDescription
                 }
@@ -321,6 +371,7 @@ struct SiteEditPlayerView: View {
     private func refreshFromServer() async {
         guard let player = try? await PythonAnywhereClient.shared.player(named: canonicalName) else { return }
         apply(player)
+        await refreshAIVersions()
     }
 
     private func save() async {
@@ -382,11 +433,13 @@ struct SiteEditPlayerView: View {
             if let url = result.imageUrl, !url.isEmpty {
                 aiImageUrl = url
                 banner = "AI character saved"
+                await refreshAIVersions()
             } else if let jobId = result.jobId {
                 banner = "Working in the background. You can leave and check this player again in a minute."
                 if let url = await waitForPlayerAIImage(jobId: jobId) {
                     aiImageUrl = url
                     banner = "AI character saved"
+                    await refreshAIVersions()
                 } else if error == nil {
                     banner = "Still generating. Check this player again in a minute."
                 }
@@ -416,6 +469,63 @@ struct SiteEditPlayerView: View {
             }
         }
         return nil
+    }
+
+    private func refreshAIVersions() async {
+        guard auth.isAdmin, auth.isLoggedIn else {
+            aiVersions = []
+            return
+        }
+        guard let result = try? await PythonAnywhereClient.shared.playerAIImage(name: canonicalName) else { return }
+        aiImageUrl = result.imageUrl
+        aiVersions = result.versions
+    }
+
+    private func applyAIMutation(_ result: (imageUrl: String?, versions: [PlayerAIImageVersion])) {
+        aiImageUrl = result.imageUrl
+        aiVersions = result.versions
+    }
+
+    private func restoreAICharacter(_ path: String) async {
+        guard auth.isAdmin else { return }
+        aiBusy = true
+        error = nil
+        banner = nil
+        do {
+            applyAIMutation(try await PythonAnywhereClient.shared.restorePlayerAIImage(name: canonicalName, path: path))
+            banner = "Switched back to that picture"
+        } catch {
+            self.error = error.localizedDescription
+        }
+        aiBusy = false
+    }
+
+    private func deleteAICharacterVersion(_ path: String) async {
+        guard auth.isAdmin else { return }
+        aiBusy = true
+        error = nil
+        banner = nil
+        do {
+            applyAIMutation(try await PythonAnywhereClient.shared.deletePlayerAIImageVersion(name: canonicalName, path: path))
+            banner = "Deleted that picture"
+        } catch {
+            self.error = error.localizedDescription
+        }
+        aiBusy = false
+    }
+
+    private func unpublishAICharacter() async {
+        guard auth.isAdmin else { return }
+        aiBusy = true
+        error = nil
+        banner = nil
+        do {
+            applyAIMutation(try await PythonAnywhereClient.shared.removePlayerAIImage(name: canonicalName))
+            banner = "Stopped using this character. The picture is still in Previous pictures."
+        } catch {
+            self.error = error.localizedDescription
+        }
+        aiBusy = false
     }
 }
 
@@ -1070,11 +1180,7 @@ struct SiteAIRosterView: View {
                     SiteSaveFlyerPictureButton(imageURL: flyerDownloadURL)
                 }
             } else if let shareURL {
-                HStack {
-                    ShareLink(item: shareURL)
-                    SiteCopyLinkButton(url: shareURL)
-                    Link("Open", destination: shareURL)
-                }
+                SiteRecapActions(title: "Recap", url: shareURL)
             }
             if let error {
                 Text(error).foregroundStyle(.red)
@@ -1282,11 +1388,7 @@ struct SiteAIStyleView: View {
                     SiteAddBanner(text: banner, isError: bannerIsError)
                 }
                 if let shareURL {
-                    HStack(spacing: 12) {
-                        ShareLink(item: shareURL)
-                        SiteCopyLinkButton(url: shareURL)
-                        Link("Open", destination: shareURL)
-                    }
+                    SiteRecapActions(title: "Recap", url: shareURL)
                 }
 
                 Text("Writing style")
@@ -1491,29 +1593,7 @@ struct SiteRecapsView: View {
                     .foregroundStyle(.secondary)
             }
             ForEach(items) { r in
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(r.title).font(.headline)
-                    HStack(spacing: 6) {
-                        if let user = r.username, !user.isEmpty {
-                            Text(user)
-                        }
-                        if let created = r.createdAt, !created.isEmpty {
-                            Text(AdminTime.relative(created))
-                        }
-                    }
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    if let url = r.shareUrl, let u = URL(string: url) {
-                        HStack {
-                            ShareLink(item: u)
-                            SiteCopyLinkButton(url: u)
-                            Link("Open", destination: u)
-                        }
-                    }
-                    if let img = r.heroImageUrl, let u = URL(string: img) {
-                        AsyncImage(url: u) { i in i.resizable().scaledToFit() } placeholder: { ProgressView() }
-                    }
-                }
+                recapRow(r)
             }
         }
         .navigationTitle(SiteAuthManager.shared.isAdmin ? "All recaps" : "AI Recaps")
@@ -1529,6 +1609,48 @@ struct SiteRecapsView: View {
         }
         .task { await load() }
         .refreshable { await load() }
+    }
+
+    @ViewBuilder
+    private func recapRow(_ r: RecapItem) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Group {
+                if let url = r.publicURL {
+                    NavigationLink {
+                        SiteRecapPageView(title: r.title, url: url)
+                    } label: {
+                        recapPreview(r)
+                    }
+                } else {
+                    recapPreview(r)
+                }
+            }
+            if let url = r.publicURL {
+                SiteCopyLinkButton(url: url, showsTitle: true)
+                    .buttonStyle(.borderless)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    @ViewBuilder
+    private func recapPreview(_ r: RecapItem) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(r.title).font(.headline)
+            HStack(spacing: 6) {
+                if let user = r.username, !user.isEmpty {
+                    Text(user)
+                }
+                if let created = r.createdAt, !created.isEmpty {
+                    Text(AdminTime.relative(created))
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            if let img = r.heroImageUrl, let u = SitePublicLink.absolute(img) ?? URL(string: img) {
+                AsyncImage(url: u) { i in i.resizable().scaledToFit() } placeholder: { ProgressView() }
+            }
+        }
     }
 
     private func load() async {

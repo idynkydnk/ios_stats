@@ -7,7 +7,7 @@ struct SiteAddDoublesView: View {
     var onDone: () -> Void
 
     enum Field: Hashable {
-        case w1, w2, l1, l2, wScore, lScore, comment
+        case w1, w2, l1, l2, wScore, lScore, comment, location
     }
 
     @State private var winner1 = ""
@@ -17,6 +17,7 @@ struct SiteAddDoublesView: View {
     @State private var winnerScore: Int?
     @State private var loserScore: Int?
     @State private var comments = ""
+    @State private var location = siteLastGameLocation()
     @State private var players: [String] = []
     @State private var error: String?
     @State private var banner: String?
@@ -64,7 +65,8 @@ struct SiteAddDoublesView: View {
                         }
                     }
 
-                    SiteAddTextRow(label: "Comment (optional)", text: $comments, field: .comment, focus: $focused, submit: .done, onSubmit: { focused = nil })
+                    SiteAddTextRow(label: "Comment (optional)", text: $comments, field: .comment, focus: $focused, onSubmit: { focused = .location })
+                    SiteAddTextRow(label: "Location (optional)", text: $location, field: .location, focus: $focused, submit: .done, onSubmit: { focused = nil })
 
                     HStack(spacing: 8) {
                         SiteAddActionButton(title: gameToEdit == nil ? "Save" : "Update", filled: true, disabled: saving) {
@@ -203,6 +205,7 @@ struct SiteAddDoublesView: View {
         loser1 = g.loser1 ?? ""; loser2 = g.loser2 ?? ""
         winnerScore = g.winnerScore; loserScore = g.loserScore
         comments = g.comment
+        location = g.location ?? siteLastGameLocation()
     }
 
     private func applyRematch() {
@@ -251,7 +254,8 @@ struct SiteAddDoublesView: View {
         }
         saving = true
         error = nil
-        let snapshot = (winner1, winner2, loser1, loser2, winnerScore, loserScore, comments)
+        let snapshot = (winner1, winner2, loser1, loser2, winnerScore, loserScore, comments, location)
+        let cleanLocation = location.trimmingCharacters(in: .whitespacesAndNewlines)
         let fields: [String: Any] = [
             "game_date": siteNowString(),
             "winner1": names[0], "winner2": names[1],
@@ -259,7 +263,9 @@ struct SiteAddDoublesView: View {
             "winner_score": ws, "loser_score": ls,
             "comments": comments,
             "entered_timezone": TimeZone.current.identifier,
+            "location": cleanLocation,
         ]
+        siteRememberGameLocation(cleanLocation)
         rematch = (names[0], names[1], names[2], names[3])
         sitePromote(names, in: &players)
         if gameToEdit == nil {
@@ -289,7 +295,7 @@ struct SiteAddDoublesView: View {
         } catch {
             if gameToEdit == nil {
                 winner1 = snapshot.0; winner2 = snapshot.1; loser1 = snapshot.2; loser2 = snapshot.3
-                winnerScore = snapshot.4; loserScore = snapshot.5; comments = snapshot.6
+                winnerScore = snapshot.4; loserScore = snapshot.5; comments = snapshot.6; location = snapshot.7
             }
             banner = nil
             self.error = error.localizedDescription
@@ -302,12 +308,13 @@ struct SiteAddVollisView: View {
     var gameToEdit: VollisGame?
     var onDone: () -> Void
 
-    enum Field: Hashable { case winner, loser, wScore, lScore }
+    enum Field: Hashable { case winner, loser, wScore, lScore, location }
 
     @State private var winner = ""
     @State private var loser = ""
     @State private var winnerScore: Int?
     @State private var loserScore: Int?
+    @State private var location = siteLastGameLocation()
     @State private var players: [String] = []
     @State private var todayGames: [VollisGame] = []
     @State private var error: String?
@@ -354,13 +361,15 @@ struct SiteAddVollisView: View {
                         }
                     }
 
-                    SiteAddScoreRow(label: "Loser's score", value: $loserScore, field: .lScore, focus: $focused, submit: .done, onSubmit: { focused = nil })
+                    SiteAddScoreRow(label: "Loser's score", value: $loserScore, field: .lScore, focus: $focused, submit: .next, onSubmit: { focused = .location })
                     if focused == .lScore {
                         SiteAddScoreChips(scores: siteLoserScores(winner: winnerScore ?? 11), selected: loserScore) { s in
                             loserScore = s
                             focused = nil
                         }
                     }
+
+                    SiteAddTextRow(label: "Location (optional)", text: $location, field: .location, focus: $focused, submit: .done, onSubmit: { focused = nil })
 
                     HStack(spacing: 8) {
                         SiteAddActionButton(title: gameToEdit == nil ? "Save" : "Update", filled: true, disabled: saving || !auth.isLoggedIn) {
@@ -410,6 +419,7 @@ struct SiteAddVollisView: View {
         if let g = gameToEdit {
             winner = g.winner ?? ""; loser = g.loser ?? ""
             winnerScore = g.winnerScore; loserScore = g.loserScore
+            location = g.location ?? siteLastGameLocation()
         }
         players = (try? await PythonAnywhereClient.shared.vollisPlayers()) ?? []
         let year = String(Calendar.current.component(.year, from: Date()))
@@ -426,12 +436,15 @@ struct SiteAddVollisView: View {
         }
         saving = true
         error = nil
+        let cleanLocation = location.trimmingCharacters(in: .whitespacesAndNewlines)
         let fields: [String: Any] = [
             "game_date": siteNowString(),
             "winner": w, "loser": l,
             "winner_score": ws, "loser_score": ls,
             "entered_timezone": TimeZone.current.identifier,
+            "location": cleanLocation,
         ]
+        siteRememberGameLocation(cleanLocation)
         do {
             if let g = gameToEdit {
                 try await PythonAnywhereClient.shared.updateVollis(id: g.id, fields: fields)
@@ -453,7 +466,7 @@ struct SiteAddVollisView: View {
 
 struct SiteAddOtherView: View {
     enum Field: Hashable {
-        case gameName, winner(Int), loser(Int), winnerIndiv(Int), loserIndiv(Int), teamW, teamL, comment
+        case gameName, winner(Int), loser(Int), winnerIndiv(Int), loserIndiv(Int), teamW, teamL, comment, location
     }
 
     @State private var gameType = ""
@@ -466,6 +479,7 @@ struct SiteAddOtherView: View {
     @State private var teamWinnerScore: Int?
     @State private var teamLoserScore: Int?
     @State private var comment = ""
+    @State private var location = siteLastGameLocation()
     @State private var knownNames: [String] = []
     @State private var knownTypes: [String] = []
     @State private var players: [String] = []
@@ -546,7 +560,8 @@ struct SiteAddOtherView: View {
                         }
                     }
 
-                    SiteAddTextRow(label: "Comment (optional)", text: $comment, field: .comment, focus: $focused, submit: .done, onSubmit: { focused = nil })
+                    SiteAddTextRow(label: "Comment (optional)", text: $comment, field: .comment, focus: $focused, onSubmit: { focused = .location })
+                    SiteAddTextRow(label: "Location (optional)", text: $location, field: .location, focus: $focused, submit: .done, onSubmit: { focused = nil })
 
                     HStack(spacing: 8) {
                         SiteAddActionButton(title: "Save", filled: true, disabled: saving) { Task { await save() } }
@@ -724,6 +739,7 @@ struct SiteAddOtherView: View {
         if gameType.isEmpty { gameType = knownTypes.first ?? "Other" }
         saving = true
         error = nil
+        let cleanLocation = location.trimmingCharacters(in: .whitespacesAndNewlines)
         var fields: [String: Any] = [
             "game_date": siteNowString(),
             "game_type": gameType, "game_name": gameName.trimmingCharacters(in: .whitespaces),
@@ -731,7 +747,9 @@ struct SiteAddOtherView: View {
             "score_type": scoreType,
             "comment": comment,
             "entered_timezone": TimeZone.current.identifier,
+            "location": cleanLocation,
         ]
+        siteRememberGameLocation(cleanLocation)
         if scoreType == "team" {
             if let ws = teamWinnerScore { fields["winner_score"] = ws }
             if let ls = teamLoserScore { fields["loser_score"] = ls }

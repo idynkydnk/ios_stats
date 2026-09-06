@@ -146,6 +146,7 @@ struct DoublesGame: Codable, Identifiable, Hashable {
     var comments: String?
     var enteredTimezone: String?
     var updatedBy: String?
+    var location: String?
 
     var date: Date {
         Self.parseDate(gameDate) ?? Date.distantPast
@@ -269,6 +270,7 @@ struct VollisGame: Codable, Identifiable, Hashable {
     var loserScore: Int?
     var updatedAt: String?
     var enteredTimezone: String?
+    var location: String?
 
     var date: Date { DoublesGame.parseDate(gameDate) ?? Date.distantPast }
 }
@@ -320,6 +322,7 @@ struct OtherGame: Codable, Identifiable, Hashable {
     var gameDateOnly: String?
     var gameType: String?
     var gameName: String?
+    var location: String?
     var comment: String?
     var updatedAt: String?
     var winnerScore: Int?
@@ -334,7 +337,7 @@ struct OtherGame: Codable, Identifiable, Hashable {
     var id: Int { jsonId ?? gameId ?? 0 }
 
     enum CodingKeys: String, CodingKey {
-        case gameId, gameDate, gameDateOnly, gameType, gameName, comment, updatedAt
+        case gameId, gameDate, gameDateOnly, gameType, gameName, location, comment, updatedAt
         case winnerScore, loserScore, winners, losers, winner1, winner2, loser1, loser2
         case jsonId = "id"
     }
@@ -347,6 +350,7 @@ struct OtherGame: Codable, Identifiable, Hashable {
         gameDateOnly = try c.decodeIfPresent(String.self, forKey: .gameDateOnly)
         gameType = try c.decodeIfPresent(String.self, forKey: .gameType)
         gameName = try c.decodeIfPresent(String.self, forKey: .gameName)
+        location = try c.decodeIfPresent(String.self, forKey: .location)
         comment = try c.decodeIfPresent(String.self, forKey: .comment)
         updatedAt = try c.decodeIfPresent(String.self, forKey: .updatedAt)
         winnerScore = Self.optionalInt(c, .winnerScore)
@@ -445,6 +449,16 @@ struct SitePlayer: Codable, Identifiable {
     }
 }
 
+struct PlayerAIImageVersion: Codable, Identifiable, Hashable {
+    var path: String
+    var url: String
+    var current: Bool?
+    var mtime: Double?
+
+    var id: String { path }
+    var isCurrent: Bool { current == true }
+}
+
 struct Tournament: Codable, Identifiable {
     var id: Int
     var tournamentDate: String?
@@ -512,6 +526,39 @@ struct SiteUser: Codable, Identifiable {
 
     var isAdminUser: Bool { isAdmin == true }
     var isActiveUser: Bool { active ?? true }
+}
+
+struct SiteUpdateChange: Codable, Identifiable, Hashable {
+    var sha: String
+    var shortSha: String?
+    var date: String?
+    var subject: String
+    var body: String?
+    var alreadyShared: Bool?
+
+    var id: String { sha }
+    var wasShared: Bool { alreadyShared == true }
+}
+
+struct SiteUpdateRecipient: Codable, Identifiable, Hashable {
+    var username: String
+    var active: Bool?
+    var isAdmin: Bool?
+    var lastLogin: String?
+    var email: String?
+    var playerName: String?
+    var canEmail: Bool?
+
+    var id: String { username }
+    var isEmailable: Bool { canEmail == true }
+}
+
+struct SiteUpdatesPayload: Codable {
+    var changes: [SiteUpdateChange]
+    var gitError: String?
+    var recipients: [SiteUpdateRecipient]
+    var emailConfigured: Bool?
+    var defaultSubject: String?
 }
 
 struct AdminGameCounts: Codable {
@@ -798,6 +845,9 @@ struct RecapItem: Codable, Identifiable {
     var gameType: String?
     var id: String { shareId ?? [createdAt, headline, subject].compactMap { $0 }.joined(separator: "|") }
     var title: String { (headline?.isEmpty == false ? headline : nil) ?? (subject?.isEmpty == false ? subject : nil) ?? "Recap" }
+    var publicURL: URL? {
+        SitePublicLink.absolute(shareUrl) ?? shareId.flatMap(SitePublicLink.recap)
+    }
 }
 
 struct FlyerItem: Codable, Identifiable {
