@@ -1203,7 +1203,7 @@ struct SiteUpdatesView: View {
     @State private var payload: SiteUpdatesPayload?
     @State private var selectedShas: Set<String> = []
     @State private var selectedUsers: Set<String> = []
-    @State private var extraNotes = ""
+    @State private var playerByUser: [String: String] = [:]
     @State private var subject = "What's new on the stats site"
     @State private var messageBody = ""
     @State private var loading = false
@@ -1232,6 +1232,10 @@ struct SiteUpdatesView: View {
 
     @ViewBuilder
     private var changesStep: some View {
+        Section {
+            Button("Choose users") { goToUsers() }
+                .disabled(selectedShas.isEmpty)
+        }
         if let gitError = payload?.gitError, !gitError.isEmpty {
             Section {
                 Text(gitError).foregroundStyle(.red)
@@ -1270,14 +1274,6 @@ struct SiteUpdatesView: View {
         } footer: {
             Text("These are recent website updates. Pick the ones worth telling people about. You can rewrite them on the next screen.")
         }
-        Section("Extra note") {
-            TextField("Optional extra line", text: $extraNotes, axis: .vertical)
-                .lineLimit(3...6)
-        }
-        Section {
-            Button("Choose users") { goToUsers() }
-                .disabled(selectedShas.isEmpty && extraNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-        }
     }
 
     @ViewBuilder
@@ -1289,32 +1285,50 @@ struct SiteUpdatesView: View {
         }
         Section {
             Button("Select everyone with email") {
-                selectedUsers = Set((payload?.recipients ?? []).filter(\.isEmailable).map(\.username))
+                selectedUsers = Set((payload?.recipients ?? []).compactMap { user in
+                    currentEmail(for: user.username) == nil ? nil : user.username
+                })
             }
             Button("Select none") { selectedUsers = [] }
         }
         Section {
             ForEach(payload?.recipients ?? []) { user in
-                Toggle(isOn: binding(forUser: user.username)) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(user.username)
-                        if let email = user.email, !email.isEmpty {
-                            Text(email + (user.playerName.map { " · \($0)" } ?? ""))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        } else {
-                            Text("No email on their player profile")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 8) {
+                    Toggle(isOn: binding(forUser: user.username)) {
+                        HStack {
+                            Text(user.username)
+                            if user.playerGuessed == true {
+                                Text("Suggested")
+                                    .font(.caption2.weight(.bold))
+                                    .foregroundStyle(.orange)
+                            }
                         }
                     }
+                    .disabled(!user.isActiveUser)
+                    Picker("Player", selection: playerBinding(for: user.username)) {
+                        Text("Select player…").tag("")
+                        ForEach(orderedPlayers(for: user)) { player in
+                            Text(playerLabel(player)).tag(player.name)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .disabled(!user.isActiveUser)
+                    if let email = currentEmail(for: user.username) {
+                        Text(email)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("Pick the player this login belongs to")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
-                .disabled(!user.isEmailable)
+                .padding(.vertical, 4)
             }
         } header: {
             Text("Send to")
         } footer: {
-            Text("Emails come from each user’s matching player profile.")
+            Text("Choose the player profile whose email should get this update. Logins that share a first name are not guessed.")
         }
         Section {
             Button(sending ? "Sending…" : "Send update") {
@@ -1332,6 +1346,64 @@ struct SiteUpdatesView: View {
                 if on { selectedShas.insert(sha) } else { selectedShas.remove(sha) }
             }
         )
+    }
+
+    private func playerBinding(for username: String) -> Binding<String> {
+        Binding(
+            get: { playerByUser[username] ?? "" },
+            set: { newValue in
+                playerByUser[username] = newValue
+                Task {
+                    try? await PythonAnywhereClient.shared.setSiteUserPlayer(
+                        username: username,
+                        playerName: newValue
+                    )
+                }
+            }
+        )
+    }
+
+    private func allPlayers() -> [SiteUpdatePlayer] {
+        payload?.players ?? []
+    }
+
+    private func orderedPlayers(for user: SiteUpdateRecipient) -> [SiteUpdatePlayer] {
+        let suggestedNames = user.suggestedPlayers?.map(\.name) ?? []
+        var seen = Set<String>()
+        var ordered: [SiteUpdatePlayer] = []
+        for player in (user.suggestedPlayers ?? []) + allPlayers() {
+            if seen.contains(player.name) { continue }
+            seen.insert(player.name)
+            ordered.append(player)
+        }
+        if !suggestedNames.isEmpty {
+            ordered.sort { left, right in
+                let leftSuggested = suggestedNames.contains(left.name)
+                let rightSuggested = suggestedNames.contains(right.name)
+                if leftSuggested != rightSuggested { return leftSuggested && !rightSuggested }
+                return left.name.localizedCaseInsensitiveCompare(right.name) == .orderedAscending
+            }
+        }
+        return ordered
+    }
+
+    private func playerLabel(_ player: SiteUpdatePlayer) -> String {
+        if player.hasEmail {
+            return "\(player.name) · \(player.email ?? "")"
+        }
+        return "\(player.name) · no email"
+    }
+
+    private func currentEmail(for username: String) -> String? {
+        let name = playerByUser[username] ?? ""
+        guard !name.isEmpty else { return nil }
+        let fromRoster = allPlayers().first(where: { $0.name == name })?.email
+        if let fromRoster, !fromRoster.isEmpty { return fromRoster }
+        let fromSuggested = (payload?.recipients ?? [])
+            .flatMap { $0.suggestedPlayers ?? [] }
+            .first(where: { $0.name == name })?.email
+        if let fromSuggested, !fromSuggested.isEmpty { return fromSuggested }
+        return nil
     }
 
     private func binding(forUser username: String) -> Binding<Bool> {
@@ -1356,14 +1428,11 @@ struct SiteUpdatesView: View {
         error = nil
         banner = nil
         let selected = (payload?.changes ?? []).filter { selectedShas.contains($0.sha) }
-        var lines = extraNotes
-            .split(whereSeparator: \.isNewline)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        lines.append(contentsOf: selected.map(\.emailLine))
-        messageBody = lines.joined(separator: "\n")
+        messageBody = selected.map(\.emailLine).joined(separator: "\n")
         if selectedUsers.isEmpty {
-            selectedUsers = Set((payload?.recipients ?? []).filter(\.isEmailable).map(\.username))
+            selectedUsers = Set((payload?.recipients ?? []).compactMap { user in
+                currentEmail(for: user.username) == nil ? nil : user.username
+            })
         }
         if subject.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             subject = payload?.defaultSubject ?? "What's new on the stats site"
@@ -1377,6 +1446,13 @@ struct SiteUpdatesView: View {
         do {
             let data = try await PythonAnywhereClient.shared.siteUpdates()
             payload = data
+            var map: [String: String] = [:]
+            for user in data.recipients {
+                if let name = user.playerName, !name.isEmpty {
+                    map[user.username] = name
+                }
+            }
+            playerByUser = map
             if subject.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 subject = data.defaultSubject ?? subject
             }
@@ -1390,16 +1466,22 @@ struct SiteUpdatesView: View {
         sending = true
         error = nil
         banner = nil
+        let missing = selectedUsers.sorted().filter { currentEmail(for: $0) == nil }
+        if !missing.isEmpty {
+            error = "Pick a player with an email for: \(missing.joined(separator: ", "))"
+            sending = false
+            return
+        }
         do {
             banner = try await PythonAnywhereClient.shared.sendSiteUpdate(
                 shas: Array(selectedShas),
-                extraNotes: extraNotes,
+                extraNotes: "",
                 usernames: Array(selectedUsers),
+                playerNames: playerByUser,
                 subject: subject,
                 body: messageBody
             )
             step = 1
-            extraNotes = ""
             selectedShas = []
             await load()
         } catch {

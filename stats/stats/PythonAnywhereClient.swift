@@ -548,7 +548,7 @@ final class PythonAnywhereClient {
         try await get("/api/admin/site-updates")
     }
 
-    func sendSiteUpdate(shas: [String], extraNotes: String, usernames: [String], subject: String, body: String) async throws -> String {
+    func sendSiteUpdate(shas: [String], extraNotes: String, usernames: [String], playerNames: [String: String], subject: String, body: String) async throws -> String {
         struct Resp: Decodable {
             var success: Bool?
             var sent: Int?
@@ -560,6 +560,7 @@ final class PythonAnywhereClient {
             "shas": shas,
             "extra_notes": extraNotes,
             "usernames": usernames,
+            "player_names": playerNames,
             "subject": subject,
             "body": body,
         ])
@@ -572,6 +573,14 @@ final class PythonAnywhereClient {
             return "Sent \(sent), but some failed: \(failures.joined(separator: "; "))"
         }
         return "Sent to \(sent) user(s)\(names.isEmpty ? "" : ": \(names)")"
+    }
+
+    func setSiteUserPlayer(username: String, playerName: String) async throws {
+        struct Resp: Decodable { var ok: Bool? }
+        let _: Resp = try await postJSON("/api/admin/users/player", json: [
+            "username": username,
+            "player_name": playerName,
+        ])
     }
 
     // MARK: - HTTP

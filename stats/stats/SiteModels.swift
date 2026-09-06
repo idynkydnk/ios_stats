@@ -552,6 +552,15 @@ struct SiteUpdateChange: Codable, Identifiable, Hashable {
     }
 }
 
+struct SiteUpdatePlayer: Codable, Identifiable, Hashable {
+    var name: String
+    var email: String?
+    var nickname: String?
+    var id: String { name }
+
+    var hasEmail: Bool { !(email ?? "").trimmingCharacters(in: .whitespaces).isEmpty }
+}
+
 struct SiteUpdateRecipient: Codable, Identifiable, Hashable {
     var username: String
     var active: Bool?
@@ -559,16 +568,20 @@ struct SiteUpdateRecipient: Codable, Identifiable, Hashable {
     var lastLogin: String?
     var email: String?
     var playerName: String?
+    var playerGuessed: Bool?
+    var suggestedPlayers: [SiteUpdatePlayer]?
     var canEmail: Bool?
 
     var id: String { username }
     var isEmailable: Bool { canEmail == true }
+    var isActiveUser: Bool { active ?? true }
 }
 
 struct SiteUpdatesPayload: Codable {
     var changes: [SiteUpdateChange]
     var gitError: String?
     var recipients: [SiteUpdateRecipient]
+    var players: [SiteUpdatePlayer]?
     var emailConfigured: Bool?
     var defaultSubject: String?
 }
