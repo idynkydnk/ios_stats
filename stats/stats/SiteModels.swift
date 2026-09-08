@@ -1,6 +1,6 @@
 import Foundation
 
-enum GameSection: String, CaseIterable, Identifiable {
+enum GameSection: String, CaseIterable, Identifiable, Hashable {
     case doubles, vollis, other
     var id: String { rawValue }
     var title: String {
@@ -10,6 +10,13 @@ enum GameSection: String, CaseIterable, Identifiable {
         case .other: return "Other"
         }
     }
+}
+
+struct SitePlayerRoute: Hashable, Identifiable {
+    var name: String
+    var year: String
+    var section: GameSection
+    var id: String { "\(section.rawValue)|\(year)|\(name)" }
 }
 
 struct RankingRow: Codable, Identifiable {

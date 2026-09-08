@@ -368,6 +368,7 @@ struct SiteGamesView: View {
     @State private var banner: String?
     @State private var bannerIsError = false
     @State private var successTick = 0
+    @State private var openedPlayer: SitePlayerRoute?
     @ObservedObject private var network = NetworkMonitor.shared
     @ObservedObject private var queue = SiteOfflineQueue.shared
 
@@ -388,6 +389,7 @@ struct SiteGamesView: View {
                     case .doubles:
                         ForEach(filteredDoubles) { g in
                             DoublesGameRow(game: g, year: selectedYear, section: .doubles)
+                                .buttonStyle(.borderless)
                                 .swipeActions {
                                     if canEdit {
                                         Button("Edit") { onEditDoubles(g) }
@@ -404,6 +406,7 @@ struct SiteGamesView: View {
                     case .vollis:
                         ForEach(filteredVollis) { g in
                             VollisGameRow(game: g, year: selectedYear, section: .vollis)
+                                .buttonStyle(.borderless)
                                 .swipeActions {
                                     if canEdit {
                                         Button("Edit") { onEditVollis(g) }
@@ -434,6 +437,7 @@ struct SiteGamesView: View {
                                 }
                                 if let c = g.comment, !c.isEmpty { Text(c).font(.caption).italic() }
                             }
+                            .buttonStyle(.borderless)
                             .swipeActions {
                                 if canEdit {
                                     Button("Delete", role: .destructive) { Task { await deleteOther(g) } }
@@ -447,6 +451,11 @@ struct SiteGamesView: View {
                         }
                     }
                 }
+                .environment(\.openSitePlayer, OpenSitePlayerAction { openedPlayer = $0 })
+            }
+            .navigationDestination(item: $openedPlayer) { route in
+                SitePlayerDetailView(name: route.name, year: route.year, section: route.section)
+                    .environment(\.openSitePlayer, nil)
             }
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
@@ -545,6 +554,52 @@ struct SiteGamesView: View {
     }
 }
 
+struct OpenSitePlayerAction {
+    var handler: (SitePlayerRoute) -> Void
+    func callAsFunction(_ route: SitePlayerRoute) { handler(route) }
+}
+
+private struct OpenSitePlayerKey: EnvironmentKey {
+    static let defaultValue: OpenSitePlayerAction? = nil
+}
+
+extension EnvironmentValues {
+    var openSitePlayer: OpenSitePlayerAction? {
+        get { self[OpenSitePlayerKey.self] }
+        set { self[OpenSitePlayerKey.self] = newValue }
+    }
+}
+
+struct SitePlayerNameLink: View {
+    var name: String
+    var year: String?
+    var section: GameSection
+    var color: Color
+    @Environment(\.openSitePlayer) private var openSitePlayer
+
+    var body: some View {
+        if let year {
+            if let open = openSitePlayer {
+                Button {
+                    open(SitePlayerRoute(name: name, year: year, section: section))
+                } label: {
+                    Text(name).foregroundStyle(color)
+                }
+                .buttonStyle(.borderless)
+            } else {
+                NavigationLink {
+                    SitePlayerDetailView(name: name, year: year, section: section)
+                } label: {
+                    Text(name).foregroundStyle(color)
+                }
+                .buttonStyle(.plain)
+            }
+        } else {
+            Text(name).foregroundStyle(color)
+        }
+    }
+}
+
 struct SitePlayerNamesLine: View {
     var names: [String]
     var year: String
@@ -554,12 +609,7 @@ struct SitePlayerNamesLine: View {
     var body: some View {
         HStack(spacing: 4) {
             ForEach(Array(names.enumerated()), id: \.offset) { _, name in
-                NavigationLink {
-                    SitePlayerDetailView(name: name, year: year, section: section)
-                } label: {
-                    Text(name).foregroundStyle(color)
-                }
-                .buttonStyle(.plain)
+                SitePlayerNameLink(name: name, year: year, section: section, color: color)
             }
         }
     }
@@ -616,16 +666,7 @@ struct DoublesGameRow: View {
     @ViewBuilder
     private func playerName(_ raw: String?, color: Color) -> some View {
         if let name = raw, !name.isEmpty {
-            if let year {
-                NavigationLink {
-                    SitePlayerDetailView(name: name, year: year, section: section)
-                } label: {
-                    Text(name).foregroundStyle(color)
-                }
-                .buttonStyle(.plain)
-            } else {
-                Text(name).foregroundStyle(color)
-            }
+            SitePlayerNameLink(name: name, year: year, section: section, color: color)
         }
     }
 }
@@ -661,16 +702,7 @@ struct VollisGameRow: View {
     @ViewBuilder
     private func playerName(_ raw: String?, color: Color) -> some View {
         if let name = raw, !name.isEmpty {
-            if let year {
-                NavigationLink {
-                    SitePlayerDetailView(name: name, year: year, section: section)
-                } label: {
-                    Text(name).foregroundStyle(color)
-                }
-                .buttonStyle(.plain)
-            } else {
-                Text(name).foregroundStyle(color)
-            }
+            SitePlayerNameLink(name: name, year: year, section: section, color: color)
         }
     }
 }
