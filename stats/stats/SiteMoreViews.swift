@@ -2114,7 +2114,7 @@ struct SiteVoiceAddView: View {
         let ls = parsed["loser_score"] as? Int ?? Int("\(parsed["loser_score"] ?? "")") ?? 0
         let df = DateFormatter(); df.dateFormat = "yyyy-MM-dd HH:mm:ss"
         do {
-            _ = try await PythonAnywhereClient.shared.createDoubles([
+            try await PythonAnywhereClient.shared.createDoubles([
                 "game_date": df.string(from: Date()),
                 "winner1": w1, "winner2": w2, "loser1": l1, "loser2": l2,
                 "winner_score": ws, "loser_score": ls,

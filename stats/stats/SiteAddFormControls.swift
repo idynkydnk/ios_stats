@@ -1,4 +1,48 @@
 import SwiftUI
+import Combine
+
+/// Keep the hub controls in the same scroll area as the fields so focusing even
+/// the first player can move them offscreen and leave room for suggestions.
+struct SiteAddFormScrollView<Field: Hashable, Content: View>: View {
+    var focused: Field?
+    var header: AnyView?
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        GeometryReader { geometry in
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(spacing: 0) {
+                        header
+                        content
+                        // Let fields near the end of a short form reach the top too.
+                        if focused != nil {
+                            Color.clear.frame(height: max(0, geometry.size.height - 70))
+                        }
+                    }
+                }
+                .scrollDismissesKeyboard(.interactively)
+                .task(id: focused) {
+                    guard let focused else { return }
+                    // Allow the newly selected field's suggestions to lay out first.
+                    do { try await Task.sleep(for: .milliseconds(60)) }
+                    catch { return }
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        proxy.scrollTo(focused, anchor: .top)
+                    }
+                }
+                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
+                    // Re-align after keyboard avoidance finishes resizing the form.
+                    if let focused {
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            proxy.scrollTo(focused, anchor: .top)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 enum SiteAddAccent {
     static let orange = Color(red: 1, green: 0.45, blue: 0.3)

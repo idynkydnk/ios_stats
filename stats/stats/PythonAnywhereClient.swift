@@ -57,8 +57,8 @@ final class PythonAnywhereClient {
         return try await get("/api/doubles/games", query: q)
     }
 
-    func createDoubles(_ fields: [String: Any]) async throws -> DoublesGame {
-        try await postJSON("/api/doubles/games", json: fields)
+    func createDoubles(_ fields: [String: Any]) async throws {
+        try await createGame("/api/doubles/games", fields: fields, canConfirm: true)
     }
 
     func updateDoubles(id: Int, fields: [String: Any]) async throws -> DoublesGame {
@@ -89,8 +89,7 @@ final class PythonAnywhereClient {
     }
 
     func createVollis(_ fields: [String: Any]) async throws {
-        struct Msg: Decodable { var message: String?; var id: Int? }
-        let _: Msg = try await postJSON("/api/vollis/games", json: fields)
+        try await createGame("/api/vollis/games", fields: fields, canConfirm: true)
     }
 
     func updateVollis(id: Int, fields: [String: Any]) async throws {
@@ -122,8 +121,7 @@ final class PythonAnywhereClient {
     }
 
     func createOther(_ fields: [String: Any]) async throws {
-        struct Msg: Decodable { var message: String?; var id: Int? }
-        let _: Msg = try await postJSON("/api/other/games", json: fields)
+        try await createGame("/api/other/games", fields: fields, canConfirm: false)
     }
 
     func updateOther(id: Int, fields: [String: Any]) async throws {
@@ -627,6 +625,24 @@ final class PythonAnywhereClient {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try encoder.encode(body)
         return try await decode(req)
+    }
+
+    private func createGame(_ path: String, fields: [String: Any], canConfirm: Bool) async throws {
+        var req = request(path, method: "POST", authed: true)
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: fields)
+        var confirmation: URLRequest?
+        if canConfirm, let date = fields["game_date"] as? String {
+            var lookup = request(path, method: "GET", query: ["year": String(date.prefix(4))])
+            lookup.cachePolicy = .reloadIgnoringLocalCacheData
+            lookup.timeoutInterval = 10
+            confirmation = lookup
+        }
+        // Other games currently expose a display date without seconds, which
+        // cannot safely distinguish two identical games for reconciliation.
+        try await SiteGameSaveRequest.send(req, confirmationRequest: confirmation, fields: fields) {
+            try await self.session.data(for: $0)
+        }
     }
 
     private func postJSON<T: Decodable>(_ path: String, json: Any) async throws -> T {

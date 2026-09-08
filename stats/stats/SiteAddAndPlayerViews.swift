@@ -15,45 +15,54 @@ struct SiteAddHubView: View {
                     LoginView()
                 } else {
                     VStack(spacing: 0) {
-                        Picker("Type", selection: $section) {
-                            ForEach(GameSection.allCases) { s in
-                                Text(s.title).tag(s)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        .padding(.horizontal)
-                        .padding(.top, 8)
-
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 8) {
-                                addLink("AI Summary", systemImage: "sparkles") { SiteAISummaryView() }
-                                addLink("New Flyer", systemImage: "megaphone") { SiteFlyerView() }
-                                addLink("Flyers", systemImage: "photo") { SiteFlyersView() }
-                                addLink("Recaps", systemImage: "text.bubble") { SiteRecapsView() }
-                                addLink("Voice", systemImage: "mic") { SiteVoiceAddView() }
-                                addLink("Tournament", systemImage: "trophy") { SiteTournamentsView() }
-                                addLink("Player", systemImage: "person.badge.plus") { SitePlayersView() }
-                            }
-                            .padding(.horizontal)
-                            .padding(.vertical, 10)
-                        }
-
                         switch section {
                         case .doubles:
-                            SiteAddDoublesView(gameToEdit: doublesEdit) {
+                            SiteAddDoublesView(gameToEdit: doublesEdit, header: AnyView(addHeader)) {
                                 doublesEdit = nil
                             }
                         case .vollis:
-                            SiteAddVollisView(gameToEdit: vollisEdit) {
+                            SiteAddVollisView(gameToEdit: vollisEdit, header: AnyView(addHeader)) {
                                 vollisEdit = nil
                             }
                         case .other:
-                            SiteAddOtherView()
+                            SiteAddOtherView(header: AnyView(addHeader))
                         }
                     }
                 }
             }
-            .navigationTitle("Add")
+            .navigationTitle(auth.isLoggedIn ? "" : "Add")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+
+    private var addHeader: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Add")
+                .font(.largeTitle.bold())
+                .padding(.horizontal)
+                .padding(.top, 8)
+            Picker("Type", selection: $section) {
+                ForEach(GameSection.allCases) { s in
+                    Text(s.title).tag(s)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal)
+            .padding(.top, 8)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    addLink("AI Summary", systemImage: "sparkles") { SiteAISummaryView() }
+                    addLink("New Flyer", systemImage: "megaphone") { SiteFlyerView() }
+                    addLink("Flyers", systemImage: "photo") { SiteFlyersView() }
+                    addLink("Recaps", systemImage: "text.bubble") { SiteRecapsView() }
+                    addLink("Voice", systemImage: "mic") { SiteVoiceAddView() }
+                    addLink("Tournament", systemImage: "trophy") { SiteTournamentsView() }
+                    addLink("Player", systemImage: "person.badge.plus") { SitePlayersView() }
+                }
+                .padding(.horizontal)
+                .padding(.vertical, 10)
+            }
         }
     }
 
