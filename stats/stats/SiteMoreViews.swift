@@ -1380,6 +1380,7 @@ struct SiteAIStyleView: View {
     @State private var banner: String?
     @State private var bannerIsError = false
     @State private var shareURL: URL?
+    @State private var recapToOpen: URL?
 
     var body: some View {
         ScrollView {
@@ -1472,6 +1473,9 @@ struct SiteAIStyleView: View {
             .padding(.bottom, 24)
         }
         .navigationTitle("AI style")
+        .navigationDestination(item: $recapToOpen) { url in
+            SiteRecapPageView(title: "Recap", url: url)
+        }
         .scrollDismissesKeyboard(.interactively)
     }
 
@@ -1515,6 +1519,7 @@ struct SiteAIStyleView: View {
         generating = true
         banner = nil
         shareURL = nil
+        recapToOpen = nil
         bannerIsError = false
         do {
             let jobId = try await PythonAnywhereClient.shared.generateAISummary(
@@ -1532,6 +1537,7 @@ struct SiteAIStyleView: View {
             if let url = result.pageURL {
                 shareURL = url
                 banner = "Recap ready"
+                recapToOpen = url
             } else if let err = result.error {
                 banner = err
                 bannerIsError = true
