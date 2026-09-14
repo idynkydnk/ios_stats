@@ -103,7 +103,7 @@ struct SectionYearBar: View {
     var searchPrompt: String
 
     var body: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 12) {
             HStack(spacing: 8) {
                 Picker("Type", selection: $section) {
                     ForEach(GameSection.allCases) { s in
@@ -119,12 +119,22 @@ struct SectionYearBar: View {
                 .pickerStyle(.menu)
                 .fixedSize()
             }
-            TextField(searchPrompt, text: $search)
-                .textFieldStyle(.roundedBorder)
+            HStack(spacing: 10) {
+                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                TextField(searchPrompt, text: $search)
+                    .autocorrectionDisabled()
+                if !search.isEmpty {
+                    Button { search = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
+                        .accessibilityLabel("Clear search")
+                }
+            }
+            .padding(12)
+            .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
         }
         .padding(.horizontal)
         .padding(.top, 4)
-        .padding(.bottom, 6)
+        .padding(.bottom, 14)
+        .background(Color(uiColor: .systemGroupedBackground))
     }
 
     private var normalizedYears: [String] {
@@ -137,6 +147,79 @@ struct SectionYearBar: View {
 
     private func displayTag(_ y: String) -> String {
         y == "All years" ? "All years" : y
+    }
+}
+
+// Shared disclosure cards keep the same motion and spacing across stats and games.
+struct SiteSpringButtonStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(reduceMotion ? 1 : (configuration.isPressed ? 0.97 : 1))
+            .animation(reduceMotion ? nil : .spring(response: 0.32, dampingFraction: 0.58), value: configuration.isPressed)
+    }
+}
+
+struct SiteSectionBubble: View {
+    var title: String
+    var count: Int
+    var subtitle: String? = nil
+    @Binding var expanded: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Button {
+            withAnimation(reduceMotion ? nil : .spring(response: 0.42, dampingFraction: 0.72)) {
+                expanded.toggle()
+            }
+        } label: {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title).font(.headline.weight(.bold))
+                    if let subtitle {
+                        Text(subtitle).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Text(count.formatted())
+                    .font(.subheadline.weight(.bold)).monospacedDigit()
+                    .foregroundStyle(Color.accentColor)
+                    .padding(.horizontal, 12).padding(.vertical, 7)
+                    .background(Color.accentColor.opacity(expanded ? 0.12 : 0.22), in: Capsule())
+                    .scaleEffect(reduceMotion ? 1 : (expanded ? 1 : 1.1))
+                Image(systemName: "chevron.down")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.secondary)
+                    .rotationEffect(.degrees(expanded ? 180 : 0))
+            }
+            .foregroundStyle(.primary)
+            .padding(18)
+            .frame(minHeight: 64)
+            .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 24))
+            .overlay(RoundedRectangle(cornerRadius: 24).strokeBorder(Color.primary.opacity(0.06)))
+            .contentShape(RoundedRectangle(cornerRadius: 24))
+        }
+        .buttonStyle(SiteSpringButtonStyle())
+        .accessibilityValue(expanded ? "Expanded" : "Collapsed")
+        .accessibilityHint("Double tap to \(expanded ? "collapse" : "expand") \(title)")
+    }
+}
+
+struct SiteExpandableSection<Content: View>: View {
+    var title: String
+    var count: Int
+    var subtitle: String? = nil
+    @ViewBuilder var content: Content
+    @State private var expanded = true
+
+    var body: some View {
+        VStack(spacing: 12) {
+            SiteSectionBubble(title: title, count: count, subtitle: subtitle, expanded: $expanded)
+            if expanded {
+                content.transition(.opacity)
+            }
+        }
     }
 }
 
@@ -155,44 +238,51 @@ struct RankingTable: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if let title {
-                HStack(alignment: .firstTextBaseline) {
-                    Text(title).font(.headline)
-                    Spacer()
-                    if let subtitle {
-                        Text(subtitle).font(.caption).foregroundStyle(.secondary)
+        SiteExpandableSection(title: title ?? "Standings", count: displayedRows.count, subtitle: subtitle) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                VStack(spacing: 0) {
+                    headerRow.padding(.vertical, 13)
+                    ForEach(Array(displayedRows.enumerated()), id: \.element.id) { idx, row in
+                        NavigationLink {
+                            SitePlayerDetailView(name: row.name, year: year, section: section)
+                        } label: {
+                            HStack(spacing: 8) {
+                                Text("\(idx + 1)").frame(width: 28, alignment: .leading).foregroundStyle(.secondary)
+                                Text(row.name).fontWeight(.semibold).frame(maxWidth: .infinity, alignment: .leading)
+                                if showRating {
+                                    Text(row.rating.map { String(format: "%.0f", $0) } ?? "—")
+                                        .frame(width: 44, alignment: .trailing)
+                                }
+                                Text("\(row.wins)").frame(width: 32, alignment: .trailing).foregroundStyle(.green)
+                                Text("\(row.losses)").frame(width: 32, alignment: .trailing).foregroundStyle(.red)
+                                Text(row.winPctDisplay).frame(width: 48, alignment: .trailing)
+                                if showPlusMinus {
+                                    let pm = row.plusMinus ?? 0
+                                    Text(pm > 0 ? "+\(pm)" : "\(pm)")
+                                        .foregroundStyle(pm > 0 ? Color.green : pm < 0 ? Color.red : .secondary)
+                                        .frame(width: 44, alignment: .trailing)
+                                }
+                            }
+                            .font(.subheadline).monospacedDigit()
+                            .foregroundStyle(.primary)
+                            .padding(.horizontal, 16).padding(.vertical, 15)
+                            .frame(minHeight: 50)
+                            .background(Color.primary.opacity(idx.isMultiple(of: 2) ? 0.025 : 0.055))
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    if displayedRows.isEmpty {
+                        Text("No players to show").font(.subheadline).foregroundStyle(.secondary).padding(24)
                     }
                 }
-                .padding(.horizontal)
+                .containerRelativeFrame(.horizontal)
             }
-            headerRow
-            ForEach(Array(displayedRows.enumerated()), id: \.element.id) { idx, row in
-                NavigationLink {
-                    SitePlayerDetailView(name: row.name, year: year, section: section)
-                } label: {
-                    HStack {
-                        Text("\(idx + 1)").frame(width: 28, alignment: .leading).foregroundStyle(.secondary)
-                        Text(row.name).frame(maxWidth: .infinity, alignment: .leading)
-                        if showRating, let r = row.rating {
-                            Text(String(format: "%.0f", r)).frame(width: 44, alignment: .trailing)
-                        }
-                        Text("\(row.wins)").frame(width: 32, alignment: .trailing).foregroundStyle(.green)
-                        Text("\(row.losses)").frame(width: 32, alignment: .trailing).foregroundStyle(.red)
-                        Text(row.winPctDisplay).frame(width: 48, alignment: .trailing)
-                        if showPlusMinus {
-                            let pm = row.plusMinus ?? 0
-                            Text(pm > 0 ? "+\(pm)" : "\(pm)")
-                                .foregroundStyle(pm > 0 ? Color.green : pm < 0 ? Color.red : .secondary)
-                                .frame(width: 44, alignment: .trailing)
-                        }
-                    }
-                    .font(.subheadline)
-                    .padding(.horizontal)
-                    .padding(.vertical, 6)
-                }
-            }
+            .background(Color(uiColor: .secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 24))
+            .overlay(RoundedRectangle(cornerRadius: 24).strokeBorder(Color.primary.opacity(0.06)))
         }
+        .padding(.horizontal, 16).padding(.bottom, 20)
     }
 
     private var headerRow: some View {
@@ -248,7 +338,7 @@ struct SiteStatsView: View {
                                     section: .doubles
                                 )
                             }
-                            RankingTable(title: "Ranked", rows: filter(d.stats), showRating: true, year: d.displayYear, section: .doubles)
+                            RankingTable(title: "Standings", rows: filter(d.stats), showRating: true, year: d.displayYear, section: .doubles)
                             if !d.rareStats.isEmpty {
                                 RankingTable(title: "Fewer than \(d.minimumGames) games", rows: filter(d.rareStats), showRating: true, year: d.displayYear, section: .doubles)
                             }
@@ -301,9 +391,10 @@ struct SiteStatsView: View {
                         }
                     }
                 }
+                .background(Color(uiColor: .systemGroupedBackground))
                 .refreshable { await load() }
             }
-            .navigationTitle("")
+            .navigationTitle("Stats")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -363,6 +454,7 @@ struct SiteGamesView: View {
     @State private var doubles: [DoublesGame] = []
     @State private var vollis: [VollisGame] = []
     @State private var other: [OtherGame] = []
+    @State private var gamesExpanded = true
     @State private var search = ""
     @State private var error: String?
     @State private var banner: String?
@@ -385,10 +477,18 @@ struct SiteGamesView: View {
                         .padding(.horizontal)
                 }
                 List {
+                    SiteSectionBubble(title: "Games", count: visibleGameCount, expanded: $gamesExpanded)
+                        .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                    if gamesExpanded {
                     switch section {
                     case .doubles:
                         ForEach(filteredDoubles) { g in
                             DoublesGameRow(game: g, year: selectedYear, section: .doubles)
+                                .listRowSeparator(.hidden)
+                                .listRowBackground(Color.clear)
+                                .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
                                 .buttonStyle(.borderless)
                                 .swipeActions {
                                     if canEdit {
@@ -406,6 +506,9 @@ struct SiteGamesView: View {
                     case .vollis:
                         ForEach(filteredVollis) { g in
                             VollisGameRow(game: g, year: selectedYear, section: .vollis)
+                                .listRowSeparator(.hidden)
+                                .listRowBackground(Color.clear)
+                                .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
                                 .buttonStyle(.borderless)
                                 .swipeActions {
                                     if canEdit {
@@ -422,22 +525,24 @@ struct SiteGamesView: View {
                         }
                     case .other:
                         ForEach(filteredOther) { g in
-                            VStack(alignment: .leading, spacing: 4) {
+                            VStack(alignment: .leading, spacing: 10) {
                                 Text("\(g.gameName ?? "") · \(g.gameType ?? "")").font(.headline)
                                 SiteGameDateLabel(raw: g.gameDateOnly ?? g.gameDate)
-                                HStack {
+                                SiteTeamScorePanel(score: g.winnerScore, winner: true) {
                                     SitePlayerNamesLine(names: g.displayWinners, year: selectedYear, section: .other, color: .green)
-                                    Spacer()
-                                    if let s = g.winnerScore { Text("\(s)").foregroundStyle(.green) }
                                 }
-                                HStack {
+                                SiteTeamScorePanel(score: g.loserScore, winner: false) {
                                     SitePlayerNamesLine(names: g.displayLosers, year: selectedYear, section: .other, color: .red)
-                                    Spacer()
-                                    if let s = g.loserScore { Text("\(s)").foregroundStyle(.red) }
                                 }
                                 if let c = g.comment, !c.isEmpty { Text(c).font(.caption).italic() }
                             }
-                            .buttonStyle(.borderless)
+                            .padding(16)
+                            .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 24))
+                            .overlay(RoundedRectangle(cornerRadius: 24).strokeBorder(Color.primary.opacity(0.06)))
+                            .listRowSeparator(.hidden)
+                                .listRowBackground(Color.clear)
+                                .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                                .buttonStyle(.borderless)
                             .swipeActions {
                                 if canEdit {
                                     Button("Delete", role: .destructive) { Task { await deleteOther(g) } }
@@ -450,14 +555,18 @@ struct SiteGamesView: View {
                             }
                         }
                     }
+                    }
                 }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .background(Color(uiColor: .systemGroupedBackground))
                 .environment(\.openSitePlayer, OpenSitePlayerAction { openedPlayer = $0 })
             }
             .navigationDestination(item: $openedPlayer) { route in
                 SitePlayerDetailView(name: route.name, year: route.year, section: route.section)
                     .environment(\.openSitePlayer, nil)
             }
-            .navigationTitle("")
+            .navigationTitle("Games")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -471,6 +580,14 @@ struct SiteGamesView: View {
                 error = nil
                 await load()
             }
+        }
+    }
+
+    private var visibleGameCount: Int {
+        switch section {
+        case .doubles: return filteredDoubles.count
+        case .vollis: return filteredVollis.count
+        case .other: return filteredOther.count
         }
     }
 
@@ -631,42 +748,59 @@ struct SiteGameDateLabel: View {
     }
 }
 
+struct SiteTeamScorePanel<Players: View>: View {
+    var score: Int?
+    var winner: Bool
+    @ViewBuilder var players: Players
+
+    private var color: Color { winner ? .green : .red }
+    var body: some View {
+        HStack(spacing: 14) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text(winner ? "WINNERS" : "LOSERS")
+                    .font(.caption2.weight(.bold)).tracking(1).foregroundStyle(.secondary)
+                players.font(.subheadline.weight(.semibold))
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Text(score.map(String.init) ?? "—")
+                .font(.system(.largeTitle, design: .rounded, weight: .bold))
+                .monospacedDigit().foregroundStyle(color)
+        }
+        .padding(14)
+        .background(color.opacity(0.09), in: RoundedRectangle(cornerRadius: 17))
+        .overlay(alignment: .leading) {
+            Capsule().fill(color).frame(width: 3).padding(.vertical, 14)
+        }
+    }
+}
+
 struct DoublesGameRow: View {
     var game: DoublesGame
     var year: String? = nil
     var section: GameSection = .doubles
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            SiteGameDateLabel(raw: game.gameDate)
-            HStack {
+        VStack(alignment: .leading, spacing: 10) {
+            SiteGameDateLabel(raw: game.gameDate).padding(.bottom, 3)
+            SiteTeamScorePanel(score: game.winnerScore, winner: true) {
                 playerPair(game.winner1, game.winner2, color: .green)
-                Spacer()
-                Text("\(game.winnerScore ?? 0)")
             }
-            HStack {
+            SiteTeamScorePanel(score: game.loserScore, winner: false) {
                 playerPair(game.loser1, game.loser2, color: .red)
-                Spacer()
-                Text("\(game.loserScore ?? 0)")
             }
-            if !game.comment.isEmpty { Text(game.comment).font(.caption).italic() }
+            if !game.comment.isEmpty { Text(game.comment).font(.caption).foregroundStyle(.secondary) }
             if let by = game.updatedBy, !by.isEmpty {
                 Text("by \(by)").font(.caption2).foregroundStyle(.secondary)
             }
         }
+        .padding(16)
+        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 24))
+        .overlay(RoundedRectangle(cornerRadius: 24).strokeBorder(Color.primary.opacity(0.06)))
     }
 
-    @ViewBuilder
     private func playerPair(_ a: String?, _ b: String?, color: Color) -> some View {
-        HStack(spacing: 4) {
-            playerName(a, color: color)
-            playerName(b, color: color)
-        }
-    }
-
-    @ViewBuilder
-    private func playerName(_ raw: String?, color: Color) -> some View {
-        if let name = raw, !name.isEmpty {
-            SitePlayerNameLink(name: name, year: year, section: section, color: color)
+        VStack(alignment: .leading, spacing: 4) {
+            if let a, !a.isEmpty { SitePlayerNameLink(name: a, year: year, section: section, color: color) }
+            if let b, !b.isEmpty { SitePlayerNameLink(name: b, year: year, section: section, color: color) }
         }
     }
 }
@@ -676,33 +810,17 @@ struct VollisGameRow: View {
     var year: String? = nil
     var section: GameSection = .vollis
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            SiteGameDateLabel(raw: game.gameDate)
-            HStack(alignment: .center, spacing: 8) {
-                playerName(game.winner, color: .green)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                HStack(spacing: 10) {
-                    Text("\(game.winnerScore ?? 0)")
-                        .foregroundStyle(.green)
-                    Text("\(game.loserScore ?? 0)")
-                        .foregroundStyle(.red)
-                }
-                .fontWeight(.semibold)
-                .monospacedDigit()
-                playerName(game.loser, color: .red)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
+        VStack(alignment: .leading, spacing: 10) {
+            SiteGameDateLabel(raw: game.gameDate).padding(.bottom, 3)
+            SiteTeamScorePanel(score: game.winnerScore, winner: true) {
+                if let name = game.winner { SitePlayerNameLink(name: name, year: year, section: section, color: .green) }
+            }
+            SiteTeamScorePanel(score: game.loserScore, winner: false) {
+                if let name = game.loser { SitePlayerNameLink(name: name, year: year, section: section, color: .red) }
             }
         }
-    }
-
-    @ViewBuilder
-    private func playerName(_ raw: String?, color: Color) -> some View {
-        if let name = raw, !name.isEmpty {
-            SitePlayerNameLink(name: name, year: year, section: section, color: color)
-        }
+        .padding(16)
+        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 24))
+        .overlay(RoundedRectangle(cornerRadius: 24).strokeBorder(Color.primary.opacity(0.06)))
     }
 }

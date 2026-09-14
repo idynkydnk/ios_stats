@@ -134,38 +134,22 @@ struct SiteAddDoublesView: View {
 
     @ViewBuilder
     private func todayBoard(_ dash: TodaysDoublesDashboard) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Today's Stats").font(.headline).padding(.top, 8)
-            ForEach(Array(RankingRow.sortedForToday(dash.stats).enumerated()), id: \.element.id) { idx, row in
-                NavigationLink {
-                    SitePlayerDetailView(name: row.name, year: String(Calendar.current.component(.year, from: Date())), section: .doubles)
-                } label: {
-                    HStack {
-                        Text("\(idx + 1)").foregroundStyle(.secondary).frame(width: 24, alignment: .leading)
-                        Text(row.name).frame(maxWidth: .infinity, alignment: .leading)
-                        Text("\(row.wins)").foregroundStyle(.green).frame(width: 28, alignment: .trailing)
-                        Text("\(row.losses)").foregroundStyle(.red).frame(width: 28, alignment: .trailing)
-                        Text(row.winPctDisplay).frame(width: 44, alignment: .trailing)
-                        let pm = row.plusMinus ?? 0
-                        Text(pm > 0 ? "+\(pm)" : "\(pm)")
-                            .foregroundStyle(pm > 0 ? Color.green : pm < 0 ? Color.red : .secondary)
-                            .frame(width: 36, alignment: .trailing)
+        VStack(spacing: 20) {
+            RankingTable(title: "Today's Standings", rows: dash.stats, showRating: false,
+                         showPlusMinus: true, sortLikeToday: true,
+                         year: String(Calendar.current.component(.year, from: Date())), section: .doubles)
+                .padding(.horizontal, -16)
+            SiteExpandableSection(title: "Games", count: dash.games.count, subtitle: "Today") {
+                if dash.games.isEmpty {
+                    Text("No doubles played today yet.").foregroundStyle(.secondary).padding()
+                } else {
+                    ForEach(dash.games) { game in
+                        DoublesGameRow(game: game, year: String(Calendar.current.component(.year, from: Date())), section: .doubles)
                     }
-                    .font(.subheadline)
-                    .foregroundStyle(.primary)
-                }
-                .buttonStyle(.plain)
-            }
-            Text("Today's Games").font(.headline).padding(.top, 8)
-            if dash.games.isEmpty {
-                Text("No doubles played today yet.").foregroundStyle(.secondary)
-            } else {
-                ForEach(dash.games) { g in
-                    DoublesGameRow(game: g, year: String(Calendar.current.component(.year, from: Date())), section: .doubles)
-                        .padding(.vertical, 4)
                 }
             }
         }
+        .padding(.top, 12)
     }
 
     private func suggestions(for query: String, field: Field) -> [String] {
@@ -227,6 +211,7 @@ struct SiteAddDoublesView: View {
     private func clearForm(focusFirst: Bool) {
         winner1 = ""; winner2 = ""; loser1 = ""; loser2 = ""
         winnerScore = nil; loserScore = nil; comments = ""
+        location = ""
         error = nil
         if focusFirst { focused = .w1 }
     }
@@ -277,7 +262,6 @@ struct SiteAddDoublesView: View {
             } else if let g = gameToEdit {
                 _ = try await PythonAnywhereClient.shared.updateDoubles(id: g.id, fields: fields)
                 banner = "Game saved"
-                onDone()
             } else {
                 try await PythonAnywhereClient.shared.createDoubles(fields)
                 banner = "Game saved"
@@ -291,11 +275,10 @@ struct SiteAddDoublesView: View {
         saving = false
         rematch = (names[0], names[1], names[2], names[3])
         sitePromote(names, in: &players)
-        if gameToEdit == nil {
-            clearForm(focusFirst: true)
-            bannerIsError = false
-            successTick += 1
-        }
+        clearForm(focusFirst: true)
+        bannerIsError = false
+        successTick += 1
+        if gameToEdit != nil { onDone() }
         // Refresh failures must not undo the confirmed save or block the next entry.
         players = (try? await PythonAnywhereClient.shared.doublesPlayers()) ?? players
         await refreshToday()
@@ -374,7 +357,7 @@ struct SiteAddVollisView: View {
                         Task { await save() }
                     }
                     SiteAddActionButton(title: "Clear") {
-                        winner = ""; loser = ""; winnerScore = nil; loserScore = nil; focused = .winner
+                        clearForm()
                     }
                 }
 
@@ -420,10 +403,22 @@ struct SiteAddVollisView: View {
             winnerScore = g.winnerScore; loserScore = g.loserScore
             location = g.location ?? siteLastGameLocation()
         }
+        await refreshToday()
+    }
+
+    private func refreshToday() async {
         players = (try? await PythonAnywhereClient.shared.vollisPlayers()) ?? []
         let year = String(Calendar.current.component(.year, from: Date()))
         let all = (try? await PythonAnywhereClient.shared.vollisGames(year: year))?.games ?? []
         todayGames = all.filter { siteIsToday($0.date) }
+    }
+
+    private func clearForm() {
+        winner = ""; loser = ""
+        winnerScore = nil; loserScore = nil
+        location = ""
+        error = nil
+        focused = .winner
     }
 
     private func save() async {
@@ -459,15 +454,11 @@ struct SiteAddVollisView: View {
         }
         saving = false
         banner = "Game saved"
-        if gameToEdit != nil {
-            onDone()
-        } else {
-            successTick += 1
-            sitePromote([w, l], in: &players)
-            winner = ""; loser = ""; winnerScore = nil; loserScore = nil
-            focused = .winner
-            await load()
-        }
+        successTick += 1
+        sitePromote([w, l], in: &players)
+        clearForm()
+        if gameToEdit != nil { onDone() }
+        await refreshToday()
     }
 }
 
@@ -574,7 +565,7 @@ struct SiteAddOtherView: View {
 
                 HStack(spacing: 8) {
                     SiteAddActionButton(title: saving ? "Saving…" : "Save", filled: true, disabled: saving) { Task { await save() } }
-                    SiteAddActionButton(title: "Clear") { clearPlayers(); focused = .gameName }
+                    SiteAddActionButton(title: "Clear") { clearForm() }
                 }
 
                 if !todayGames.isEmpty {
@@ -707,6 +698,17 @@ struct SiteAddOtherView: View {
         teamWinnerScore = nil; teamLoserScore = nil; comment = ""
     }
 
+    private func clearForm() {
+        clearPlayers()
+        gameName = ""
+        gameType = ""
+        scoreType = "team"
+        resizeSlots(winnerCount: 1, loserCount: 1)
+        location = ""
+        error = nil
+        focused = .gameName
+    }
+
     private func loserChipsForTeam() -> [Int] {
         if gameType.lowercased().contains("volleyball"), let w = teamWinnerScore {
             return siteLoserScores(winner: w)
@@ -780,8 +782,7 @@ struct SiteAddOtherView: View {
         banner = "Game saved"
         successTick += 1
         sitePromote(w + l, in: &players)
-        clearPlayers()
-        focused = .winner(0)
+        clearForm()
         let year = String(Calendar.current.component(.year, from: Date()))
         let all = (try? await PythonAnywhereClient.shared.otherGames(year: year))?.games ?? []
         todayGames = all.filter { siteIsToday(DoublesGame.parseDate($0.gameDateOnly ?? $0.gameDate) ?? .distantPast) }
