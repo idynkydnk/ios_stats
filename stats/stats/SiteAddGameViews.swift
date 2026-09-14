@@ -37,48 +37,51 @@ struct SiteAddDoublesView: View {
     var body: some View {
         SiteAddFormScrollView(focused: focused, header: header) {
             VStack(alignment: .leading, spacing: 14) {
-                if let banner {
-                    SiteAddBanner(text: banner, isError: bannerIsError)
-                }
-                if let error {
-                    SiteAddBanner(text: error, isError: true)
-                }
-
-                playerRow("Winner 1", text: $winner1, field: .w1, next: .w2)
-                playerRow("Winner 2", text: $winner2, field: .w2, next: .l1)
-                playerRow("Loser 1", text: $loser1, field: .l1, next: .l2)
-                playerRow("Loser 2", text: $loser2, field: .l2, next: .wScore)
-
-                SiteAddScoreRow(label: "Winners' score", value: $winnerScore, field: .wScore, focus: $focused, submit: .next, onSubmit: { advance(to: .lScore) }, onFocus: {})
-                if focused == .wScore {
-                    SiteAddScoreChips(scores: winnerChips, selected: winnerScore) { s in
-                        winnerScore = s
-                        if gameToEdit == nil { advance(to: .lScore) }
+                SiteContentCard(title: "Doubles game") {
+                    if let banner {
+                        SiteAddBanner(text: banner, isError: bannerIsError)
                     }
-                }
-
-                SiteAddScoreRow(label: "Losers' score", value: $loserScore, field: .lScore, focus: $focused, submit: .done, onSubmit: { focused = nil }, onFocus: {})
-                if focused == .lScore {
-                    SiteAddScoreChips(scores: siteLoserScores(winner: winnerScore), selected: loserScore) { s in
-                        loserScore = s
-                        focused = nil
+                    if let error {
+                        SiteAddBanner(text: error, isError: true)
                     }
-                }
 
-                SiteAddTextRow(label: "Comment (optional)", text: $comments, field: .comment, focus: $focused, submit: .done, onSubmit: { focused = nil })
-                SiteAddTextRow(label: "Location (optional)", text: $location, field: .location, focus: $focused, submit: .done, onSubmit: { focused = nil })
+                    playerRow("Winner 1", text: $winner1, field: .w1, next: .w2)
+                    playerRow("Winner 2", text: $winner2, field: .w2, next: .l1)
+                    playerRow("Loser 1", text: $loser1, field: .l1, next: .l2)
+                    playerRow("Loser 2", text: $loser2, field: .l2, next: .wScore)
 
-                HStack(spacing: 8) {
-                    SiteAddActionButton(title: saving ? "Saving…" : (gameToEdit == nil ? "Save" : "Update"), filled: true, disabled: saving) {
-                        Task { await save() }
+                    SiteAddScoreRow(label: "Winners' score", value: $winnerScore, field: .wScore, focus: $focused, submit: .next, onSubmit: { advance(to: .lScore) }, onFocus: {})
+                    if focused == .wScore {
+                        SiteAddScoreChips(scores: winnerChips, selected: winnerScore) { s in
+                            winnerScore = s
+                            if gameToEdit == nil { advance(to: .lScore) }
+                        }
                     }
-                    SiteAddActionButton(title: "Rematch", disabled: rematch == nil && today?.games.first == nil) {
-                        applyRematch()
+
+                    SiteAddScoreRow(label: "Losers' score", value: $loserScore, field: .lScore, focus: $focused, submit: .done, onSubmit: { focused = nil }, onFocus: {})
+                    if focused == .lScore {
+                        SiteAddScoreChips(scores: siteLoserScores(winner: winnerScore), selected: loserScore) { s in
+                            loserScore = s
+                            focused = nil
+                        }
                     }
-                }
-                HStack(spacing: 8) {
-                    SiteAddActionButton(title: "Swap W/L") { swapSides() }
-                    SiteAddActionButton(title: "Clear") { clearForm(focusFirst: true) }
+
+                    SiteAddTextRow(label: "Comment (optional)", text: $comments, field: .comment, focus: $focused, submit: .done, onSubmit: { focused = nil })
+                    SiteAddTextRow(label: "Location (optional)", text: $location, field: .location, focus: $focused, submit: .done, onSubmit: { focused = nil })
+
+                    HStack(spacing: 8) {
+                        SiteAddActionButton(title: saving ? "Saving…" : (gameToEdit == nil ? "Save" : "Update"), filled: true, disabled: saving) {
+                            Task { await save() }
+                        }
+                        SiteAddActionButton(title: "Rematch", disabled: rematch == nil && today?.games.first == nil) {
+                            applyRematch()
+                        }
+                    }
+                    HStack(spacing: 8) {
+                        SiteAddActionButton(title: "Swap W/L") { swapSides() }
+                        SiteAddActionButton(title: "Clear") { clearForm(focusFirst: true) }
+                    }
+
                 }
 
                 if let today, !today.stats.isEmpty || !today.games.isEmpty {
@@ -311,65 +314,64 @@ struct SiteAddVollisView: View {
     var body: some View {
         SiteAddFormScrollView(focused: focused, header: header) {
             VStack(alignment: .leading, spacing: 14) {
-                if let banner { SiteAddBanner(text: banner) }
-                if let error { SiteAddBanner(text: error, isError: true) }
+                SiteContentCard(title: "Vollis game") {
+                    if let banner { SiteAddBanner(text: banner) }
+                    if let error { SiteAddBanner(text: error, isError: true) }
 
-                SiteAddTextRow(label: "Winner", text: $winner, field: .winner, focus: $focused, submit: .done, onSubmit: {
-                    focused = nil
-                })
-                if focused == .winner {
-                    SiteAddSuggestionList(names: siteFilterPlayers(players, query: winner, excluding: [loser])) { name in
-                        winner = name
-                        if gameToEdit == nil { focused = .loser }
-                    }
-                }
-
-                SiteAddTextRow(label: "Loser", text: $loser, field: .loser, focus: $focused, submit: .done, onSubmit: {
-                    focused = nil
-                })
-                if focused == .loser {
-                    SiteAddSuggestionList(names: siteFilterPlayers(players, query: loser, excluding: [winner])) { name in
-                        loser = name
-                        if gameToEdit == nil { focused = .wScore }
-                    }
-                }
-
-                SiteAddScoreRow(label: "Winner's score", value: $winnerScore, field: .wScore, focus: $focused, onSubmit: { focused = .lScore })
-                if focused == .wScore {
-                    SiteAddScoreChips(scores: winnerChips, selected: winnerScore) { s in
-                        winnerScore = s
-                        if gameToEdit == nil { focused = .lScore }
-                    }
-                }
-
-                SiteAddScoreRow(label: "Loser's score", value: $loserScore, field: .lScore, focus: $focused, submit: .next, onSubmit: { focused = .location })
-                if focused == .lScore {
-                    SiteAddScoreChips(scores: siteLoserScores(winner: winnerScore ?? 11), selected: loserScore) { s in
-                        loserScore = s
+                    SiteAddTextRow(label: "Winner", text: $winner, field: .winner, focus: $focused, submit: .done, onSubmit: {
                         focused = nil
+                    })
+                    if focused == .winner {
+                        SiteAddSuggestionList(names: siteFilterPlayers(players, query: winner, excluding: [loser])) { name in
+                            winner = name
+                            if gameToEdit == nil { focused = .loser }
+                        }
                     }
-                }
 
-                SiteAddTextRow(label: "Location (optional)", text: $location, field: .location, focus: $focused, submit: .done, onSubmit: { focused = nil })
+                    SiteAddTextRow(label: "Loser", text: $loser, field: .loser, focus: $focused, submit: .done, onSubmit: {
+                        focused = nil
+                    })
+                    if focused == .loser {
+                        SiteAddSuggestionList(names: siteFilterPlayers(players, query: loser, excluding: [winner])) { name in
+                            loser = name
+                            if gameToEdit == nil { focused = .wScore }
+                        }
+                    }
 
-                HStack(spacing: 8) {
-                    SiteAddActionButton(title: saving ? "Saving…" : (gameToEdit == nil ? "Save" : "Update"), filled: true, disabled: saving || !auth.isLoggedIn) {
-                        Task { await save() }
+                    SiteAddScoreRow(label: "Winner's score", value: $winnerScore, field: .wScore, focus: $focused, onSubmit: { focused = .lScore })
+                    if focused == .wScore {
+                        SiteAddScoreChips(scores: winnerChips, selected: winnerScore) { s in
+                            winnerScore = s
+                            if gameToEdit == nil { focused = .lScore }
+                        }
                     }
-                    SiteAddActionButton(title: "Clear") {
-                        clearForm()
+
+                    SiteAddScoreRow(label: "Loser's score", value: $loserScore, field: .lScore, focus: $focused, submit: .next, onSubmit: { focused = .location })
+                    if focused == .lScore {
+                        SiteAddScoreChips(scores: siteLoserScores(winner: winnerScore ?? 11), selected: loserScore) { s in
+                            loserScore = s
+                            focused = nil
+                        }
                     }
+
+                    SiteAddTextRow(label: "Location (optional)", text: $location, field: .location, focus: $focused, submit: .done, onSubmit: { focused = nil })
+
+                    HStack(spacing: 8) {
+                        SiteAddActionButton(title: saving ? "Saving…" : (gameToEdit == nil ? "Save" : "Update"), filled: true, disabled: saving || !auth.isLoggedIn) {
+                            Task { await save() }
+                        }
+                        SiteAddActionButton(title: "Clear") {
+                            clearForm()
+                        }
+                    }
+
                 }
 
                 if !todayGames.isEmpty {
-                    Text("Today's Games").font(.headline).padding(.top, 8)
-                    ForEach(todayGames) { g in
-                        HStack {
-                            Text("\(g.winner ?? "")  \(g.winnerScore ?? 0)").foregroundStyle(.green)
-                            Spacer()
-                            Text("\(g.loserScore ?? 0)  \(g.loser ?? "")").foregroundStyle(.red)
+                    SiteExpandableSection(title: "Games", count: todayGames.count, subtitle: "Today") {
+                        ForEach(todayGames) { g in
+                            VollisGameRow(game: g)
                         }
-                        .font(.subheadline)
                     }
                 }
             }
@@ -496,80 +498,83 @@ struct SiteAddOtherView: View {
     var body: some View {
         SiteAddFormScrollView(focused: focused, header: header) {
             VStack(alignment: .leading, spacing: 14) {
-                if let banner { SiteAddBanner(text: banner) }
-                if let error { SiteAddBanner(text: error, isError: true) }
+                SiteContentCard(title: "Other game") {
+                    if let banner { SiteAddBanner(text: banner) }
+                    if let error { SiteAddBanner(text: error, isError: true) }
 
-                SiteAddTextRow(label: "Game name", text: $gameName, field: .gameName, focus: $focused, submit: .done, onSubmit: {
-                    focused = nil
-                    Task { await applyGameName(advanceFocus: false) }
-                }, onFocus: {})
-                if focused == .gameName {
-                    SiteAddSuggestionList(names: siteFilterPlayers(knownNames, query: gameName, excluding: [])) { name in
-                        gameName = name
-                        Task { await applyGameName() }
+                    SiteAddTextRow(label: "Game name", text: $gameName, field: .gameName, focus: $focused, submit: .done, onSubmit: {
+                        focused = nil
+                        Task { await applyGameName(advanceFocus: false) }
+                    }, onFocus: {})
+                    if focused == .gameName {
+                        SiteAddSuggestionList(names: siteFilterPlayers(knownNames, query: gameName, excluding: [])) { name in
+                            gameName = name
+                            Task { await applyGameName() }
+                        }
                     }
-                }
 
-                if !knownTypes.isEmpty {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack {
-                            ForEach(knownTypes, id: \.self) { t in
-                                Button(t) { gameType = t }
-                                    .buttonStyle(.bordered)
-                                    .tint(gameType == t ? SiteAddAccent.orange : .secondary)
+                    if !knownTypes.isEmpty {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack {
+                                ForEach(knownTypes, id: \.self) { t in
+                                    Button(t) { gameType = t }
+                                        .buttonStyle(.bordered)
+                                        .tint(gameType == t ? SiteAddAccent.orange : .secondary)
+                                }
                             }
                         }
                     }
-                }
 
-                Picker("Scoring", selection: $scoreType) {
-                    Text("Team").tag("team")
-                    Text("Individual").tag("individual")
-                    Text("None").tag("none")
-                }
-                .pickerStyle(.segmented)
+                    Picker("Scoring", selection: $scoreType) {
+                        Text("Team").tag("team")
+                        Text("Individual").tag("individual")
+                        Text("None").tag("none")
+                    }
+                    .pickerStyle(.segmented)
 
-                Text("Winners").font(.headline)
-                ForEach(winners.indices, id: \.self) { i in
-                    playerSlot(side: .winner, index: i)
-                }
-                Button("Add winner") { addSlot(winner: true) }
-                    .font(.subheadline)
+                    Text("Winners").font(.headline)
+                    ForEach(winners.indices, id: \.self) { i in
+                        playerSlot(side: .winner, index: i)
+                    }
+                    Button("Add winner") { addSlot(winner: true) }
+                        .font(.subheadline)
 
-                Text("Losers").font(.headline)
-                ForEach(losers.indices, id: \.self) { i in
-                    playerSlot(side: .loser, index: i)
-                }
-                Button("Add loser") { addSlot(winner: false) }
-                    .font(.subheadline)
+                    Text("Losers").font(.headline)
+                    ForEach(losers.indices, id: \.self) { i in
+                        playerSlot(side: .loser, index: i)
+                    }
+                    Button("Add loser") { addSlot(winner: false) }
+                        .font(.subheadline)
 
-                if scoreType == "team" {
-                    SiteAddScoreRow(label: "Winner score", value: $teamWinnerScore, field: .teamW, focus: $focused, onSubmit: { focused = .teamL })
-                    if focused == .teamW {
-                        SiteAddScoreChips(scores: winnerChips, selected: teamWinnerScore) { s in
-                            teamWinnerScore = s
-                            focused = .teamL
+                    if scoreType == "team" {
+                        SiteAddScoreRow(label: "Winner score", value: $teamWinnerScore, field: .teamW, focus: $focused, onSubmit: { focused = .teamL })
+                        if focused == .teamW {
+                            SiteAddScoreChips(scores: winnerChips, selected: teamWinnerScore) { s in
+                                teamWinnerScore = s
+                                focused = .teamL
+                            }
+                        }
+                        SiteAddScoreRow(label: "Loser score", value: $teamLoserScore, field: .teamL, focus: $focused, submit: .next, onSubmit: { focused = .comment })
+                        if focused == .teamL {
+                            SiteAddScoreChips(scores: loserChipsForTeam(), selected: teamLoserScore) { s in
+                                teamLoserScore = s
+                                focused = .comment
+                            }
                         }
                     }
-                    SiteAddScoreRow(label: "Loser score", value: $teamLoserScore, field: .teamL, focus: $focused, submit: .next, onSubmit: { focused = .comment })
-                    if focused == .teamL {
-                        SiteAddScoreChips(scores: loserChipsForTeam(), selected: teamLoserScore) { s in
-                            teamLoserScore = s
-                            focused = .comment
-                        }
+
+                    SiteAddTextRow(label: "Comment (optional)", text: $comment, field: .comment, focus: $focused, submit: .done, onSubmit: { focused = nil })
+                    SiteAddTextRow(label: "Location (optional)", text: $location, field: .location, focus: $focused, submit: .done, onSubmit: { focused = nil })
+
+                    HStack(spacing: 8) {
+                        SiteAddActionButton(title: saving ? "Saving…" : "Save", filled: true, disabled: saving) { Task { await save() } }
+                        SiteAddActionButton(title: "Clear") { clearForm() }
                     }
-                }
 
-                SiteAddTextRow(label: "Comment (optional)", text: $comment, field: .comment, focus: $focused, submit: .done, onSubmit: { focused = nil })
-                SiteAddTextRow(label: "Location (optional)", text: $location, field: .location, focus: $focused, submit: .done, onSubmit: { focused = nil })
-
-                HStack(spacing: 8) {
-                    SiteAddActionButton(title: saving ? "Saving…" : "Save", filled: true, disabled: saving) { Task { await save() } }
-                    SiteAddActionButton(title: "Clear") { clearForm() }
                 }
 
                 if !todayGames.isEmpty {
-                    Text("Today's Games").font(.headline).padding(.top, 8)
+                    SiteContentCard(title: "Today's Games") {
                     ForEach(todayGames) { g in
                         VStack(alignment: .leading, spacing: 2) {
                             Text(g.gameName ?? "").font(.subheadline.weight(.semibold))
@@ -577,6 +582,7 @@ struct SiteAddOtherView: View {
                             Text(g.displayLosers.joined(separator: " ")).foregroundStyle(.red).font(.caption)
                         }
                         .padding(.vertical, 4)
+                    }
                     }
                 }
             }

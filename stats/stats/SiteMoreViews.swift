@@ -11,7 +11,7 @@ struct SiteMoreView: View {
     var body: some View {
         NavigationStack {
             List {
-                Section("Account") {
+                SiteListSection("Account") {
                     if auth.isLoggedIn {
                         Text("Signed in as \(auth.username ?? "")")
                         if auth.isAdmin { Text("Admin").foregroundStyle(.orange) }
@@ -21,7 +21,7 @@ struct SiteMoreView: View {
                     }
                     Button(theme.isDark ? "Light mode" : "Dark mode") { theme.toggle() }
                 }
-                Section("Browse") {
+                SiteListSection("Browse") {
                     NavigationLink("Players") { SitePlayersView() }
                     NavigationLink("Player network") { SiteNetworkView() }
                     if auth.isLoggedIn {
@@ -34,14 +34,14 @@ struct SiteMoreView: View {
                     }
                 }
                 if auth.isLoggedIn {
-                    Section("Create") {
+                    SiteListSection("Create") {
                         NavigationLink("AI Summary") { SiteAISummaryView() }
                         NavigationLink("Create Flyer") { SiteFlyerView() }
                         NavigationLink("Add doubles by voice") { SiteVoiceAddView() }
                     }
                 }
                 if auth.isAdmin {
-                    Section("Admin") {
+                    SiteListSection("Admin") {
                         NavigationLink("Admin dashboard") { SiteAdminView() }
                         NavigationLink("Site updates") { SiteUpdatesView() }
                     }
@@ -62,7 +62,7 @@ struct SitePlayersView: View {
     var body: some View {
         List {
             if auth.isLoggedIn {
-                Section("Add player") {
+                SiteListSection("Add player") {
                     HStack {
                         TextField("Full name", text: $newName)
                         Button("Add") {
@@ -165,7 +165,7 @@ struct SiteEditPlayerView: View {
 
             if auth.isLoggedIn {
                 PhotosPicker("Upload face photo", selection: $picker, matching: .images)
-                Section {
+                SiteListSection("AI character") {
                     if let url = SitePublicLink.absolute(aiImageUrl) {
                         AsyncImage(url: url) { phase in
                             switch phase {
@@ -199,11 +199,9 @@ struct SiteEditPlayerView: View {
                     Text("A full-body person with this face and every signature look, including props (a motorhome look means a motorhome in the picture). Recaps and flyers add the sport. Generate one, or upload your own picture. Takes about a minute to generate — you can leave after you tap Create. Replacing a picture keeps the previous one so Kyle can switch it back. If they don’t have a character yet, group pictures use their face photo. Players with no photo, signature look, or character are left out of group pictures.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                } header: {
-                    Text("AI character")
                 }
                 if auth.isAdmin, !aiVersions.isEmpty {
-                    Section {
+                    SiteListSection("Previous pictures") {
                         ForEach(aiVersions) { version in
                             HStack(alignment: .top, spacing: 12) {
                                 if let url = SitePublicLink.absolute(version.url) {
@@ -237,13 +235,11 @@ struct SiteEditPlayerView: View {
                                 Spacer()
                             }
                         }
-                    } header: {
-                        Text("Previous pictures")
                     } footer: {
                         Text("Other people can replace a character picture, but only you can delete one or switch back.")
                     }
                 }
-                Section {
+                SiteListSection("Signature look") {
                     if traits.isEmpty {
                         Text("No signature-look phrases yet")
                             .foregroundStyle(.secondary)
@@ -272,10 +268,8 @@ struct SiteEditPlayerView: View {
                     Text("Separate details for the AI to exaggerate in recaps and flyers.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                } header: {
-                    Text("Signature look")
                 }
-                Section("Profile") {
+                SiteListSection("Profile") {
                     TextField("Name", text: $name)
                     TextField("Nickname", text: $nickname)
                     TextField("Email", text: $email)
@@ -288,7 +282,7 @@ struct SiteEditPlayerView: View {
                 }
             } else {
                 if let url = SitePublicLink.absolute(aiImageUrl) {
-                    Section("AI character") {
+                    SiteListSection("AI character") {
                         AsyncImage(url: url) { phase in
                             if case .success(let img) = phase {
                                 img.resizable().scaledToFit()
@@ -300,7 +294,7 @@ struct SiteEditPlayerView: View {
                     }
                 }
                 if !traits.isEmpty {
-                    Section("Signature look") {
+                    SiteListSection("Signature look") {
                         ForEach(Array(traits.enumerated()), id: \.offset) { _, phrase in
                             Text(phrase)
                         }
@@ -785,7 +779,7 @@ struct SiteTournamentsView: View {
     var body: some View {
         List {
             if auth.isLoggedIn {
-                Section("Add") {
+                SiteListSection("Add") {
                     TextField("Tournament name", text: $name)
                     TextField("Place (1st, 2nd…)", text: $place)
                     TextField("Team", text: $team)

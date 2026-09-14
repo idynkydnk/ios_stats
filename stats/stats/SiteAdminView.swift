@@ -755,7 +755,7 @@ struct AdminUsersPane: View {
 
     var body: some View {
         List {
-            Section("Site users") {
+            SiteListSection("Site users") {
                 if model.users.isEmpty && !model.loading {
                     Text("No users found.")
                         .foregroundStyle(.secondary)
@@ -800,7 +800,7 @@ struct AdminUsersPane: View {
                 }
             }
 
-            Section("Add user") {
+            SiteListSection("Add user") {
                 TextField("Username", text: $model.newUsername)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
@@ -859,7 +859,7 @@ struct AdminActivityDetailView: View {
             }
 
             if !entry.resolvedChanges.isEmpty {
-                Section("What changed") {
+                SiteListSection("What changed") {
                     ForEach(entry.resolvedChanges) { change in
                         VStack(alignment: .leading, spacing: 4) {
                             Text(prettyField(change.field))
@@ -1110,7 +1110,7 @@ struct AdminStatCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
-        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color(.secondarySystemGroupedBackground)))
+        .background(RoundedRectangle(cornerRadius: 24, style: .continuous).fill(Color(.secondarySystemGroupedBackground)))
     }
 }
 
@@ -1119,14 +1119,9 @@ struct AdminCard<Content: View>: View {
     @ViewBuilder var content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(title)
-                .font(.headline)
+        SiteContentCard(title: title) {
             content
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color(.secondarySystemGroupedBackground)))
     }
 }
 
@@ -1246,7 +1241,7 @@ struct SiteUpdatesView: View {
             Button("Select all") { selectChanges(newOnly: false) }
             Button("Select none") { selectedShas = [] }
         }
-        Section {
+        SiteListSection("What changed") {
             ForEach(payload?.changes ?? []) { change in
                 Toggle(isOn: binding(forSha: change.sha)) {
                     VStack(alignment: .leading, spacing: 4) {
@@ -1269,8 +1264,6 @@ struct SiteUpdatesView: View {
                     }
                 }
             }
-        } header: {
-            Text("What changed")
         } footer: {
             Text("These are recent website updates. Pick the ones worth telling people about. You can rewrite them on the next screen.")
         }
@@ -1278,7 +1271,7 @@ struct SiteUpdatesView: View {
 
     @ViewBuilder
     private var usersStep: some View {
-        Section("Message") {
+        SiteListSection("Message") {
             TextField("Subject", text: $subject)
             TextField("Each line becomes a bullet", text: $messageBody, axis: .vertical)
                 .lineLimit(6...12)
@@ -1291,7 +1284,7 @@ struct SiteUpdatesView: View {
             }
             Button("Select none") { selectedUsers = [] }
         }
-        Section {
+        SiteListSection("Send to") {
             ForEach(payload?.recipients ?? []) { user in
                 VStack(alignment: .leading, spacing: 8) {
                     Toggle(isOn: binding(forUser: user.username)) {
@@ -1325,8 +1318,6 @@ struct SiteUpdatesView: View {
                 }
                 .padding(.vertical, 4)
             }
-        } header: {
-            Text("Send to")
         } footer: {
             Text("Choose the player profile whose email should get this update. Logins that share a first name are not guessed.")
         }

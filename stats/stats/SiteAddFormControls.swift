@@ -21,6 +21,7 @@ struct SiteAddFormScrollView<Field: Hashable, Content: View>: View {
                         }
                     }
                 }
+                .background(Color(uiColor: .systemGroupedBackground))
                 .scrollDismissesKeyboard(.interactively)
                 .task(id: focused) {
                     guard let focused else { return }

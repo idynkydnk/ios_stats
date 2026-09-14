@@ -161,6 +161,74 @@ struct SiteSpringButtonStyle: ButtonStyle {
     }
 }
 
+// One surface encloses both a section heading and its content.
+struct SiteCardSurface: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .background(Color(uiColor: .secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.06)))
+    }
+}
+
+struct SiteCardHeading: View {
+    var title: String
+
+    var body: some View {
+        Text(title)
+            .font(.headline.weight(.bold))
+            .foregroundStyle(.primary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(18)
+            .accessibilityAddTraits(.isHeader)
+    }
+}
+
+struct SiteContentCard<Content: View>: View {
+    var title: String
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SiteCardHeading(title: title)
+            Divider().padding(.horizontal, 18)
+            VStack(alignment: .leading, spacing: 14) { content }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16)
+        }
+        .modifier(SiteCardSurface())
+    }
+}
+
+// Keep native list rows (and their swipe actions) inside the heading's group.
+struct SiteListSection<Content: View>: View {
+    var title: String
+    var content: Content
+    var footer: AnyView = AnyView(EmptyView())
+
+    init(_ title: String, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.content = content()
+    }
+
+    init<Footer: View>(_ title: String, @ViewBuilder content: () -> Content, @ViewBuilder footer: () -> Footer) {
+        self.title = title
+        self.content = content()
+        self.footer = AnyView(footer())
+    }
+
+    var body: some View {
+        Section {
+            SiteCardHeading(title: title)
+                .listRowInsets(EdgeInsets())
+            content
+        } footer: {
+            footer
+        }
+    }
+}
+
 struct SiteSectionBubble: View {
     var title: String
     var count: Int
@@ -196,8 +264,6 @@ struct SiteSectionBubble: View {
             .foregroundStyle(.primary)
             .padding(18)
             .frame(minHeight: 64)
-            .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 24))
-            .overlay(RoundedRectangle(cornerRadius: 24).strokeBorder(Color.primary.opacity(0.06)))
             .contentShape(RoundedRectangle(cornerRadius: 24))
         }
         .buttonStyle(SiteSpringButtonStyle())
@@ -214,12 +280,14 @@ struct SiteExpandableSection<Content: View>: View {
     @State private var expanded = true
 
     var body: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 0) {
             SiteSectionBubble(title: title, count: count, subtitle: subtitle, expanded: $expanded)
             if expanded {
-                content.transition(.opacity)
+                Divider().padding(.horizontal, 18)
+                VStack(spacing: 0) { content }.transition(.opacity)
             }
         }
+        .modifier(SiteCardSurface())
     }
 }
 
@@ -250,8 +318,8 @@ struct RankingTable: View {
                                 Text("\(idx + 1)").frame(width: 28, alignment: .leading).foregroundStyle(.secondary)
                                 Text(row.name).fontWeight(.semibold).frame(maxWidth: .infinity, alignment: .leading)
                                 if showRating {
-                                    Text(row.rating.map { String(format: "%.0f", $0) } ?? "—")
-                                        .frame(width: 44, alignment: .trailing)
+                                    Text(row.rating.map { String(format: "%.2f", $0) } ?? "—")
+                                        .frame(width: 58, alignment: .trailing)
                                 }
                                 Text("\(row.wins)").frame(width: 32, alignment: .trailing).foregroundStyle(.green)
                                 Text("\(row.losses)").frame(width: 32, alignment: .trailing).foregroundStyle(.red)
@@ -279,17 +347,15 @@ struct RankingTable: View {
                 .containerRelativeFrame(.horizontal)
             }
             .background(Color(uiColor: .secondarySystemGroupedBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 24))
-            .overlay(RoundedRectangle(cornerRadius: 24).strokeBorder(Color.primary.opacity(0.06)))
         }
         .padding(.horizontal, 16).padding(.bottom, 20)
     }
 
     private var headerRow: some View {
-        HStack {
+        HStack(spacing: 8) {
             Text("#").frame(width: 28, alignment: .leading)
             Text("Player").frame(maxWidth: .infinity, alignment: .leading)
-            if showRating { Text("Rating").frame(width: 44, alignment: .trailing) }
+            if showRating { Text("Rating").frame(width: 58, alignment: .trailing) }
             Text("W").frame(width: 32, alignment: .trailing)
             Text("L").frame(width: 32, alignment: .trailing)
             Text("Win%").frame(width: 48, alignment: .trailing)
@@ -477,87 +543,87 @@ struct SiteGamesView: View {
                         .padding(.horizontal)
                 }
                 List {
-                    SiteSectionBubble(title: "Games", count: visibleGameCount, expanded: $gamesExpanded)
-                        .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
-                    if gamesExpanded {
-                    switch section {
-                    case .doubles:
-                        ForEach(filteredDoubles) { g in
-                            DoublesGameRow(game: g, year: selectedYear, section: .doubles)
-                                .listRowSeparator(.hidden)
-                                .listRowBackground(Color.clear)
-                                .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
-                                .buttonStyle(.borderless)
-                                .swipeActions {
-                                    if canEdit {
-                                        Button("Edit") { onEditDoubles(g) }
-                                        Button("Delete", role: .destructive) { Task { await deleteDoubles(g) } }
+                    Section {
+                        SiteSectionBubble(title: "Games", count: visibleGameCount, expanded: $gamesExpanded)
+                            .listRowInsets(EdgeInsets())
+                            .listRowBackground(Color(uiColor: .secondarySystemGroupedBackground))
+                            .listRowSeparator(.visible)
+                        if gamesExpanded {
+                            switch section {
+                            case .doubles:
+                                ForEach(filteredDoubles) { g in
+                                    DoublesGameRow(game: g, year: selectedYear, section: .doubles)
+                                        .listRowSeparator(.visible)
+                                        .listRowBackground(Color(uiColor: .secondarySystemGroupedBackground))
+                                        .listRowInsets(EdgeInsets())
+                                    .buttonStyle(.borderless)
+                                    .swipeActions {
+                                        if canEdit {
+                                            Button("Edit") { onEditDoubles(g) }
+                                            Button("Delete", role: .destructive) { Task { await deleteDoubles(g) } }
+                                        }
+                                    }
+                                    .contextMenu {
+                                        if canEdit {
+                                            Button("Edit") { onEditDoubles(g) }
+                                            Button("Delete", role: .destructive) { Task { await deleteDoubles(g) } }
+                                        }
                                     }
                                 }
-                                .contextMenu {
-                                    if canEdit {
-                                        Button("Edit") { onEditDoubles(g) }
-                                        Button("Delete", role: .destructive) { Task { await deleteDoubles(g) } }
+                            case .vollis:
+                                ForEach(filteredVollis) { g in
+                                    VollisGameRow(game: g, year: selectedYear, section: .vollis)
+                                        .listRowSeparator(.visible)
+                                        .listRowBackground(Color(uiColor: .secondarySystemGroupedBackground))
+                                        .listRowInsets(EdgeInsets())
+                                    .buttonStyle(.borderless)
+                                    .swipeActions {
+                                        if canEdit {
+                                            Button("Edit") { onEditVollis(g) }
+                                            Button("Delete", role: .destructive) { Task { await deleteVollis(g) } }
+                                        }
+                                    }
+                                    .contextMenu {
+                                        if canEdit {
+                                            Button("Edit") { onEditVollis(g) }
+                                            Button("Delete", role: .destructive) { Task { await deleteVollis(g) } }
+                                        }
                                     }
                                 }
-                        }
-                    case .vollis:
-                        ForEach(filteredVollis) { g in
-                            VollisGameRow(game: g, year: selectedYear, section: .vollis)
-                                .listRowSeparator(.hidden)
-                                .listRowBackground(Color.clear)
-                                .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
-                                .buttonStyle(.borderless)
-                                .swipeActions {
-                                    if canEdit {
-                                        Button("Edit") { onEditVollis(g) }
-                                        Button("Delete", role: .destructive) { Task { await deleteVollis(g) } }
+                            case .other:
+                                ForEach(filteredOther) { g in
+                                    VStack(alignment: .leading, spacing: 10) {
+                                        Text("\(g.gameName ?? "") · \(g.gameType ?? "")").font(.headline)
+                                        SiteGameDateLabel(raw: g.gameDateOnly ?? g.gameDate)
+                                        SiteTeamScorePanel(score: g.winnerScore, winner: true) {
+                                            SitePlayerNamesLine(names: g.displayWinners, year: selectedYear, section: .other, color: .green)
+                                        }
+                                        SiteTeamScorePanel(score: g.loserScore, winner: false) {
+                                            SitePlayerNamesLine(names: g.displayLosers, year: selectedYear, section: .other, color: .red)
+                                        }
+                                        if let c = g.comment, !c.isEmpty { Text(c).font(.caption).italic() }
+                                    }
+                                    .padding(16)
+                                        .listRowSeparator(.visible)
+                                        .listRowBackground(Color(uiColor: .secondarySystemGroupedBackground))
+                                        .listRowInsets(EdgeInsets())
+                                    .buttonStyle(.borderless)
+                                    .swipeActions {
+                                        if canEdit {
+                                            Button("Delete", role: .destructive) { Task { await deleteOther(g) } }
+                                        }
+                                    }
+                                    .contextMenu {
+                                        if canEdit {
+                                            Button("Delete", role: .destructive) { Task { await deleteOther(g) } }
+                                        }
                                     }
                                 }
-                                .contextMenu {
-                                    if canEdit {
-                                        Button("Edit") { onEditVollis(g) }
-                                        Button("Delete", role: .destructive) { Task { await deleteVollis(g) } }
-                                    }
-                                }
-                        }
-                    case .other:
-                        ForEach(filteredOther) { g in
-                            VStack(alignment: .leading, spacing: 10) {
-                                Text("\(g.gameName ?? "") · \(g.gameType ?? "")").font(.headline)
-                                SiteGameDateLabel(raw: g.gameDateOnly ?? g.gameDate)
-                                SiteTeamScorePanel(score: g.winnerScore, winner: true) {
-                                    SitePlayerNamesLine(names: g.displayWinners, year: selectedYear, section: .other, color: .green)
-                                }
-                                SiteTeamScorePanel(score: g.loserScore, winner: false) {
-                                    SitePlayerNamesLine(names: g.displayLosers, year: selectedYear, section: .other, color: .red)
-                                }
-                                if let c = g.comment, !c.isEmpty { Text(c).font(.caption).italic() }
                             }
-                            .padding(16)
-                            .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 24))
-                            .overlay(RoundedRectangle(cornerRadius: 24).strokeBorder(Color.primary.opacity(0.06)))
-                            .listRowSeparator(.hidden)
-                                .listRowBackground(Color.clear)
-                                .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
-                                .buttonStyle(.borderless)
-                            .swipeActions {
-                                if canEdit {
-                                    Button("Delete", role: .destructive) { Task { await deleteOther(g) } }
-                                }
-                            }
-                            .contextMenu {
-                                if canEdit {
-                                    Button("Delete", role: .destructive) { Task { await deleteOther(g) } }
-                                }
-                            }
                         }
-                    }
                     }
                 }
-                .listStyle(.plain)
+                .listStyle(.insetGrouped)
                 .scrollContentBackground(.hidden)
                 .background(Color(uiColor: .systemGroupedBackground))
                 .environment(\.openSitePlayer, OpenSitePlayerAction { openedPlayer = $0 })
@@ -793,8 +859,8 @@ struct DoublesGameRow: View {
             }
         }
         .padding(16)
-        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 24))
-        .overlay(RoundedRectangle(cornerRadius: 24).strokeBorder(Color.primary.opacity(0.06)))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(alignment: .bottom) { Divider().padding(.horizontal, 16) }
     }
 
     private func playerPair(_ a: String?, _ b: String?, color: Color) -> some View {
@@ -820,7 +886,7 @@ struct VollisGameRow: View {
             }
         }
         .padding(16)
-        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 24))
-        .overlay(RoundedRectangle(cornerRadius: 24).strokeBorder(Color.primary.opacity(0.06)))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(alignment: .bottom) { Divider().padding(.horizontal, 16) }
     }
 }

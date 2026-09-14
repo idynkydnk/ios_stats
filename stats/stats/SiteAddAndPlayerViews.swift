@@ -91,36 +91,42 @@ struct SitePlayerDetailView: View {
         ScrollView {
             if let error { Text(error).foregroundStyle(.red).padding() }
             if let p = payload {
-                HStack {
-                    playerIdentity(p)
-                    Spacer()
-                }.padding()
-                if let s = p.stats {
+                VStack(spacing: 14) {
                     HStack {
-                        stat("W", "\(s.wins)", .green)
-                        stat("L", "\(s.losses)", .red)
-                        stat("Win%", s.winPctDisplay, nil)
-                        if let st = p.currentStreak {
-                            stat("Streak", "\(st.length)\(st.type)", st.type == "W" ? .green : .red)
-                        }
-                    }.padding(.horizontal)
-                }
-                if let form = p.recentForm, !form.isEmpty {
-                    HStack {
-                        Text("Last \(form.count)")
-                        ForEach(Array(form.enumerated()), id: \.offset) { _, r in
-                            Text(r)
-                                .font(.caption.bold())
-                                .padding(6)
-                                .background(r == "W" ? Color.green : Color.red)
-                                .foregroundStyle(.black)
-                                .clipShape(Circle())
-                        }
+                        playerIdentity(p)
+                        Spacer()
                     }.padding()
+                    Divider().padding(.horizontal, 18)
+                    if let s = p.stats {
+                        HStack {
+                            stat("W", "\(s.wins)", .green)
+                            stat("L", "\(s.losses)", .red)
+                            stat("Win%", s.winPctDisplay, nil)
+                            if let st = p.currentStreak {
+                                stat("Streak", "\(st.length)\(st.type)", st.type == "W" ? .green : .red)
+                            }
+                        }.padding(.horizontal)
+                    }
+                    if let form = p.recentForm, !form.isEmpty {
+                        HStack {
+                            Text("Last \(form.count)")
+                            ForEach(Array(form.enumerated()), id: \.offset) { _, r in
+                                Text(r)
+                                    .font(.caption.bold())
+                                    .padding(6)
+                                    .background(r == "W" ? Color.green : Color.red)
+                                    .foregroundStyle(.black)
+                                    .clipShape(Circle())
+                            }
+                        }.padding()
+                    }
                 }
+                .padding(.vertical, 16)
+                .modifier(SiteCardSurface())
+                .padding(.horizontal)
+
                 if let partners = p.partners, !partners.isEmpty {
-                    Text("Partners").font(.headline).padding(.horizontal)
-                    VStack(spacing: 10) {
+                    SiteExpandableSection(title: "Partners", count: partners.count) {
                         ForEach(partners) { m in
                             NavigationLink {
                                 SitePlayerDetailView(name: m.partner ?? "", year: year, section: section)
@@ -132,8 +138,7 @@ struct SitePlayerDetailView: View {
                     .padding(.horizontal)
                 }
                 if let opponents = p.opponents, !opponents.isEmpty {
-                    Text("Opponents").font(.headline).padding(.horizontal).padding(.top)
-                    VStack(spacing: 10) {
+                    SiteExpandableSection(title: "Opponents", count: opponents.count) {
                         ForEach(opponents) { m in
                             NavigationLink {
                                 SitePlayerDetailView(name: m.opponent ?? "", year: year, section: section)
@@ -144,15 +149,10 @@ struct SitePlayerDetailView: View {
                     }
                     .padding(.horizontal)
                 }
-                Text("Games").font(.headline).padding(.horizontal).padding(.top)
                 if section == .doubles {
-                    VStack(spacing: 12) {
+                    SiteExpandableSection(title: "Games", count: (p.games ?? []).count) {
                         ForEach(p.games ?? []) { g in
                             DoublesGameRow(game: g, year: year, section: section)
-                                .padding(12)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(Color(.secondarySystemFill))
-                                .clipShape(RoundedRectangle(cornerRadius: 10))
                         }
                     }
                     .padding(.horizontal)
@@ -160,6 +160,7 @@ struct SitePlayerDetailView: View {
                 }
             }
         }
+        .background(Color(uiColor: .systemGroupedBackground))
         .navigationTitle(name)
         .toolbar {
             if auth.isLoggedIn {
@@ -198,7 +199,7 @@ struct SitePlayerDetailView: View {
                 Text(p.name).font(.title2.bold())
                 if let nick = p.nickname, !nick.isEmpty { Text(nick).foregroundStyle(.secondary) }
                 if let r = p.rating, let rank = p.rank {
-                    Text("Rating \(Int(r)) · #\(rank) of \(p.totalRanked ?? 0)")
+                    Text("Rating \(String(format: "%.2f", r)) · #\(rank) of \(p.totalRanked ?? 0)")
                 }
                 if auth.isLoggedIn {
                     Text("Edit player")
@@ -224,8 +225,7 @@ struct SitePlayerDetailView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .background(Color(.secondarySystemFill))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .overlay(alignment: .bottom) { Divider().padding(.horizontal, 16) }
     }
 
     private func stat(_ label: String, _ value: String, _ color: Color?) -> some View {
