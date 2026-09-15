@@ -78,7 +78,7 @@ struct SitePlayersView: View {
                 }
             }
             if let error { Text(error).foregroundStyle(.red) }
-            ForEach(filtered) { p in
+            SiteLimitedRows(filtered) { p in
                 NavigationLink {
                     SiteEditPlayerView(player: p)
                 } label: {
@@ -202,7 +202,7 @@ struct SiteEditPlayerView: View {
                 }
                 if auth.isAdmin, !aiVersions.isEmpty {
                     SiteListSection("Previous pictures") {
-                        ForEach(aiVersions) { version in
+                        SiteLimitedRows(aiVersions) { version in
                             HStack(alignment: .top, spacing: 12) {
                                 if let url = SitePublicLink.absolute(version.url) {
                                     AsyncImage(url: url) { phase in
@@ -244,7 +244,7 @@ struct SiteEditPlayerView: View {
                         Text("No signature-look phrases yet")
                             .foregroundStyle(.secondary)
                     }
-                    ForEach(Array(traits.enumerated()), id: \.offset) { index, phrase in
+                    SiteLimitedRows(Array(traits.enumerated()), id: \.offset) { index, phrase in
                         HStack(alignment: .top) {
                             Text(phrase)
                             Spacer()
@@ -295,7 +295,7 @@ struct SiteEditPlayerView: View {
                 }
                 if !traits.isEmpty {
                     SiteListSection("Signature look") {
-                        ForEach(Array(traits.enumerated()), id: \.offset) { _, phrase in
+                        SiteLimitedRows(Array(traits.enumerated()), id: \.offset) { _, phrase in
                             Text(phrase)
                         }
                     }
@@ -789,7 +789,7 @@ struct SiteTournamentsView: View {
                 }
             }
             if let error { Text(error).foregroundStyle(.red) }
-            ForEach(items) { t in
+            SiteLimitedRows(items) { t in
                 VStack(alignment: .leading) {
                     Text(t.tournamentName ?? "").font(.headline)
                     Text("\(t.tournamentDate ?? "") · \(t.place ?? "") · \(t.team ?? "")")
@@ -827,7 +827,7 @@ struct SiteVolleyballView: View {
     var body: some View {
         ScrollView {
             if let p = payload {
-                ForEach(p.gameCards) { card in
+                SiteLimitedRows(p.gameCards) { card in
                     RankingTable(title: card.gameName, rows: card.stats, showRating: false, year: year, section: .other)
                 }
             } else {
@@ -1186,7 +1186,7 @@ struct SiteAIRosterView: View {
                 Text(emptyRosterText)
                     .foregroundStyle(.secondary)
             }
-            ForEach(players) { player in
+            SiteLimitedRows(players) { player in
                 Button {
                     editingName = player.name
                 } label: {
@@ -1592,7 +1592,7 @@ struct SiteRecapsView: View {
                 Text("No recaps yet. Pull down to refresh.")
                     .foregroundStyle(.secondary)
             }
-            ForEach(items) { r in
+            SiteLimitedRows(items) { r in
                 recapRow(r)
             }
         }
@@ -1681,7 +1681,7 @@ struct SiteFlyersView: View {
                 Text("No flyers yet. Pull down to refresh, or create one from Create Flyer.")
                     .foregroundStyle(.secondary)
             }
-            ForEach(items) { flyer in
+            SiteLimitedRows(items, onDelete: deleteFlyers) { flyer in
                 VStack(alignment: .leading, spacing: 8) {
                     Text(flyer.title ?? "Flyer").font(.headline)
                     if let user = flyer.username, !user.isEmpty {
@@ -1709,7 +1709,6 @@ struct SiteFlyersView: View {
                 }
                 .padding(.vertical, 4)
             }
-            .onDelete(perform: deleteFlyers)
         }
         .navigationTitle(SiteAuthManager.shared.isAdmin ? "All flyers" : "Flyers")
         .toolbar {

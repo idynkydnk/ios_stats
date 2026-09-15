@@ -127,7 +127,7 @@ struct SitePlayerDetailView: View {
 
                 if let partners = p.partners, !partners.isEmpty {
                     SiteExpandableSection(title: "Partners", count: partners.count) {
-                        ForEach(partners) { m in
+                        SiteLimitedRows(partners) { m in
                             NavigationLink {
                                 SitePlayerDetailView(name: m.partner ?? "", year: year, section: section)
                             } label: {
@@ -139,7 +139,7 @@ struct SitePlayerDetailView: View {
                 }
                 if let opponents = p.opponents, !opponents.isEmpty {
                     SiteExpandableSection(title: "Opponents", count: opponents.count) {
-                        ForEach(opponents) { m in
+                        SiteLimitedRows(opponents) { m in
                             NavigationLink {
                                 SitePlayerDetailView(name: m.opponent ?? "", year: year, section: section)
                             } label: {
@@ -151,7 +151,7 @@ struct SitePlayerDetailView: View {
                 }
                 if section == .doubles {
                     SiteExpandableSection(title: "Games", count: (p.games ?? []).count) {
-                        ForEach(p.games ?? []) { g in
+                        SiteLimitedRows(p.games ?? []) { g in
                             DoublesGameRow(game: g, year: year, section: section)
                         }
                     }

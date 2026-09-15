@@ -476,7 +476,7 @@ struct AdminOverviewPane: View {
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                         } else {
-                            ForEach(overview.recentRecaps.prefix(8)) { recap in
+                            SiteLimitedRows(overview.recentRecaps) { recap in
                                 AdminShareRow(
                                     title: recap.title,
                                     subtitle: [recap.username, recap.createdAt.map { _ in AdminTime.relative(recap.createdAt) }]
@@ -504,7 +504,7 @@ struct AdminOverviewPane: View {
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                         } else {
-                            ForEach(overview.recentFlyers.prefix(8)) { flyer in
+                            SiteLimitedRows(overview.recentFlyers) { flyer in
                                 AdminShareRow(
                                     title: flyer.title ?? "Flyer",
                                     subtitle: [flyer.username, flyer.createdAt.map { _ in AdminTime.relative(flyer.createdAt) }]
@@ -528,7 +528,7 @@ struct AdminOverviewPane: View {
 
                     if !overview.recentJobs.isEmpty {
                         AdminCard(title: "Recent AI jobs") {
-                            ForEach(overview.recentJobs.prefix(10)) { job in
+                            SiteLimitedRows(overview.recentJobs) { job in
                                 AdminJobRow(job: job)
                             }
                         }
@@ -536,7 +536,7 @@ struct AdminOverviewPane: View {
 
                     if let actions = overview.activity?.todayByAction, !actions.isEmpty {
                         AdminCard(title: "Today") {
-                            ForEach(actions) { row in
+                            SiteLimitedRows(actions) { row in
                                 Button {
                                     model.showActivity(action: row.action)
                                 } label: {
@@ -560,7 +560,7 @@ struct AdminOverviewPane: View {
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                         } else {
-                            ForEach(model.entries.prefix(8)) { entry in
+                            SiteLimitedRows(model.entries) { entry in
                                 NavigationLink {
                                     AdminActivityDetailView(model: model, seed: entry)
                                 } label: {
@@ -680,7 +680,7 @@ struct AdminActivityPane: View {
                     Text(model.hasActivityFilters ? "No matching activity." : "Nothing logged yet.")
                         .foregroundStyle(.secondary)
                 }
-                ForEach(model.entries) { entry in
+                SiteLimitedRows(model.entries) { entry in
                     NavigationLink {
                         AdminActivityDetailView(model: model, seed: entry)
                     } label: {
@@ -760,7 +760,7 @@ struct AdminUsersPane: View {
                     Text("No users found.")
                         .foregroundStyle(.secondary)
                 }
-                ForEach(model.users) { user in
+                SiteLimitedRows(model.users) { user in
                     VStack(alignment: .leading, spacing: 10) {
                         HStack(spacing: 8) {
                             Text(user.username)
@@ -860,7 +860,7 @@ struct AdminActivityDetailView: View {
 
             if !entry.resolvedChanges.isEmpty {
                 SiteListSection("What changed") {
-                    ForEach(entry.resolvedChanges) { change in
+                    SiteLimitedRows(entry.resolvedChanges) { change in
                         VStack(alignment: .leading, spacing: 4) {
                             Text(prettyField(change.field))
                                 .font(.caption.weight(.semibold))
@@ -1242,7 +1242,7 @@ struct SiteUpdatesView: View {
             Button("Select none") { selectedShas = [] }
         }
         SiteListSection("What changed") {
-            ForEach(payload?.changes ?? []) { change in
+            SiteLimitedRows(payload?.changes ?? []) { change in
                 Toggle(isOn: binding(forSha: change.sha)) {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {

@@ -131,9 +131,10 @@ struct SectionYearBar: View {
             .padding(12)
             .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
         }
+        .fixedSize(horizontal: false, vertical: true)
         .padding(.horizontal)
         .padding(.top, 4)
-        .padding(.bottom, 14)
+        .padding(.bottom, 8)
         .background(Color(uiColor: .systemGroupedBackground))
     }
 
@@ -272,6 +273,65 @@ struct SiteSectionBubble: View {
     }
 }
 
+
+// Reuse the same preview length and controls in cards and native Lists.
+// Keep rows as direct children so navigation and swipe actions stay native.
+struct SiteLimitedRows<Element, ID: Hashable, Row: View>: View {
+    private let items: [Element]
+    private let id: KeyPath<Element, ID>
+    private let onDelete: ((IndexSet) -> Void)?
+    private let row: (Element) -> Row
+    @State private var extended = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private let previewCount = 5
+
+    init<C: Collection>(_ items: C, id: KeyPath<Element, ID>,
+                        onDelete: ((IndexSet) -> Void)? = nil,
+                        @ViewBuilder content: @escaping (Element) -> Row) where C.Element == Element {
+        self.items = Array(items)
+        self.id = id
+        self.onDelete = onDelete
+        self.row = content
+    }
+
+    init<C: Collection>(_ items: C, onDelete: ((IndexSet) -> Void)? = nil,
+                        @ViewBuilder content: @escaping (Element) -> Row)
+    where C.Element == Element, Element: Identifiable, ID == Element.ID {
+        self.init(items, id: \.id, onDelete: onDelete, content: content)
+    }
+
+    var body: some View {
+        Group {
+            ForEach(extended ? items : Array(items.prefix(previewCount)), id: id, content: row)
+                .onDelete(perform: onDelete)
+            if items.count > previewCount {
+                Button {
+                    withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
+                        extended.toggle()
+                    }
+                } label: {
+                    HStack {
+                        Text(extended ? "Show less" : "Extend")
+                        Spacer(minLength: 8)
+                        Text(extended ? "" : "+\(items.count - previewCount)")
+                            .monospacedDigit()
+                        Image(systemName: extended ? "chevron.up" : "chevron.down")
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Color.accentColor)
+                    .padding(.horizontal, 16)
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityValue(extended ? "All \(items.count) items shown" : "\(previewCount) of \(items.count) items shown")
+                .accessibilityHint(extended ? "Show the first five items" : "Reveal the remaining items")
+            }
+        }
+        .onChange(of: items.map { $0[keyPath: id] }) { _, _ in extended = false }
+    }
+}
+
 struct SiteExpandableSection<Content: View>: View {
     var title: String
     var count: Int
@@ -310,7 +370,7 @@ struct RankingTable: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 VStack(spacing: 0) {
                     headerRow.padding(.vertical, 13)
-                    ForEach(Array(displayedRows.enumerated()), id: \.element.id) { idx, row in
+                    SiteLimitedRows(Array(displayedRows.enumerated()), id: \.element.id) { idx, row in
                         NavigationLink {
                             SitePlayerDetailView(name: row.name, year: year, section: section)
                         } label: {
@@ -435,7 +495,7 @@ struct SiteStatsView: View {
                                 Text("No games yet this year. Showing \(o.displayYear).")
                                     .font(.footnote).foregroundStyle(.secondary).padding(.horizontal)
                             }
-                            ForEach(o.todayStatsByGame) { block in
+                            SiteLimitedRows(o.todayStatsByGame) { block in
                                 let count = block.gameCount ?? block.stats.count
                                 RankingTable(
                                     title: "Today's \(block.gameName ?? "Other")",
@@ -448,7 +508,7 @@ struct SiteStatsView: View {
                                     section: .other
                                 )
                             }
-                            ForEach(o.gameCards) { card in
+                            SiteLimitedRows(o.gameCards) { card in
                                 RankingTable(title: card.gameName, rows: filter(card.stats), showRating: false, year: o.displayYear, section: .other)
                                 if !card.rareStats.isEmpty {
                                     RankingTable(title: "\(card.gameName ?? "") · rare", rows: filter(card.rareStats), showRating: false, year: o.displayYear, section: .other)
@@ -457,6 +517,7 @@ struct SiteStatsView: View {
                         }
                     }
                 }
+                .id("\(section.rawValue)-\(selectedYear)-\(search)")
                 .background(Color(uiColor: .systemGroupedBackground))
                 .refreshable { await load() }
             }
@@ -551,7 +612,7 @@ struct SiteGamesView: View {
                         if gamesExpanded {
                             switch section {
                             case .doubles:
-                                ForEach(filteredDoubles) { g in
+                                SiteLimitedRows(filteredDoubles) { g in
                                     DoublesGameRow(game: g, year: selectedYear, section: .doubles)
                                         .listRowSeparator(.visible)
                                         .listRowBackground(Color(uiColor: .secondarySystemGroupedBackground))
@@ -571,7 +632,7 @@ struct SiteGamesView: View {
                                     }
                                 }
                             case .vollis:
-                                ForEach(filteredVollis) { g in
+                                SiteLimitedRows(filteredVollis) { g in
                                     VollisGameRow(game: g, year: selectedYear, section: .vollis)
                                         .listRowSeparator(.visible)
                                         .listRowBackground(Color(uiColor: .secondarySystemGroupedBackground))
@@ -591,7 +652,7 @@ struct SiteGamesView: View {
                                     }
                                 }
                             case .other:
-                                ForEach(filteredOther) { g in
+                                SiteLimitedRows(filteredOther) { g in
                                     VStack(alignment: .leading, spacing: 10) {
                                         Text("\(g.gameName ?? "") · \(g.gameType ?? "")").font(.headline)
                                         SiteGameDateLabel(raw: g.gameDateOnly ?? g.gameDate)
@@ -623,7 +684,9 @@ struct SiteGamesView: View {
                         }
                     }
                 }
+                .id("\(section.rawValue)-\(selectedYear)-\(search)")
                 .listStyle(.insetGrouped)
+                .contentMargins(.top, 0, for: .scrollContent)
                 .scrollContentBackground(.hidden)
                 .background(Color(uiColor: .systemGroupedBackground))
                 .environment(\.openSitePlayer, OpenSitePlayerAction { openedPlayer = $0 })
