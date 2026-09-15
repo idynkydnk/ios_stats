@@ -66,7 +66,7 @@ struct SiteAddDoublesView: View {
                         }
                     }
 
-                    SiteAddTextRow(label: "Comment (optional)", text: $comments, field: .comment, focus: $focused, submit: .done, onSubmit: { focused = nil })
+                    SiteAddCommentRow(text: $comments, field: .comment, focus: $focused)
                     SiteAddTextRow(label: "Location (optional)", text: $location, field: .location, focus: $focused, submit: .done, onSubmit: { focused = nil })
 
                     HStack(spacing: 8) {
@@ -214,7 +214,7 @@ struct SiteAddDoublesView: View {
     private func clearForm(focusFirst: Bool) {
         winner1 = ""; winner2 = ""; loser1 = ""; loser2 = ""
         winnerScore = nil; loserScore = nil; comments = ""
-        location = ""
+        location = siteLastGameLocation()
         error = nil
         if focusFirst { focused = .w1 }
     }
@@ -253,7 +253,6 @@ struct SiteAddDoublesView: View {
             "entered_timezone": TimeZone.current.identifier,
             "location": cleanLocation,
         ]
-        siteRememberGameLocation(cleanLocation)
         do {
             if !network.isConnected {
                 if let g = gameToEdit {
@@ -275,6 +274,7 @@ struct SiteAddDoublesView: View {
             self.error = error.localizedDescription
             return
         }
+        siteRememberGameLocation(cleanLocation)
         saving = false
         rematch = (names[0], names[1], names[2], names[3])
         sitePromote(names, in: &players)
@@ -418,7 +418,7 @@ struct SiteAddVollisView: View {
     private func clearForm() {
         winner = ""; loser = ""
         winnerScore = nil; loserScore = nil
-        location = ""
+        location = siteLastGameLocation()
         error = nil
         focused = .winner
     }
@@ -442,7 +442,6 @@ struct SiteAddVollisView: View {
             "entered_timezone": TimeZone.current.identifier,
             "location": cleanLocation,
         ]
-        siteRememberGameLocation(cleanLocation)
         do {
             if let g = gameToEdit {
                 try await PythonAnywhereClient.shared.updateVollis(id: g.id, fields: fields)
@@ -454,6 +453,7 @@ struct SiteAddVollisView: View {
             self.error = error.localizedDescription
             return
         }
+        siteRememberGameLocation(cleanLocation)
         saving = false
         banner = "Game saved"
         successTick += 1
@@ -563,7 +563,7 @@ struct SiteAddOtherView: View {
                         }
                     }
 
-                    SiteAddTextRow(label: "Comment (optional)", text: $comment, field: .comment, focus: $focused, submit: .done, onSubmit: { focused = nil })
+                    SiteAddCommentRow(text: $comment, field: .comment, focus: $focused)
                     SiteAddTextRow(label: "Location (optional)", text: $location, field: .location, focus: $focused, submit: .done, onSubmit: { focused = nil })
 
                     HStack(spacing: 8) {
@@ -710,7 +710,7 @@ struct SiteAddOtherView: View {
         gameType = ""
         scoreType = "team"
         resizeSlots(winnerCount: 1, loserCount: 1)
-        location = ""
+        location = siteLastGameLocation()
         error = nil
         focused = .gameName
     }
@@ -769,7 +769,6 @@ struct SiteAddOtherView: View {
             "entered_timezone": TimeZone.current.identifier,
             "location": cleanLocation,
         ]
-        siteRememberGameLocation(cleanLocation)
         if scoreType == "team" {
             if let ws = teamWinnerScore { fields["winner_score"] = ws }
             if let ls = teamLoserScore { fields["loser_score"] = ls }
@@ -784,6 +783,7 @@ struct SiteAddOtherView: View {
             self.error = error.localizedDescription
             return
         }
+        siteRememberGameLocation(cleanLocation)
         saving = false
         banner = "Game saved"
         successTick += 1

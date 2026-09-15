@@ -99,7 +99,6 @@ func siteLastGameLocation() -> String {
 
 func siteRememberGameLocation(_ location: String) {
     let clean = location.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !clean.isEmpty else { return }
     UserDefaults.standard.set(clean, forKey: siteLastGameLocationKey())
 }
 
@@ -144,6 +143,39 @@ struct SiteAddTextRow<Field: Hashable>: View {
             }
         }
         .id(field)
+    }
+}
+
+/// Paragraph input shared by game comments and AI prompts.
+struct SiteParagraphField: View {
+    var placeholder: String
+    @Binding var text: String
+
+    var body: some View {
+        TextField(placeholder, text: $text, axis: .vertical)
+            .lineLimit(5...10)
+            .textInputAutocapitalization(.sentences)
+            .autocorrectionDisabled(false)
+            .keyboardType(.default)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(RoundedRectangle(cornerRadius: 10).fill(Color(.secondarySystemFill)))
+    }
+}
+
+struct SiteAddCommentRow<Field: Hashable>: View {
+    @Binding var text: String
+    var field: Field
+    var focus: FocusState<Field?>.Binding
+
+    var body: some View {
+        SiteParagraphField(placeholder: "Comment (optional)", text: $text)
+            .focused(focus, equals: field)
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(focus.wrappedValue == field ? SiteAddAccent.orange : Color.clear, lineWidth: 2)
+            )
+            .id(field)
     }
 }
 

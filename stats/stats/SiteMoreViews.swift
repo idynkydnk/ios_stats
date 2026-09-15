@@ -1401,20 +1401,7 @@ struct SiteAIStyleView: View {
                     detail: "Describe the tone, style, and personality you want."
                 )
                 if promptStyle == "custom" {
-                    ZStack(alignment: .topLeading) {
-                        if customPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            Text("Example: Keep it short and punchy, focus on upsets and funny comments…")
-                                .foregroundStyle(.secondary)
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 12)
-                        }
-                        TextEditor(text: $customPrompt)
-                            .scrollContentBackground(.hidden)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 8)
-                            .frame(minHeight: 100)
-                    }
-                    .background(RoundedRectangle(cornerRadius: 10).fill(Color(.secondarySystemFill)))
+                    SiteParagraphField(placeholder: "Example: Keep it short and punchy, focus on upsets and funny comments…", text: $customPrompt)
                 }
 
                 Text("Illustration")
@@ -1425,20 +1412,7 @@ struct SiteAIStyleView: View {
                     .foregroundStyle(.secondary)
                 Text("Extra illustration details (optional)")
                     .font(.subheadline.weight(.semibold))
-                ZStack(alignment: .topLeading) {
-                    if imageDetails.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        Text("Example: sunset beach background, everyone celebrating at the net…")
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 12)
-                    }
-                    TextEditor(text: $imageDetails)
-                        .scrollContentBackground(.hidden)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 8)
-                        .frame(minHeight: 80)
-                }
-                .background(RoundedRectangle(cornerRadius: 10).fill(Color(.secondarySystemFill)))
+                SiteParagraphField(placeholder: "Example: sunset beach background, everyone celebrating at the net…", text: $imageDetails)
                 Text("Only used when you choose With illustration.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -1918,21 +1892,8 @@ struct SiteFlyerView: View {
                     Text("The flyer is a picture you save to Photos and share from there. Don’t send a website link.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    ZStack(alignment: .topLeading) {
-                        if imageDetails.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            Text("Image prompt details")
-                                .foregroundStyle(.secondary)
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 12)
-                        }
-                        TextEditor(text: $imageDetails)
-                            .focused($focused, equals: .details)
-                            .scrollContentBackground(.hidden)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 8)
-                            .frame(minHeight: 100)
-                    }
-                    .background(RoundedRectangle(cornerRadius: 10).fill(Color(.secondarySystemFill)))
+                    SiteParagraphField(placeholder: "Image prompt details", text: $imageDetails)
+                        .focused($focused, equals: .details)
                     .overlay(
                         RoundedRectangle(cornerRadius: 10)
                             .stroke(focused == .details ? SiteAddAccent.orange : Color.clear, lineWidth: 2)
