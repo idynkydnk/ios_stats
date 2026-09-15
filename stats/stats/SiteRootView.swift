@@ -283,7 +283,7 @@ struct SiteLimitedRows<Element, ID: Hashable, Row: View>: View {
     private let row: (Element) -> Row
     @State private var extended = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    private let previewCount = 5
+    private let previewCount = 25
 
     init<C: Collection>(_ items: C, id: KeyPath<Element, ID>,
                         onDelete: ((IndexSet) -> Void)? = nil,
@@ -325,7 +325,7 @@ struct SiteLimitedRows<Element, ID: Hashable, Row: View>: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityValue(extended ? "All \(items.count) items shown" : "\(previewCount) of \(items.count) items shown")
-                .accessibilityHint(extended ? "Show the first five items" : "Reveal the remaining items")
+                .accessibilityHint(extended ? "Show the first \(previewCount) items" : "Reveal the remaining items")
             }
         }
         .onChange(of: items.map { $0[keyPath: id] }) { _, _ in extended = false }
@@ -374,26 +374,26 @@ struct RankingTable: View {
                         NavigationLink {
                             SitePlayerDetailView(name: row.name, year: year, section: section)
                         } label: {
-                            HStack(spacing: 8) {
-                                Text("\(idx + 1)").frame(width: 28, alignment: .leading).foregroundStyle(.secondary)
+                            HStack(spacing: 4) {
+                                Text("\(idx + 1)").frame(width: 22, alignment: .leading).foregroundStyle(.secondary)
                                 Text(row.name).fontWeight(.semibold).frame(maxWidth: .infinity, alignment: .leading)
                                 if showRating {
                                     Text(row.rating.map { String(format: "%.2f", $0) } ?? "—")
-                                        .frame(width: 58, alignment: .trailing)
+                                        .frame(width: 48, alignment: .trailing)
                                 }
-                                Text("\(row.wins)").frame(width: 32, alignment: .trailing).foregroundStyle(.green)
-                                Text("\(row.losses)").frame(width: 32, alignment: .trailing).foregroundStyle(.red)
-                                Text(row.winPctDisplay).frame(width: 48, alignment: .trailing)
+                                Text("\(row.wins)").frame(width: 30, alignment: .trailing).foregroundStyle(.green)
+                                Text("\(row.losses)").frame(width: 30, alignment: .trailing).foregroundStyle(.red)
+                                Text(row.winPctDisplay).frame(width: 44, alignment: .trailing)
                                 if showPlusMinus {
                                     let pm = row.plusMinus ?? 0
                                     Text(pm > 0 ? "+\(pm)" : "\(pm)")
                                         .foregroundStyle(pm > 0 ? Color.green : pm < 0 ? Color.red : .secondary)
-                                        .frame(width: 44, alignment: .trailing)
+                                        .frame(width: 36, alignment: .trailing)
                                 }
                             }
                             .font(.subheadline).monospacedDigit()
                             .foregroundStyle(.primary)
-                            .padding(.horizontal, 16).padding(.vertical, 15)
+                            .padding(.horizontal, 10).padding(.vertical, 12)
                             .frame(minHeight: 50)
                             .background(Color.primary.opacity(idx.isMultiple(of: 2) ? 0.025 : 0.055))
                             .contentShape(Rectangle())
@@ -412,18 +412,18 @@ struct RankingTable: View {
     }
 
     private var headerRow: some View {
-        HStack(spacing: 8) {
-            Text("#").frame(width: 28, alignment: .leading)
+        HStack(spacing: 4) {
+            Text("#").frame(width: 22, alignment: .leading)
             Text("Player").frame(maxWidth: .infinity, alignment: .leading)
-            if showRating { Text("Rating").frame(width: 58, alignment: .trailing) }
-            Text("W").frame(width: 32, alignment: .trailing)
-            Text("L").frame(width: 32, alignment: .trailing)
-            Text("Win%").frame(width: 48, alignment: .trailing)
-            if showPlusMinus { Text("+/-").frame(width: 44, alignment: .trailing) }
+            if showRating { Text("Rating").frame(width: 48, alignment: .trailing) }
+            Text("W").frame(width: 30, alignment: .trailing)
+            Text("L").frame(width: 30, alignment: .trailing)
+            Text("Win%").frame(width: 44, alignment: .trailing)
+            if showPlusMinus { Text("+/-").frame(width: 36, alignment: .trailing) }
         }
         .font(.caption.weight(.semibold))
         .foregroundStyle(.secondary)
-        .padding(.horizontal)
+        .padding(.horizontal, 10)
     }
 }
 
@@ -653,7 +653,7 @@ struct SiteGamesView: View {
                                 }
                             case .other:
                                 SiteLimitedRows(filteredOther) { g in
-                                    VStack(alignment: .leading, spacing: 10) {
+                                    VStack(alignment: .leading, spacing: 7) {
                                         Text("\(g.gameName ?? "") · \(g.gameType ?? "")").font(.headline)
                                         SiteGameDateLabel(raw: g.gameDateOnly ?? g.gameDate)
                                         SiteTeamScorePanel(score: g.winnerScore, winner: true) {
@@ -664,7 +664,7 @@ struct SiteGamesView: View {
                                         }
                                         if let c = g.comment, !c.isEmpty { Text(c).font(.caption).italic() }
                                     }
-                                    .padding(16)
+                                    .padding(.horizontal, 12).padding(.vertical, 10)
                                         .listRowSeparator(.visible)
                                         .listRowBackground(Color(uiColor: .secondarySystemGroupedBackground))
                                         .listRowInsets(EdgeInsets())
@@ -884,21 +884,21 @@ struct SiteTeamScorePanel<Players: View>: View {
 
     private var color: Color { winner ? .green : .red }
     var body: some View {
-        HStack(spacing: 14) {
-            VStack(alignment: .leading, spacing: 5) {
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(winner ? "WINNERS" : "LOSERS")
                     .font(.caption2.weight(.bold)).tracking(1).foregroundStyle(.secondary)
                 players.font(.subheadline.weight(.semibold))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             Text(score.map(String.init) ?? "—")
-                .font(.system(.largeTitle, design: .rounded, weight: .bold))
+                .font(.system(.title, design: .rounded, weight: .bold))
                 .monospacedDigit().foregroundStyle(color)
         }
-        .padding(14)
-        .background(color.opacity(0.09), in: RoundedRectangle(cornerRadius: 17))
+        .padding(.horizontal, 12).padding(.vertical, 9)
+        .background(color.opacity(0.09), in: RoundedRectangle(cornerRadius: 14))
         .overlay(alignment: .leading) {
-            Capsule().fill(color).frame(width: 3).padding(.vertical, 14)
+            Capsule().fill(color).frame(width: 3).padding(.vertical, 10)
         }
     }
 }
@@ -908,8 +908,8 @@ struct DoublesGameRow: View {
     var year: String? = nil
     var section: GameSection = .doubles
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            SiteGameDateLabel(raw: game.gameDate).padding(.bottom, 3)
+        VStack(alignment: .leading, spacing: 7) {
+            SiteGameDateLabel(raw: game.gameDate)
             SiteTeamScorePanel(score: game.winnerScore, winner: true) {
                 playerPair(game.winner1, game.winner2, color: .green)
             }
@@ -921,7 +921,7 @@ struct DoublesGameRow: View {
                 Text("by \(by)").font(.caption2).foregroundStyle(.secondary)
             }
         }
-        .padding(16)
+        .padding(.horizontal, 12).padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .overlay(alignment: .bottom) { Divider().padding(.horizontal, 16) }
     }
@@ -939,8 +939,8 @@ struct VollisGameRow: View {
     var year: String? = nil
     var section: GameSection = .vollis
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            SiteGameDateLabel(raw: game.gameDate).padding(.bottom, 3)
+        VStack(alignment: .leading, spacing: 7) {
+            SiteGameDateLabel(raw: game.gameDate)
             SiteTeamScorePanel(score: game.winnerScore, winner: true) {
                 if let name = game.winner { SitePlayerNameLink(name: name, year: year, section: section, color: .green) }
             }
@@ -948,7 +948,7 @@ struct VollisGameRow: View {
                 if let name = game.loser { SitePlayerNameLink(name: name, year: year, section: section, color: .red) }
             }
         }
-        .padding(16)
+        .padding(.horizontal, 12).padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .overlay(alignment: .bottom) { Divider().padding(.horizontal, 16) }
     }
