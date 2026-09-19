@@ -5,21 +5,21 @@ import Photos
 enum SitePublicLink {
     static let host = "https://idynkydnk.pythonanywhere.com"
 
-    static func stats(section: GameSection, year: String) -> URL? {
+    static func stats(section: GameSection, year: String, gameName: String = "") -> URL? {
         let y = normalizedYear(year)
         switch section {
         case .doubles: return page("stats", y)
         case .vollis: return page("vollis_stats", y)
-        case .other: return page("other_stats", y)
+        case .other: return gameName.isEmpty ? page("other_stats", y) : page("game_name_stats", gameName, y)
         }
     }
 
-    static func games(section: GameSection, year: String) -> URL? {
+    static func games(section: GameSection, year: String, gameName: String = "") -> URL? {
         let y = normalizedYear(year)
         switch section {
         case .doubles: return page("games", y)
         case .vollis: return page("vollis_games", y)
-        case .other: return page("other_games", y)
+        case .other: return gameName.isEmpty ? page("other_games", y) : page("other_games", y, gameName)
         }
     }
 

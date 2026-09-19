@@ -131,6 +131,20 @@ final class PythonAnywhereClient {
 
     func deleteOther(id: Int) async throws { try await delete("/api/other/games/\(id)") }
 
+    func otherNavigationGroups() async throws -> [String: [String]] {
+        struct Types: Decodable {
+            var gameNames: [String]
+            var typeForName: [String: String]
+        }
+        let payload: Types = try await get("/api/other/game-types")
+        var groups: [String: [String]] = ["Volleyball": ["No jump"]]
+        for name in payload.gameNames {
+            let category = payload.typeForName[name].flatMap { $0.isEmpty ? nil : $0 } ?? "Other games"
+            if !(groups[category] ?? []).contains(name) { groups[category, default: []].append(name) }
+        }
+        return groups
+    }
+
     func volleyballStats(year: String) async throws -> OtherStatsPayload {
         struct VB: Codable {
             var year: String

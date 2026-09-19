@@ -19,6 +19,7 @@ struct SiteRootView: View {
     @ObservedObject private var queue = SiteOfflineQueue.shared
     @State private var selectedTab = 0
     @State private var section: GameSection = .doubles
+    @State private var selectedOtherGame = ""
     @State private var selectedYear: String = String(Calendar.current.component(.year, from: Date()))
     @State private var years: [String] = ["All years"]
     @State private var doublesEdit: DoublesGame?
@@ -27,10 +28,10 @@ struct SiteRootView: View {
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            SiteStatsView(section: $section, selectedYear: $selectedYear, years: years)
+            SiteStatsView(selectedOtherGame: $selectedOtherGame, section: $section, selectedYear: $selectedYear, years: years)
                 .tabItem { Label("Stats", systemImage: "chart.bar.fill") }
                 .tag(0)
-            SiteGamesView(section: $section, selectedYear: $selectedYear, years: years, canEdit: auth.isLoggedIn, onEditDoubles: { doublesEdit = $0; addKind = .doubles; selectedTab = 2 }, onEditVollis: { vollisEdit = $0; addKind = .vollis; selectedTab = 2 })
+            SiteGamesView(selectedOtherGame: $selectedOtherGame, section: $section, selectedYear: $selectedYear, years: years, canEdit: auth.isLoggedIn, onEditDoubles: { doublesEdit = $0; addKind = .doubles; selectedTab = 2 }, onEditVollis: { vollisEdit = $0; addKind = .vollis; selectedTab = 2 })
                 .tabItem { Label("Games", systemImage: "list.bullet") }
                 .tag(1)
             SiteAddHubView(section: $addKind, doublesEdit: $doublesEdit, vollisEdit: $vollisEdit)
@@ -105,10 +106,9 @@ struct SectionYearBar: View {
     var body: some View {
         VStack(spacing: 12) {
             HStack(spacing: 8) {
-                Picker("Type", selection: $section) {
-                    ForEach(GameSection.allCases) { s in
-                        Text(s.title).tag(s)
-                    }
+                Picker("Type", selection: Binding(get: { section == .doubles ? GameSection.doubles : .other }, set: { section = $0 })) {
+                    Text("Doubles").tag(GameSection.doubles)
+                    Text("Other").tag(GameSection.other)
                 }
                 .pickerStyle(.segmented)
                 Picker("Year", selection: $selectedYear) {
@@ -428,6 +428,7 @@ struct RankingTable: View {
 }
 
 struct SiteStatsView: View {
+    @Binding var selectedOtherGame: String
     @Binding var section: GameSection
     @Binding var selectedYear: String
     var years: [String]
@@ -443,6 +444,9 @@ struct SiteStatsView: View {
             VStack(spacing: 0) {
                 SectionYearBar(section: $section, selectedYear: $selectedYear, years: years, search: $search, searchPrompt: "Search players...")
                 ScrollView {
+                    if section != .doubles {
+                        OtherGameNavigation(section: $section, selection: $selectedOtherGame)
+                    }
                     if loading { ProgressView().padding() }
                     if let error { Text(error).foregroundStyle(.red).padding() }
                     switch section {
@@ -495,7 +499,7 @@ struct SiteStatsView: View {
                                 Text("No games yet this year. Showing \(o.displayYear).")
                                     .font(.footnote).foregroundStyle(.secondary).padding(.horizontal)
                             }
-                            SiteLimitedRows(o.todayStatsByGame) { block in
+                            SiteLimitedRows(o.todayStatsByGame.filter { selectedOtherGame.isEmpty || $0.gameName == selectedOtherGame }) { block in
                                 let count = block.gameCount ?? block.stats.count
                                 RankingTable(
                                     title: "Today's \(block.gameName ?? "Other")",
@@ -508,7 +512,11 @@ struct SiteStatsView: View {
                                     section: .other
                                 )
                             }
-                            SiteLimitedRows(o.gameCards) { card in
+                            if !selectedOtherGame.isEmpty && !o.gameCards.contains(where: { $0.gameName == selectedOtherGame }) {
+                                Text("No \(selectedOtherGame) games in \(o.displayYear). Try All years.")
+                                    .foregroundStyle(.secondary).padding()
+                            }
+                            SiteLimitedRows(o.gameCards.filter { selectedOtherGame.isEmpty || $0.gameName == selectedOtherGame }) { card in
                                 RankingTable(title: card.gameName, rows: filter(card.stats), showRating: false, year: o.displayYear, section: .other)
                                 if !card.rareStats.isEmpty {
                                     RankingTable(title: "\(card.gameName ?? "") · rare", rows: filter(card.rareStats), showRating: false, year: o.displayYear, section: .other)
@@ -525,7 +533,7 @@ struct SiteStatsView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    SiteCopyLinkButton(url: SitePublicLink.stats(section: section, year: selectedYear))
+                    SiteCopyLinkButton(url: SitePublicLink.stats(section: section, year: selectedYear, gameName: selectedOtherGame))
                 }
             }
             .task(id: "\(section.rawValue)-\(selectedYear)") { await load() }
@@ -562,7 +570,11 @@ struct SiteStatsView: View {
                 }
                 vollis = payload
             case .other:
-                other = try await PythonAnywhereClient.shared.otherStats(year: year)
+                var payload = try await PythonAnywhereClient.shared.otherStats(year: year)
+                let volleyball = try await PythonAnywhereClient.shared.volleyballStats(year: payload.displayYear)
+                payload.gameCards.removeAll { $0.isConsolidated == true }
+                payload.gameCards.append(contentsOf: volleyball.gameCards)
+                other = payload
             }
         } catch {
             self.error = error.localizedDescription
@@ -572,6 +584,7 @@ struct SiteStatsView: View {
 }
 
 struct SiteGamesView: View {
+    @Binding var selectedOtherGame: String
     @Binding var section: GameSection
     @Binding var selectedYear: String
     var years: [String]
@@ -604,6 +617,9 @@ struct SiteGamesView: View {
                         .padding(.horizontal)
                 }
                 List {
+                    if section != .doubles {
+                        OtherGameNavigation(section: $section, selection: $selectedOtherGame)
+                    }
                     Section {
                         SiteSectionBubble(title: "Games", count: visibleGameCount, expanded: $gamesExpanded)
                             .listRowInsets(EdgeInsets())
@@ -699,7 +715,7 @@ struct SiteGamesView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    SiteCopyLinkButton(url: SitePublicLink.games(section: section, year: selectedYear))
+                    SiteCopyLinkButton(url: SitePublicLink.games(section: section, year: selectedYear, gameName: selectedOtherGame))
                 }
             }
             .sensoryFeedback(.success, trigger: successTick)
@@ -732,7 +748,7 @@ struct SiteGamesView: View {
     }
     private var filteredOther: [OtherGame] {
         let q = search.lowercased()
-        return other.filter { q.isEmpty || "\($0.gameName ?? "") \($0.displayWinners) \($0.displayLosers)".lowercased().contains(q) }
+        return other.filter { (selectedOtherGame.isEmpty || $0.gameName == selectedOtherGame) && (q.isEmpty || "\($0.gameName ?? "") \($0.displayWinners) \($0.displayLosers)".lowercased().contains(q)) }
     }
 
     private func load() async {
@@ -951,5 +967,74 @@ struct VollisGameRow: View {
         .padding(.horizontal, 12).padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .overlay(alignment: .bottom) { Divider().padding(.horizontal, 16) }
+    }
+}
+
+struct OtherGameNavigation: View {
+    @Binding var section: GameSection
+    @Binding var selection: String
+    @State private var groups: [String: [String]] = ["Volleyball": ["No jump"]]
+    @State private var loadError = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            choice("All Other", value: "")
+            ForEach(groups.keys.sorted { a, b in
+                if a == "Volleyball" { return b != "Volleyball" }
+                if b == "Volleyball" { return false }
+                return a < b
+            }, id: \.self) { category in
+                Text(category).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), alignment: .leading)], alignment: .leading, spacing: 8) {
+                    if category == "Volleyball" {
+                        choice("No jump", value: "No jump")
+                        choice("Vollis", value: "Vollis", isVollis: true)
+                        if !selection.isEmpty && selection != "No jump" && (groups[category] ?? []).contains(selection) {
+                            choice(selection, value: selection)
+                        }
+                    } else {
+                        ForEach((groups[category] ?? []).sorted(), id: \.self) { name in
+                            choice(name, value: name)
+                        }
+                    }
+                }
+                if category == "Volleyball" {
+                    DisclosureGroup("More volleyball games") {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), alignment: .leading)], alignment: .leading, spacing: 8) {
+                            ForEach((groups[category] ?? []).filter { $0 != "No jump" }.sorted(), id: \.self) { name in
+                                choice(name, value: name)
+                            }
+                        }.padding(.top, 8)
+                    }
+                }
+            }
+            if loadError {
+                Button("Retry loading game choices") { Task { await load() } }
+            }
+        }
+        .padding()
+        .task { await load() }
+    }
+
+    private func load() async {
+        do {
+            groups = try await PythonAnywhereClient.shared.otherNavigationGroups()
+            loadError = false
+        } catch { loadError = true }
+    }
+
+    private func choice(_ title: String, value: String, isVollis: Bool = false) -> some View {
+        let selected = isVollis ? section == .vollis : section == .other && selection == value
+        return Button {
+            selection = isVollis ? "" : value
+            section = isVollis ? .vollis : .other
+        } label: {
+            Text(title).font(.subheadline.weight(.semibold))
+                .padding(.horizontal, 12).padding(.vertical, 9)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(selected ? Color.accentColor.opacity(0.18) : Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
