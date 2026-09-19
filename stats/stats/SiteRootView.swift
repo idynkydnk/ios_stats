@@ -20,7 +20,12 @@ struct SiteRootView: View {
     @State private var selectedTab = 0
     @State private var section: GameSection = .doubles
     @State private var selectedOtherGame = ""
-    @State private var selectedYear: String = String(Calendar.current.component(.year, from: Date()))
+    @State private var doublesYear: String = String(Calendar.current.component(.year, from: Date()))
+    @State private var otherYear = "All years"
+
+    private var selectedYear: Binding<String> {
+        section == .doubles ? $doublesYear : $otherYear
+    }
     @State private var years: [String] = ["All years"]
     @State private var doublesEdit: DoublesGame?
     @State private var vollisEdit: VollisGame?
@@ -28,10 +33,10 @@ struct SiteRootView: View {
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            SiteStatsView(selectedOtherGame: $selectedOtherGame, section: $section, selectedYear: $selectedYear, years: years)
+            SiteStatsView(selectedOtherGame: $selectedOtherGame, section: $section, selectedYear: selectedYear, years: years)
                 .tabItem { Label("Stats", systemImage: "chart.bar.fill") }
                 .tag(0)
-            SiteGamesView(selectedOtherGame: $selectedOtherGame, section: $section, selectedYear: $selectedYear, years: years, canEdit: auth.isLoggedIn, onEditDoubles: { doublesEdit = $0; addKind = .doubles; selectedTab = 2 }, onEditVollis: { vollisEdit = $0; addKind = .vollis; selectedTab = 2 })
+            SiteGamesView(selectedOtherGame: $selectedOtherGame, section: $section, selectedYear: selectedYear, years: years, canEdit: auth.isLoggedIn, onEditDoubles: { doublesEdit = $0; addKind = .doubles; selectedTab = 2 }, onEditVollis: { vollisEdit = $0; addKind = .vollis; selectedTab = 2 })
                 .tabItem { Label("Games", systemImage: "list.bullet") }
                 .tag(1)
             SiteAddHubView(section: $addKind, doublesEdit: $doublesEdit, vollisEdit: $vollisEdit)
@@ -90,7 +95,7 @@ struct SiteRootView: View {
                 case .vollis: years = y.vollis
                 case .other: years = y.other
                 }
-                if years.isEmpty { years = ["All years", selectedYear] }
+                if years.isEmpty { years = ["All years", selectedYear.wrappedValue] }
             }
         } catch { }
     }
