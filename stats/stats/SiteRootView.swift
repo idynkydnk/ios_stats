@@ -378,8 +378,9 @@ struct RankingTable: View {
                                 Text("\(idx + 1)").frame(width: 22, alignment: .leading).foregroundStyle(.secondary)
                                 Text(row.name).fontWeight(.semibold).frame(maxWidth: .infinity, alignment: .leading)
                                 if showRating {
-                                    Text(row.rating.map { String(format: "%.2f", $0) } ?? "—")
-                                        .frame(width: 48, alignment: .trailing)
+                                    Text(row.rating.map { String(format: "%.2f", $0) + (row.provisional == true ? " P" : "") } ?? "—")
+                                        .accessibilityLabel(row.rating.map { String(format: "Rating %.2f", $0) + (row.provisional == true ? ", provisional" : "") } ?? "Unrated")
+                                        .frame(width: 64, alignment: .trailing)
                                 }
                                 Text("\(row.wins)").frame(width: 30, alignment: .trailing).foregroundStyle(.green)
                                 Text("\(row.losses)").frame(width: 30, alignment: .trailing).foregroundStyle(.red)
@@ -415,7 +416,7 @@ struct RankingTable: View {
         HStack(spacing: 4) {
             Text("#").frame(width: 22, alignment: .leading)
             Text("Player").frame(maxWidth: .infinity, alignment: .leading)
-            if showRating { Text("Rating").frame(width: 48, alignment: .trailing) }
+            if showRating { Text("Rating").frame(width: 64, alignment: .trailing) }
             Text("W").frame(width: 30, alignment: .trailing)
             Text("L").frame(width: 30, alignment: .trailing)
             Text("Win%").frame(width: 44, alignment: .trailing)
@@ -491,7 +492,7 @@ struct SiteStatsView: View {
                                     section: .vollis
                                 )
                             }
-                            RankingTable(title: nil, rows: filter(v.stats), showRating: false, year: v.displayYear, section: .vollis)
+                            RankingTable(title: nil, subtitle: v.stats.contains { $0.rating != nil } ? "TrueSkill · P = provisional; needs more games or varied opponents" : nil, rows: filter(v.stats), showRating: v.stats.contains { $0.rating != nil }, year: v.displayYear, section: .vollis)
                         }
                     case .other:
                         if let o = other {
@@ -517,9 +518,9 @@ struct SiteStatsView: View {
                                     .foregroundStyle(.secondary).padding()
                             }
                             SiteLimitedRows(o.gameCards.filter { selectedOtherGame.isEmpty || $0.gameName == selectedOtherGame }) { card in
-                                RankingTable(title: card.gameName, rows: filter(card.stats), showRating: false, year: o.displayYear, section: .other)
+                                RankingTable(title: card.gameName, subtitle: card.ratingEnabled == true ? "TrueSkill · \(card.ratedGames ?? 0) rated · P = provisional · \(card.unratedGames ?? 0) excluded" : nil, rows: filter(card.stats), showRating: card.ratingEnabled == true, year: o.displayYear, section: .other)
                                 if !card.rareStats.isEmpty {
-                                    RankingTable(title: "\(card.gameName ?? "") · rare", rows: filter(card.rareStats), showRating: false, year: o.displayYear, section: .other)
+                                    RankingTable(title: "\(card.gameName ?? "") · rare", rows: filter(card.rareStats), showRating: card.ratingEnabled == true, year: o.displayYear, section: .other)
                                 }
                             }
                         }

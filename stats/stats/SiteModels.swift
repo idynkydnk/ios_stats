@@ -27,6 +27,8 @@ struct RankingRow: Codable, Identifiable {
     var games: Int?
     var rating: Double?
     var plusMinus: Int?
+    var provisional: Bool?
+    var ratedGames: Int?
 
     var id: String { name }
 
@@ -65,7 +67,7 @@ struct RankingRow: Codable, Identifiable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case name, wins, losses, winPct, games, rating, plusMinus
+        case name, wins, losses, winPct, games, rating, plusMinus, provisional, ratedGames
     }
 
     private enum AltKeys: String, CodingKey {
@@ -81,6 +83,8 @@ struct RankingRow: Codable, Identifiable {
         winPct = Self.optionalDouble(c, .winPct) ?? Self.optionalDouble(alt, .win_pct) ?? 0
         games = Self.optionalInt(c, .games)
         rating = Self.optionalDouble(c, .rating)
+        provisional = try c.decodeIfPresent(Bool.self, forKey: .provisional)
+        ratedGames = Self.optionalInt(c, .ratedGames)
         plusMinus = Self.optionalInt(c, .plusMinus) ?? Self.optionalInt(alt, .plus_minus)
     }
 
@@ -399,6 +403,9 @@ struct OtherGame: Codable, Identifiable, Hashable {
 }
 
 struct SiteGameCard: Codable, Identifiable {
+    var ratingEnabled: Bool?
+    var ratedGames: Int?
+    var unratedGames: Int?
     var gameName: String?
     var gameType: String?
     var isConsolidated: Bool?
