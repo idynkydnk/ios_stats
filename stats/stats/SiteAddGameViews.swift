@@ -138,7 +138,7 @@ struct SiteAddDoublesView: View {
     @ViewBuilder
     private func todayBoard(_ dash: TodaysDoublesDashboard) -> some View {
         VStack(spacing: 20) {
-            RankingTable(title: "Today's Standings", rows: dash.stats, showRating: false,
+            RankingTable(title: "Today's Standings", rows: dash.stats, showRating: true,
                          showPlusMinus: true, sortLikeToday: true,
                          year: String(Calendar.current.component(.year, from: Date())), section: .doubles)
                 .padding(.horizontal, -16)

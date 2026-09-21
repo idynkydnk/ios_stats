@@ -467,7 +467,7 @@ struct SiteStatsView: View {
                                     title: "Today's Stats",
                                     subtitle: gameCountLabel(d.todayGameCount),
                                     rows: filter(d.todayStats),
-                                    showRating: false,
+                                    showRating: true,
                                     showPlusMinus: true,
                                     sortLikeToday: true,
                                     year: d.displayYear,

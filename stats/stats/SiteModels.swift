@@ -42,9 +42,14 @@ struct RankingRow: Codable, Identifiable {
     /// Fraction 0...1, whether the API sent 0.75 or 75.
     var winPctFraction: Double { winPct > 1.0 ? winPct / 100.0 : winPct }
 
-    /// Website today tables: win% desc, then +/- desc, then wins desc.
+    /// Session rating first when supplied; otherwise win%, +/-, then wins.
     static func sortedForToday(_ rows: [RankingRow]) -> [RankingRow] {
         rows.sorted { a, b in
+            if a.rating != nil || b.rating != nil {
+                let aRating = a.rating ?? -Double.infinity
+                let bRating = b.rating ?? -Double.infinity
+                if aRating != bRating { return aRating > bRating }
+            }
             if abs(a.winPctFraction - b.winPctFraction) > 0.0001 {
                 return a.winPctFraction > b.winPctFraction
             }

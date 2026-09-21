@@ -310,8 +310,9 @@ final class PythonAnywhereClient {
                 let losses = arr.count > 2 ? (Self.jsonInt(arr[2]) ?? 0) : 0
                 let pct = arr.count > 3 ? (Self.jsonDouble(arr[3]) ?? 0) : 0
                 let pm = arr.count > 4 ? Self.jsonInt(arr[4]) : nil
+                let rating = arr.count > 5 ? Self.jsonDouble(arr[5]) : nil
                 if !name.isEmpty {
-                    stats.append(RankingRow(name: name, wins: wins, losses: losses, winPct: pct, plusMinus: pm))
+                    stats.append(RankingRow(name: name, wins: wins, losses: losses, winPct: pct, rating: rating, plusMinus: pm))
                 }
             }
         }
