@@ -8,7 +8,7 @@ enum SitePublicLink {
     static func stats(section: GameSection, year: String, gameName: String = "") -> URL? {
         let y = normalizedYear(year)
         switch section {
-        case .doubles: return page("stats", y)
+        case .doubles: return doublesPage("stats", y)
         case .vollis: return page("vollis_stats", y)
         case .other: return gameName.isEmpty ? page("other_stats", y) : page("game_name_stats", gameName, y)
         }
@@ -17,7 +17,7 @@ enum SitePublicLink {
     static func games(section: GameSection, year: String, gameName: String = "") -> URL? {
         let y = normalizedYear(year)
         switch section {
-        case .doubles: return page("games", y)
+        case .doubles: return doublesPage("games", y)
         case .vollis: return page("vollis_games", y)
         case .other: return gameName.isEmpty ? page("other_games", y) : page("other_games", y, gameName)
         }
@@ -26,14 +26,14 @@ enum SitePublicLink {
     static func player(section: GameSection, year: String, name: String) -> URL? {
         let y = normalizedYear(year)
         switch section {
-        case .doubles: return page("player", y, name)
+        case .doubles: return doublesPage("player", y, name)
         case .vollis: return page("vollis_player", y, name)
         case .other: return page("other_player", y, name)
         }
     }
 
     static func network(year: String) -> URL? {
-        page("player_network", normalizedYear(year))
+        doublesPage("player_network", normalizedYear(year))
     }
 
     static func volleyball(year: String) -> URL? {
@@ -72,6 +72,15 @@ enum SitePublicLink {
     static func normalizedYear(_ raw: String) -> String {
         if raw.isEmpty || raw == "All" { return "All years" }
         return raw
+    }
+
+    private static func doublesPage(_ parts: String...) -> URL? {
+        var allowed = CharacterSet.urlPathAllowed
+        allowed.remove(charactersIn: "/")
+        let encoded = parts.map { $0.addingPercentEncoding(withAllowedCharacters: allowed) ?? $0 }
+        var components = URLComponents(string: host + "/" + encoded.joined(separator: "/") + "/")
+        components?.queryItems = [URLQueryItem(name: "division", value: UserDefaults.standard.string(forKey: "stats.doublesDivision") ?? "open")]
+        return components?.url
     }
 
     private static func page(_ parts: String...) -> URL? {

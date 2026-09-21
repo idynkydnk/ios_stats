@@ -24,7 +24,10 @@ struct SiteRootView: View {
     @State private var otherYear = "All years"
 
     private var selectedYear: Binding<String> {
-        section == .doubles ? $doublesYear : $otherYear
+        Binding(
+            get: { section == .doubles ? doublesYear : otherYear },
+            set: { if section == .doubles { doublesYear = $0 } else { otherYear = $0 } }
+        )
     }
     @State private var years: [String] = ["All years"]
     @State private var doublesEdit: DoublesGame?
@@ -33,7 +36,7 @@ struct SiteRootView: View {
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            SiteStatsView(selectedOtherGame: $selectedOtherGame, section: $section, selectedYear: selectedYear, years: years)
+            SiteStatsView(selectedOtherGame: $selectedOtherGame, section: $section, selectedYear: selectedYear, years: years, onGames: { selectedTab = 1 })
                 .tabItem { Label("Stats", systemImage: "chart.bar.fill") }
                 .tag(0)
             SiteGamesView(selectedOtherGame: $selectedOtherGame, section: $section, selectedYear: selectedYear, years: years, canEdit: auth.isLoggedIn, onEditDoubles: { doublesEdit = $0; addKind = .doubles; selectedTab = 2 }, onEditVollis: { vollisEdit = $0; addKind = .vollis; selectedTab = 2 })
@@ -111,17 +114,13 @@ struct SectionYearBar: View {
     var body: some View {
         VStack(spacing: 12) {
             HStack(spacing: 8) {
-                Picker("Type", selection: Binding(get: { section == .doubles ? GameSection.doubles : .other }, set: { section = $0 })) {
-                    Text("Doubles").tag(GameSection.doubles)
-                    Text("Other").tag(GameSection.other)
-                }
-                .pickerStyle(.segmented)
                 Picker("Year", selection: $selectedYear) {
                     ForEach(normalizedYears, id: \.self) { y in
                         Text(y == "All years" ? "All" : y).tag(displayTag(y))
                     }
                 }
                 .pickerStyle(.menu)
+                .labelsHidden()
                 .fixedSize()
             }
             HStack(spacing: 10) {
@@ -383,8 +382,8 @@ struct RankingTable: View {
                                 Text("\(idx + 1)").frame(width: 22, alignment: .leading).foregroundStyle(.secondary)
                                 Text(row.name).fontWeight(.semibold).frame(maxWidth: .infinity, alignment: .leading)
                                 if showRating {
-                                    Text(row.rating.map { String(format: "%.2f", $0) + (row.provisional == true ? " P" : "") } ?? "—")
-                                        .accessibilityLabel(row.rating.map { String(format: "Rating %.2f", $0) + (row.provisional == true ? ", provisional" : "") } ?? "Unrated")
+                                    Text(row.rating.map { String(format: "%.2f", $0) } ?? "—")
+                                        .accessibilityLabel(row.rating.map { String(format: "Rating %.2f", $0) } ?? "Unrated")
                                         .frame(width: 64, alignment: .trailing)
                                 }
                                 Text("\(row.wins)").frame(width: 30, alignment: .trailing).foregroundStyle(.green)
@@ -438,6 +437,8 @@ struct SiteStatsView: View {
     @Binding var section: GameSection
     @Binding var selectedYear: String
     var years: [String]
+    var onGames: () -> Void
+    @AppStorage("stats.doublesDivision") private var division = "open"
     @State private var doubles: DoublesStatsPayload?
     @State private var vollis: VollisStatsPayload?
     @State private var other: OtherStatsPayload?
@@ -450,9 +451,7 @@ struct SiteStatsView: View {
             VStack(spacing: 0) {
                 SectionYearBar(section: $section, selectedYear: $selectedYear, years: years, search: $search, searchPrompt: "Search players...")
                 ScrollView {
-                    if section != .doubles {
-                        OtherGameNavigation(section: $section, selection: $selectedOtherGame)
-                    }
+                    OtherGameNavigation(section: $section, selection: $selectedOtherGame, selectedYear: $selectedYear)
                     if loading { ProgressView().padding() }
                     if let error { Text(error).foregroundStyle(.red).padding() }
                     switch section {
@@ -497,7 +496,7 @@ struct SiteStatsView: View {
                                     section: .vollis
                                 )
                             }
-                            RankingTable(title: nil, subtitle: v.stats.contains { $0.rating != nil } ? "TrueSkill · P = provisional; needs more games or varied opponents" : nil, rows: filter(v.stats), showRating: v.stats.contains { $0.rating != nil }, year: v.displayYear, section: .vollis)
+                            RankingTable(title: nil, rows: filter(v.stats), showRating: v.stats.contains { $0.rating != nil }, year: v.displayYear, section: .vollis)
                         }
                     case .other:
                         if let o = other {
@@ -523,7 +522,7 @@ struct SiteStatsView: View {
                                     .foregroundStyle(.secondary).padding()
                             }
                             SiteLimitedRows(o.gameCards.filter { selectedOtherGame.isEmpty || $0.gameName == selectedOtherGame }) { card in
-                                RankingTable(title: card.gameName, subtitle: card.ratingEnabled == true ? "TrueSkill · \(card.ratedGames ?? 0) rated · P = provisional · \(card.unratedGames ?? 0) excluded" : nil, rows: filter(card.stats), showRating: card.ratingEnabled == true, year: o.displayYear, section: .other)
+                                RankingTable(title: card.gameName, subtitle: card.ratingEnabled == true ? "Skill rating · \(card.ratedGames ?? 0) rated · \(card.unratedGames ?? 0) excluded" : nil, rows: filter(card.stats), showRating: card.ratingEnabled == true, year: o.displayYear, section: .other)
                                 if !card.rareStats.isEmpty {
                                     RankingTable(title: "\(card.gameName ?? "") · rare", rows: filter(card.rareStats), showRating: card.ratingEnabled == true, year: o.displayYear, section: .other)
                                 }
@@ -538,11 +537,14 @@ struct SiteStatsView: View {
             .navigationTitle("Stats")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(action: onGames) { Label("Games", systemImage: "list.bullet") }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     SiteCopyLinkButton(url: SitePublicLink.stats(section: section, year: selectedYear, gameName: selectedOtherGame))
                 }
             }
-            .task(id: "\(section.rawValue)-\(selectedYear)") { await load() }
+            .task(id: "\(section.rawValue)-\(selectedYear)-\(division)") { await load() }
         }
     }
 
@@ -563,7 +565,10 @@ struct SiteStatsView: View {
         do {
             switch section {
             case .doubles:
-                doubles = try await PythonAnywhereClient.shared.doublesStats(year: year)
+                let payload = try await PythonAnywhereClient.shared.doublesStats(year: year)
+                try Task.checkCancellation()
+                doubles = payload
+                if payload.showingPreviousYear { selectedYear = payload.displayYear }
             case .vollis:
                 var payload = try await PythonAnywhereClient.shared.vollisStats(year: year)
                 if (payload.todayStats ?? []).isEmpty {
@@ -574,15 +579,20 @@ struct SiteStatsView: View {
                         payload.todayGameCount = todayGames.count
                     }
                 }
+                try Task.checkCancellation()
                 vollis = payload
+                if payload.showingPreviousYear { selectedYear = payload.displayYear }
             case .other:
                 var payload = try await PythonAnywhereClient.shared.otherStats(year: year)
                 let volleyball = try await PythonAnywhereClient.shared.volleyballStats(year: payload.displayYear)
                 payload.gameCards.removeAll { $0.isConsolidated == true }
                 payload.gameCards.append(contentsOf: volleyball.gameCards)
+                try Task.checkCancellation()
                 other = payload
+                if payload.showingPreviousYear { selectedYear = payload.displayYear }
             }
         } catch {
+            guard !Task.isCancelled else { return }
             self.error = error.localizedDescription
         }
         loading = false
@@ -600,6 +610,7 @@ struct SiteGamesView: View {
     @State private var doubles: [DoublesGame] = []
     @State private var vollis: [VollisGame] = []
     @State private var other: [OtherGame] = []
+    @AppStorage("stats.doublesDivision") private var division = "open"
     @State private var gamesExpanded = true
     @State private var search = ""
     @State private var error: String?
@@ -623,9 +634,7 @@ struct SiteGamesView: View {
                         .padding(.horizontal)
                 }
                 List {
-                    if section != .doubles {
-                        OtherGameNavigation(section: $section, selection: $selectedOtherGame)
-                    }
+                    OtherGameNavigation(section: $section, selection: $selectedOtherGame, selectedYear: $selectedYear)
                     Section {
                         SiteSectionBubble(title: "Games", count: visibleGameCount, expanded: $gamesExpanded)
                             .listRowInsets(EdgeInsets())
@@ -726,7 +735,7 @@ struct SiteGamesView: View {
             }
             .sensoryFeedback(.success, trigger: successTick)
             .refreshable { await load() }
-            .task(id: "\(section.rawValue)-\(selectedYear)") {
+            .task(id: "\(section.rawValue)-\(selectedYear)-\(division)") {
                 banner = nil
                 error = nil
                 await load()
@@ -763,16 +772,20 @@ struct SiteGamesView: View {
             switch section {
             case .doubles:
                 let p = try await PythonAnywhereClient.shared.doublesGames(year: year)
+                try Task.checkCancellation()
                 doubles = p.games
             case .vollis:
                 let p = try await PythonAnywhereClient.shared.vollisGames(year: year)
+                try Task.checkCancellation()
                 vollis = p.games
             case .other:
                 let p = try await PythonAnywhereClient.shared.otherGames(year: year)
+                try Task.checkCancellation()
                 other = p.games
             }
             error = nil
         } catch {
+            guard !Task.isCancelled else { return }
             self.error = error.localizedDescription
         }
     }
@@ -979,12 +992,49 @@ struct VollisGameRow: View {
 struct OtherGameNavigation: View {
     @Binding var section: GameSection
     @Binding var selection: String
+    @Binding var selectedYear: String
+    @AppStorage("stats.doublesDivision") private var division = "open"
+    @State private var defaultYears: [String: String] = [:]
+    @State private var vollisDefaultYear = "All years"
     @State private var groups: [String: [String]] = ["Volleyball": ["No jump"]]
     @State private var loadError = false
+    @State private var expanded = false
+
+    private var selectedGame: String {
+        section == .doubles ? "Doubles" : section == .vollis ? "Vollis" : selection
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            choice("All Other", value: "")
+            HStack(spacing: 16) {
+                if section == .doubles {
+                    divisionChoice("Men’s", value: "open")
+                    divisionChoice("Women’s", value: "women")
+                } else {
+                    Text(selectedGame.isEmpty ? "Choose a game" : selectedGame)
+                        .font(.subheadline.weight(.semibold))
+                }
+                Spacer(minLength: 4)
+                Button {
+                    withAnimation { expanded.toggle() }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text("Browse games")
+                        Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                    }.font(.caption)
+                }
+                .accessibilityValue(expanded ? "Expanded" : "Collapsed")
+            }
+            if expanded { gameChoices.padding(.top, 12) }
+        }
+        .padding()
+        .onAppear { expanded = selectedGame.isEmpty }
+        .onChange(of: selectedGame) { _, game in expanded = game.isEmpty }
+        .task { await load() }
+    }
+
+    private var gameChoices: some View {
+        VStack(alignment: .leading, spacing: 12) {
             ForEach(groups.keys.sorted { a, b in
                 if a == "Volleyball" { return b != "Volleyball" }
                 if b == "Volleyball" { return false }
@@ -993,8 +1043,9 @@ struct OtherGameNavigation: View {
                 Text(category).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), alignment: .leading)], alignment: .leading, spacing: 8) {
                     if category == "Volleyball" {
+                        choice("Doubles", value: "", destination: .doubles)
+                        choice("Vollis", value: "", destination: .vollis)
                         choice("No jump", value: "No jump")
-                        choice("Vollis", value: "Vollis", isVollis: true)
                         if !selection.isEmpty && selection != "No jump" && (groups[category] ?? []).contains(selection) {
                             choice(selection, value: selection)
                         }
@@ -1007,7 +1058,7 @@ struct OtherGameNavigation: View {
                 if category == "Volleyball" {
                     DisclosureGroup("More volleyball games") {
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), alignment: .leading)], alignment: .leading, spacing: 8) {
-                            ForEach((groups[category] ?? []).filter { $0 != "No jump" }.sorted(), id: \.self) { name in
+                            ForEach((groups[category] ?? []).filter { $0 != "No jump" && $0 != selection }.sorted(), id: \.self) { name in
                                 choice(name, value: name)
                             }
                         }.padding(.top, 8)
@@ -1018,22 +1069,43 @@ struct OtherGameNavigation: View {
                 Button("Retry loading game choices") { Task { await load() } }
             }
         }
-        .padding()
-        .task { await load() }
     }
 
     private func load() async {
         do {
-            groups = try await PythonAnywhereClient.shared.otherNavigationGroups()
+            let navigation = try await PythonAnywhereClient.shared.otherNavigationGroups()
+            groups = navigation.groups
+            defaultYears = navigation.defaultYears
+            vollisDefaultYear = navigation.vollisDefaultYear
             loadError = false
         } catch { loadError = true }
     }
 
-    private func choice(_ title: String, value: String, isVollis: Bool = false) -> some View {
-        let selected = isVollis ? section == .vollis : section == .other && selection == value
+    private func divisionChoice(_ title: String, value: String) -> some View {
+        Button { division = value } label: {
+            Text(title)
+                .font(.subheadline.weight(division == value ? .semibold : .regular))
+                .foregroundStyle(division == value ? Color.primary : .secondary)
+                .padding(.vertical, 8)
+                .overlay(alignment: .bottom) {
+                    if division == value { Rectangle().frame(height: 2) }
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(division == value ? .isSelected : [])
+    }
+
+    private func choice(_ title: String, value: String, destination: GameSection = .other) -> some View {
+        let selected = section == destination && (destination != .other || selection == value)
         return Button {
-            selection = isVollis ? "" : value
-            section = isVollis ? .vollis : .other
+            selection = destination == .other ? value : ""
+            section = destination
+            switch destination {
+            case .doubles: selectedYear = String(Calendar.current.component(.year, from: Date()))
+            case .vollis: selectedYear = vollisDefaultYear
+            case .other: selectedYear = defaultYears[value] ?? "All years"
+            }
+            expanded = false
         } label: {
             Text(title).font(.subheadline.weight(.semibold))
                 .padding(.horizontal, 12).padding(.vertical, 9)

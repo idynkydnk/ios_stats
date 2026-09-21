@@ -131,10 +131,12 @@ final class PythonAnywhereClient {
 
     func deleteOther(id: Int) async throws { try await delete("/api/other/games/\(id)") }
 
-    func otherNavigationGroups() async throws -> [String: [String]] {
+    func otherNavigationGroups() async throws -> (groups: [String: [String]], defaultYears: [String: String], vollisDefaultYear: String) {
         struct Types: Decodable {
             var gameNames: [String]
             var typeForName: [String: String]
+            var defaultYears: [String: String]?
+            var vollisDefaultYear: String?
         }
         let payload: Types = try await get("/api/other/game-types")
         var groups: [String: [String]] = ["Volleyball": ["No jump"]]
@@ -142,7 +144,7 @@ final class PythonAnywhereClient {
             let category = payload.typeForName[name].flatMap { $0.isEmpty ? nil : $0 } ?? "Other games"
             if !(groups[category] ?? []).contains(name) { groups[category, default: []].append(name) }
         }
-        return groups
+        return (groups, payload.defaultYears ?? [:], payload.vollisDefaultYear ?? "All years")
     }
 
     func volleyballStats(year: String) async throws -> OtherStatsPayload {
@@ -609,6 +611,10 @@ final class PythonAnywhereClient {
     }
 
     private func request(_ path: String, method: String, query: [String: String] = [:], authed: Bool = true) -> URLRequest {
+        var query = query
+        if method == "GET" && (path.hasPrefix("/api/doubles/") || path == "/api/network") {
+            query["division"] = UserDefaults.standard.string(forKey: "stats.doublesDivision") ?? "open"
+        }
         var req = URLRequest(url: url(path, query: query))
         req.httpMethod = method
         req.setValue("application/json", forHTTPHeaderField: "Accept")
