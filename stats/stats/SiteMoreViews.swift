@@ -1262,7 +1262,7 @@ struct SiteAIRosterView: View {
         }
         .navigationDestination(isPresented: $showStyle) {
             if case let .recap(gameType, gameIds) = kind {
-                SiteAIStyleView(gameType: gameType, gameIds: gameIds)
+                SiteAIStyleView(gameType: gameType, gameIds: gameIds, animationPlayers: players.filter { $0.isReadyForIllustration }.map { $0.name })
             }
         }
         .refreshable { await load() }
@@ -1367,6 +1367,8 @@ struct SiteAIRosterView: View {
 struct SiteAIStyleView: View {
     var gameType: String
     var gameIds: [String]
+    var animationPlayers: [String]
+    @State private var animationPlayer = ""
     @State private var promptStyle = "default"
     @State private var customPrompt = ""
     @State private var imageDetails = ""
@@ -1418,10 +1420,16 @@ struct SiteAIStyleView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                Text("What should the players be doing? (optional)")
+                Picker("One player to animate", selection: $animationPlayer) {
+                    Text("Choose one player…").tag("")
+                    ForEach(animationPlayers, id: \.self) { name in
+                        Text(name).tag(name)
+                    }
+                }
+                Text("What should this one player do? (optional)")
                     .font(.subheadline.weight(.semibold))
-                SiteParagraphField(placeholder: "Example: Sam bumps the ball while Alex cheers, then they return to their starting poses…", text: $animationDetails)
-                Text("Only used with animation. A short, silent loop using the same player references. Keep the action simple; leave blank for a celebration.")
+                SiteParagraphField(placeholder: "Example: Wave with one hand, then return to the starting pose.", text: $animationDetails)
+                Text("Only ONE person can move. Everyone else stays still. Describe a simple action for your selected player only; leave blank for a wave.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
@@ -1445,7 +1453,7 @@ struct SiteAIStyleView: View {
                     SiteAddActionButton(
                         title: generating ? "Creating recap…" : "With animation · New!",
                         filled: true,
-                        disabled: generating || !canGenerate
+                        disabled: generating || !canGenerate || animationPlayer.isEmpty
                     ) {
                         Task { await generate(imageMode: "animation") }
                     }
@@ -1513,7 +1521,7 @@ struct SiteAIStyleView: View {
                 promptStyle: promptStyle,
                 customPrompt: promptStyle == "custom" ? customPrompt : "",
                 imageMode: imageMode,
-                imageDetails: imageMode == "animation" ? animationDetails : imageDetails
+                imageDetails: imageMode == "animation" ? "Moving player: \(animationPlayer)\nAction: \(animationDetails)" : imageDetails
             )
             banner = imageMode != "none"
                 ? "Working in the background. You can leave and check Recaps in a few minutes."
