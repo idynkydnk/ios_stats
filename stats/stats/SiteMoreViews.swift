@@ -1370,6 +1370,7 @@ struct SiteAIStyleView: View {
     @State private var promptStyle = "default"
     @State private var customPrompt = ""
     @State private var imageDetails = ""
+    @State private var animationDetails = ""
     @State private var generating = false
     @State private var banner: String?
     @State private var bannerIsError = false
@@ -1404,7 +1405,7 @@ struct SiteAIStyleView: View {
                     SiteParagraphField(placeholder: "Example: Keep it short and punchy, focus on upsets and funny comments…", text: $customPrompt)
                 }
 
-                Text("Illustration")
+                Text("Illustration or animation")
                     .font(.headline)
                     .padding(.top, 8)
                 Text("Include one AI-generated group illustration, or publish text only. Uses each player's saved AI character when they have one; otherwise face photos and/or signature looks. Players with none of those are left out.")
@@ -1417,6 +1418,13 @@ struct SiteAIStyleView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
+                Text("What should the players be doing? (optional)")
+                    .font(.subheadline.weight(.semibold))
+                SiteParagraphField(placeholder: "Example: Sam bumps the ball while Alex cheers, then they return to their starting poses…", text: $animationDetails)
+                Text("Only used with animation. A short, silent loop using the same player references. Keep the action simple; leave blank for a celebration.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
                 HStack(spacing: 10) {
                     SiteAddActionButton(
                         title: generating ? "Writing…" : "Text only",
@@ -1425,6 +1433,8 @@ struct SiteAIStyleView: View {
                     ) {
                         Task { await generate(imageMode: "none") }
                     }
+                }
+                HStack(spacing: 10) {
                     SiteAddActionButton(
                         title: generating ? "Creating recap…" : "With illustration",
                         filled: true,
@@ -1432,8 +1442,15 @@ struct SiteAIStyleView: View {
                     ) {
                         Task { await generate(imageMode: "image") }
                     }
+                    SiteAddActionButton(
+                        title: generating ? "Creating recap…" : "With animation · New!",
+                        filled: true,
+                        disabled: generating || !canGenerate
+                    ) {
+                        Task { await generate(imageMode: "animation") }
+                    }
                 }
-                Text("Illustration can take about 5 minutes — you can leave after you tap generate and check Recaps.")
+                Text("Illustrations and animations can take several minutes — you can leave after you tap generate and check Recaps.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -1496,10 +1513,10 @@ struct SiteAIStyleView: View {
                 promptStyle: promptStyle,
                 customPrompt: promptStyle == "custom" ? customPrompt : "",
                 imageMode: imageMode,
-                imageDetails: imageDetails
+                imageDetails: imageMode == "animation" ? animationDetails : imageDetails
             )
-            banner = imageMode == "image"
-                ? "Working in the background. You can leave and check Recaps in about 5 minutes."
+            banner = imageMode != "none"
+                ? "Working in the background. You can leave and check Recaps in a few minutes."
                 : "Working in the background. You can leave and check Recaps."
             let result = await siteWaitForAIShare(jobId: jobId, recap: true)
             if let url = result.pageURL {
