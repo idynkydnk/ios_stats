@@ -875,6 +875,8 @@ struct SiteAISummaryView: View {
     @State private var gameType = "doubles"
     @State private var query = ""
     @State private var games: [AISummaryPick] = []
+    @State private var recentGames: [AISummaryPick] = []
+    @State private var selectAllIDs: Set<String> = []
     @State private var selected: Set<String> = []
     @State private var banner: String?
     @State private var bannerIsError = false
@@ -900,7 +902,8 @@ struct SiteAISummaryView: View {
                 .onSubmit { Task { await runSearch(query) } }
 
             HStack {
-                Button("Select latest day") { selectLatestDay() }
+                Button("Select all") { selectAllRecent() }
+                    .disabled(loading)
                 Button("Clear") { selected.removeAll() }
                 Spacer()
                 Text("\(selected.count) selected")
@@ -992,9 +995,11 @@ struct SiteAISummaryView: View {
         if selected.contains(id) { selected.remove(id) } else { selected.insert(id) }
     }
 
-    private func selectLatestDay() {
-        guard let day = games.first?.dayKey, !day.isEmpty else { return }
-        selected = Set(games.filter { $0.dayKey == day }.map(\.id))
+    private func selectAllRecent() {
+        searchTask?.cancel()
+        query = ""
+        games = recentGames
+        selected = selectAllIDs
     }
 
     private func reloadGames() async {
@@ -1012,52 +1017,15 @@ struct SiteAISummaryView: View {
             banner = nil
             selected = []
         }
-        let year = String(Calendar.current.component(.year, from: Date()))
+        let requestedType = gameType
         do {
-            switch gameType {
-            case "vollis":
-                let rows = try await PythonAnywhereClient.shared.vollisGames(year: year).games
-                games = rows.map { g in
-                    AISummaryPick(
-                        id: String(g.id),
-                        dateRaw: g.gameDate,
-                        winners: g.winner ?? "",
-                        losers: g.loser ?? "",
-                        winnerScore: g.winnerScore,
-                        loserScore: g.loserScore
-                    )
-                }
-            case "other":
-                let rows = try await PythonAnywhereClient.shared.otherGames(year: year).games
-                games = rows.map { g in
-                    AISummaryPick(
-                        id: String(g.id),
-                        dateRaw: g.gameDateOnly ?? g.gameDate,
-                        subtitle: g.gameName,
-                        winners: g.displayWinners.joined(separator: ", "),
-                        losers: g.displayLosers.joined(separator: ", "),
-                        winnerScore: g.winnerScore,
-                        loserScore: g.loserScore
-                    )
-                }
-            default:
-                let rows = try await PythonAnywhereClient.shared.doublesGames(year: year).games
-                games = rows.prefix(40).map { g in
-                    AISummaryPick(
-                        id: String(g.id),
-                        dateRaw: g.gameDate,
-                        winners: [g.winner1, g.winner2].compactMap { $0 }.joined(separator: " & "),
-                        losers: [g.loser1, g.loser2].compactMap { $0 }.joined(separator: " & "),
-                        winnerScore: g.winnerScore,
-                        loserScore: g.loserScore
-                    )
-                }
-            }
-            if gameType != "doubles" {
-                games = Array(games.prefix(40))
-            }
+            let result = try await PythonAnywhereClient.shared.recentAIGames(gameType: requestedType)
+            guard !Task.isCancelled, requestedType == gameType else { return }
+            games = result.games.compactMap(Self.pick(fromSearch:))
+            recentGames = games
+            selectAllIDs = result.selectAllIDs
             if resetSelection {
-                selectLatestDay()
+                selected = selectAllIDs
             } else {
                 let ids = Set(games.map(\.id))
                 selected = selected.intersection(ids)
@@ -1066,6 +1034,9 @@ struct SiteAISummaryView: View {
             banner = error.localizedDescription
             bannerIsError = true
             games = []
+            recentGames = []
+            selectAllIDs = []
+            selected = []
         }
         loading = false
     }
@@ -1077,7 +1048,9 @@ struct SiteAISummaryView: View {
             return
         }
         loading = true
-        let rows = (try? await PythonAnywhereClient.shared.searchAIGames(q: q, gameType: gameType)) ?? []
+        let requestedType = gameType
+        let rows = (try? await PythonAnywhereClient.shared.searchAIGames(q: q, gameType: requestedType)) ?? []
+        guard !Task.isCancelled, requestedType == gameType, q == query.trimmingCharacters(in: .whitespaces) else { return }
         games = rows.compactMap(Self.pick(fromSearch:))
         selected = []
         loading = false

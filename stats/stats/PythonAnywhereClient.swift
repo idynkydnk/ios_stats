@@ -478,6 +478,12 @@ final class PythonAnywhereClient {
         try await getJSON("/api/ai/jobs/\(id)")
     }
 
+    func recentAIGames(gameType: String) async throws -> (games: [[String: Any]], selectAllIDs: Set<String>) {
+        let json = try await getJSON("/api/ai_summary_game_search/", query: ["game_type": gameType])
+        return (json["games"] as? [[String: Any]] ?? [],
+                Set(json["select_all_ids"] as? [String] ?? []))
+    }
+
     func searchAIGames(q: String, gameType: String) async throws -> [[String: Any]] {
         let json = try await getJSON("/api/ai_summary_game_search/", query: ["q": q, "game_type": gameType])
         return json["games"] as? [[String: Any]] ?? []
