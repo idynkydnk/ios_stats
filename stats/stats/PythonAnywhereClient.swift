@@ -268,13 +268,21 @@ final class PythonAnywhereClient {
         return []
     }
 
-    func otherGameTypes() async throws -> (names: [String], types: [String]) {
-        struct Wrap: Codable {
+    struct OtherGameEntryInfo: Decodable {
+        var gameType: String?
+        var scoreType: String?
+        var winnerCount: Int?
+        var loserCount: Int?
+    }
+
+    func otherGameTypes() async throws -> (names: [String], types: [String], defaults: [String: OtherGameEntryInfo]) {
+        struct Wrap: Decodable {
             var gameNames: [String]?
             var gameTypes: [String]?
+            var entryDefaults: [String: OtherGameEntryInfo]?
         }
         let w: Wrap = try await get("/api/other/game-types")
-        return (w.gameNames ?? [], w.gameTypes ?? [])
+        return (w.gameNames ?? [], w.gameTypes ?? [], w.entryDefaults ?? [:])
     }
 
     func doublesPlayers() async throws -> [String] {

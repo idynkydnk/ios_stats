@@ -484,6 +484,7 @@ struct SiteAddOtherView: View {
     @State private var location = siteLastGameLocation()
     @State private var knownNames: [String] = []
     @State private var knownTypes: [String] = []
+    @State private var entryDefaults: [String: PythonAnywhereClient.OtherGameEntryInfo] = [:]
     @State private var players: [String] = []
     @State private var winnerChips: [Int] = [21, 25, 15, 18, 20]
     @State private var loserChips: [Int] = [19, 23, 12, 16, 17]
@@ -606,6 +607,7 @@ struct SiteAddOtherView: View {
             if let info = try? await PythonAnywhereClient.shared.otherGameTypes() {
                 knownNames = info.names
                 knownTypes = info.types
+                entryDefaults = info.defaults
             }
             players = knownNames
             let year = String(Calendar.current.component(.year, from: Date()))
@@ -725,26 +727,37 @@ struct SiteAddOtherView: View {
     private func applyGameName(advanceFocus: Bool = true) async {
         let name = gameName.trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty else { return }
-        if let info = try? await PythonAnywhereClient.shared.otherGameInfo(name: name) {
-            if let t = info["game_type"] as? String, !t.isEmpty { gameType = t }
-            if let s = info["score_type"] as? String, !s.isEmpty { scoreType = s }
-            let wc = PythonAnywhereClient.jsonIntPublic(info["winner_count"]) ?? 1
-            let lc = PythonAnywhereClient.jsonIntPublic(info["loser_count"]) ?? 1
-            resizeSlots(winnerCount: wc, loserCount: lc)
-            if (info["game_type"] as? String)?.lowercased() == "coed" {
+        let key = name.lowercased()
+        var defaults = entryDefaults[key]
+        if defaults == nil, let info = try? await PythonAnywhereClient.shared.otherGameInfo(name: name) {
+            defaults = PythonAnywhereClient.OtherGameEntryInfo(
+                gameType: info["game_type"] as? String,
+                scoreType: info["score_type"] as? String,
+                winnerCount: PythonAnywhereClient.jsonIntPublic(info["winner_count"]),
+                loserCount: PythonAnywhereClient.jsonIntPublic(info["loser_count"]))
+            entryDefaults[key] = defaults
+        }
+        guard gameName.trimmingCharacters(in: .whitespaces) == name else { return }
+        if let info = defaults {
+            if let t = info.gameType, !t.isEmpty { gameType = t }
+            if let s = info.scoreType, !s.isEmpty { scoreType = s }
+            resizeSlots(winnerCount: info.winnerCount ?? 1, loserCount: info.loserCount ?? 1)
+            if info.gameType?.lowercased() == "coed" {
                 scoreType = "team"
                 resizeSlots(winnerCount: 2, loserCount: 2)
             }
         }
+        if advanceFocus { focused = .winner(0) }
         if let ordered = try? await PythonAnywhereClient.shared.otherGamePlayers(gameName: name), !ordered.isEmpty {
+            guard gameName.trimmingCharacters(in: .whitespaces) == name else { return }
             players = ordered
         }
         if let scores = try? await PythonAnywhereClient.shared.otherGameCommonScores(gameName: name) {
+            guard gameName.trimmingCharacters(in: .whitespaces) == name else { return }
             if !scores.winners.isEmpty { winnerChips = scores.winners }
             if !scores.losers.isEmpty { loserChips = scores.losers }
             if !scores.winnerIndiv.isEmpty { indivChips = scores.winnerIndiv }
         }
-        if advanceFocus { focused = .winner(0) }
     }
 
     private func save() async {
