@@ -1,6 +1,5 @@
 import SwiftUI
 import Combine
-import UIKit
 
 struct SiteRootView: View {
     @ObservedObject private var auth = SiteAuthManager.shared
@@ -437,18 +436,6 @@ struct RankingTable: View {
         sortLikeToday ? RankingRow.sortedForToday(rows) : rows
     }
 
-    @ScaledMetric(relativeTo: .subheadline) private var nameTextScale = 1.0
-
-    private var minimumTableWidth: CGFloat {
-        let font = UIFont.systemFont(ofSize: 15, weight: .semibold)
-        let nameWidth = displayedRows.map {
-            ($0.name as NSString).size(withAttributes: [.font: font]).width
-        }.max() ?? 0
-        // Keep full names readable; the existing horizontal scroll handles narrow screens.
-        return max(100, ceil(nameWidth * nameTextScale) + 2)
-            + 162 + (showRating ? 68 : 0) + (showPlusMinus ? 40 : 0)
-    }
-
     var body: some View {
         SiteExpandableSection(title: title ?? "Standings", count: displayedRows.count, subtitle: subtitle) {
             ScrollView(.horizontal, showsIndicators: false) {
@@ -463,21 +450,9 @@ struct RankingTable: View {
                                 Text(row.name)
                                     .fontWeight(.semibold)
                                     .lineLimit(1)
+                                    .truncationMode(.tail)
                                     .frame(maxWidth: .infinity, alignment: .leading)
-                                if showRating {
-                                    Text(row.rating.map { String(format: "%.2f", $0) } ?? "—")
-                                        .accessibilityLabel(row.rating.map { String(format: "Rating %.2f", $0) } ?? "Unrated")
-                                        .frame(width: 64, alignment: .trailing)
-                                }
-                                Text("\(row.wins)").frame(width: 30, alignment: .trailing).foregroundStyle(.green)
-                                Text("\(row.losses)").frame(width: 30, alignment: .trailing).foregroundStyle(.red)
-                                Text(row.winPctDisplay).frame(width: 44, alignment: .trailing)
-                                if showPlusMinus {
-                                    let pm = row.plusMinus ?? 0
-                                    Text(pm > 0 ? "+\(pm)" : "\(pm)")
-                                        .foregroundStyle(pm > 0 ? Color.green : pm < 0 ? Color.red : .secondary)
-                                        .frame(width: 36, alignment: .trailing)
-                                }
+                                statCells(row)
                             }
                             .font(.subheadline).monospacedDigit()
                             .foregroundStyle(.primary)
@@ -492,29 +467,55 @@ struct RankingTable: View {
                         Text("No players to show").font(.subheadline).foregroundStyle(.secondary).padding(24)
                     }
                 }
-                .containerRelativeFrame(.horizontal) { availableWidth, _ in
-                    max(availableWidth, minimumTableWidth)
-                }
+                .containerRelativeFrame(.horizontal)
             }
             .background(appearance.panel)
         }
         .padding(.horizontal, 8).padding(.bottom, 20)
     }
 
+    @ViewBuilder
+    private func statCells(_ row: RankingRow) -> some View {
+        if showRating {
+            Text(row.rating.map { String(format: "%.2f", $0) } ?? "—")
+                .accessibilityLabel(row.rating.map { String(format: "Rating %.2f", $0) } ?? "Unrated")
+                .frame(width: 64, alignment: .trailing)
+        }
+        HStack(spacing: 2) {
+            Text("\(row.wins)").frame(width: 24, alignment: .trailing).foregroundStyle(.green)
+            Text("\(row.losses)").frame(width: 24, alignment: .trailing).foregroundStyle(.red)
+        }
+        Text(row.winPctDisplay).frame(width: 44, alignment: .trailing)
+        if showPlusMinus {
+            let pm = row.plusMinus ?? 0
+            Text(pm > 0 ? "+\(pm)" : "\(pm)")
+                .foregroundStyle(pm > 0 ? Color.green : pm < 0 ? Color.red : .secondary)
+                .frame(width: 36, alignment: .trailing)
+        }
+    }
+
     private var headerRow: some View {
         HStack(spacing: 4) {
             Text("#").frame(width: 22, alignment: .leading)
             Text("Player").frame(maxWidth: .infinity, alignment: .leading)
-            if showRating { Text("Rating").frame(width: 64, alignment: .trailing) }
-            Text("W").frame(width: 30, alignment: .trailing)
-            Text("L").frame(width: 30, alignment: .trailing)
-            Text("Win%").frame(width: 44, alignment: .trailing)
-            if showPlusMinus { Text("+/-").frame(width: 36, alignment: .trailing) }
+            statHeaders
         }
         .font(.caption.weight(.semibold))
         .foregroundStyle(.secondary)
         .padding(.horizontal, 10)
     }
+
+    @ViewBuilder
+    private var statHeaders: some View {
+        if showRating { Text("Rating").frame(width: 64, alignment: .trailing) }
+        HStack(spacing: 2) {
+            Text("W").frame(width: 24, alignment: .trailing)
+            Text("L").frame(width: 24, alignment: .trailing)
+        }
+        Text("Win%").frame(width: 44, alignment: .trailing)
+        if showPlusMinus { Text("+/-").frame(width: 36, alignment: .trailing) }
+    }
+
 }
 
 struct SiteStatsView: View {
