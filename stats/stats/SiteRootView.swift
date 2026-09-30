@@ -1,17 +1,6 @@
 import SwiftUI
 import Combine
 
-final class SiteTheme: ObservableObject {
-    static let shared = SiteTheme()
-    @Published var colorScheme: ColorScheme? = .dark
-
-    var isDark: Bool { colorScheme != .light }
-
-    func toggle() {
-        colorScheme = isDark ? .light : .dark
-    }
-}
-
 struct SiteRootView: View {
     @ObservedObject private var auth = SiteAuthManager.shared
     @ObservedObject private var theme = SiteTheme.shared
@@ -36,7 +25,7 @@ struct SiteRootView: View {
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            SiteStatsView(selectedOtherGame: $selectedOtherGame, section: $section, selectedYear: selectedYear, years: years, onGames: { selectedTab = 1 })
+            SiteStatsView(selectedOtherGame: $selectedOtherGame, section: $section, selectedYear: selectedYear, years: years)
                 .tabItem { Label("Stats", systemImage: "chart.bar.fill") }
                 .tag(0)
             SiteGamesView(selectedOtherGame: $selectedOtherGame, section: $section, selectedYear: selectedYear, years: years, canEdit: auth.isLoggedIn, onEditDoubles: { doublesEdit = $0; addKind = .doubles; selectedTab = 2 }, onEditVollis: { vollisEdit = $0; addKind = .vollis; selectedTab = 2 })
@@ -49,7 +38,7 @@ struct SiteRootView: View {
                 .tabItem { Label("More", systemImage: "line.3.horizontal") }
                 .tag(3)
         }
-        .tint(Color(red: 1, green: 0.45, blue: 0.3))
+        .tint(theme.appearance.accent)
         .overlay(alignment: .top) {
             VStack(spacing: 0) {
                 if let welcome = auth.welcomeMessage {
@@ -105,6 +94,8 @@ struct SiteRootView: View {
 }
 
 struct SectionYearBar: View {
+    @Environment(\.siteAppearance) private var appearance
+
     @Binding var section: GameSection
     @Binding var selectedYear: String
     var years: [String]
@@ -133,13 +124,13 @@ struct SectionYearBar: View {
                 }
             }
             .padding(12)
-            .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
+            .background(appearance.panel, in: RoundedRectangle(cornerRadius: appearance.style.radius(16)))
         }
         .fixedSize(horizontal: false, vertical: true)
         .padding(.horizontal)
         .padding(.top, 4)
         .padding(.bottom, 8)
-        .background(Color(uiColor: .systemGroupedBackground))
+        .background(appearance.background)
     }
 
     private var normalizedYears: [String] {
@@ -168,12 +159,15 @@ struct SiteSpringButtonStyle: ButtonStyle {
 
 // One surface encloses both a section heading and its content.
 struct SiteCardSurface: ViewModifier {
+    @Environment(\.siteAppearance) private var appearance
+
     func body(content: Content) -> some View {
         content
-            .background(Color(uiColor: .secondarySystemGroupedBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.06)))
+            .background(appearance.panel)
+            .clipShape(RoundedRectangle(cornerRadius: appearance.style.radius(24), style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: appearance.style.radius(24), style: .continuous)
+                .strokeBorder(appearance.style == .sharp ? appearance.accent.opacity(0.5) : Color.primary.opacity(0.06)))
+            .shadow(color: .black.opacity(appearance.style == .soft ? 0.12 : 0), radius: 10, y: 4)
     }
 }
 
@@ -208,6 +202,8 @@ struct SiteContentCard<Content: View>: View {
 
 // Keep native list rows (and their swipe actions) inside the heading's group.
 struct SiteListSection<Content: View>: View {
+    @Environment(\.siteAppearance) private var appearance
+
     var title: String
     var content: Content
     var footer: AnyView = AnyView(EmptyView())
@@ -231,10 +227,13 @@ struct SiteListSection<Content: View>: View {
         } footer: {
             footer
         }
+        .listRowBackground(appearance.panel)
     }
 }
 
 struct SiteSectionBubble: View {
+    @Environment(\.siteAppearance) private var appearance
+
     var title: String
     var count: Int
     var subtitle: String? = nil
@@ -269,7 +268,7 @@ struct SiteSectionBubble: View {
             .foregroundStyle(.primary)
             .padding(18)
             .frame(minHeight: 64)
-            .contentShape(RoundedRectangle(cornerRadius: 24))
+            .contentShape(RoundedRectangle(cornerRadius: appearance.style.radius(24)))
         }
         .buttonStyle(SiteSpringButtonStyle())
         .accessibilityValue(expanded ? "Expanded" : "Collapsed")
@@ -356,6 +355,8 @@ struct SiteExpandableSection<Content: View>: View {
 }
 
 struct RankingTable: View {
+    @Environment(\.siteAppearance) private var appearance
+
     var title: String?
     var subtitle: String? = nil
     var rows: [RankingRow]
@@ -411,7 +412,7 @@ struct RankingTable: View {
                 }
                 .containerRelativeFrame(.horizontal)
             }
-            .background(Color(uiColor: .secondarySystemGroupedBackground))
+            .background(appearance.panel)
         }
         .padding(.horizontal, 16).padding(.bottom, 20)
     }
@@ -433,11 +434,12 @@ struct RankingTable: View {
 }
 
 struct SiteStatsView: View {
+    @Environment(\.siteAppearance) private var appearance
+
     @Binding var selectedOtherGame: String
     @Binding var section: GameSection
     @Binding var selectedYear: String
     var years: [String]
-    var onGames: () -> Void
     @AppStorage("stats.doublesDivision") private var division = "open"
     @State private var doubles: DoublesStatsPayload?
     @State private var vollis: VollisStatsPayload?
@@ -531,15 +533,12 @@ struct SiteStatsView: View {
                     }
                 }
                 .id("\(section.rawValue)-\(selectedYear)-\(search)")
-                .background(Color(uiColor: .systemGroupedBackground))
+                .background(appearance.background)
                 .refreshable { await load() }
             }
             .navigationTitle("Stats")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button(action: onGames) { Label("Games", systemImage: "list.bullet") }
-                }
                 ToolbarItem(placement: .topBarTrailing) {
                     SiteCopyLinkButton(url: SitePublicLink.stats(section: section, year: selectedYear, gameName: selectedOtherGame))
                 }
@@ -600,6 +599,8 @@ struct SiteStatsView: View {
 }
 
 struct SiteGamesView: View {
+    @Environment(\.siteAppearance) private var appearance
+
     @Binding var selectedOtherGame: String
     @Binding var section: GameSection
     @Binding var selectedYear: String
@@ -638,7 +639,7 @@ struct SiteGamesView: View {
                     Section {
                         SiteSectionBubble(title: "Games", count: visibleGameCount, expanded: $gamesExpanded)
                             .listRowInsets(EdgeInsets())
-                            .listRowBackground(Color(uiColor: .secondarySystemGroupedBackground))
+                            .listRowBackground(appearance.panel)
                             .listRowSeparator(.visible)
                         if gamesExpanded {
                             switch section {
@@ -646,7 +647,7 @@ struct SiteGamesView: View {
                                 SiteLimitedRows(filteredDoubles) { g in
                                     DoublesGameRow(game: g, year: selectedYear, section: .doubles)
                                         .listRowSeparator(.visible)
-                                        .listRowBackground(Color(uiColor: .secondarySystemGroupedBackground))
+                                        .listRowBackground(appearance.panel)
                                         .listRowInsets(EdgeInsets())
                                     .buttonStyle(.borderless)
                                     .swipeActions {
@@ -666,7 +667,7 @@ struct SiteGamesView: View {
                                 SiteLimitedRows(filteredVollis) { g in
                                     VollisGameRow(game: g, year: selectedYear, section: .vollis)
                                         .listRowSeparator(.visible)
-                                        .listRowBackground(Color(uiColor: .secondarySystemGroupedBackground))
+                                        .listRowBackground(appearance.panel)
                                         .listRowInsets(EdgeInsets())
                                     .buttonStyle(.borderless)
                                     .swipeActions {
@@ -697,7 +698,7 @@ struct SiteGamesView: View {
                                     }
                                     .padding(.horizontal, 12).padding(.vertical, 10)
                                         .listRowSeparator(.visible)
-                                        .listRowBackground(Color(uiColor: .secondarySystemGroupedBackground))
+                                        .listRowBackground(appearance.panel)
                                         .listRowInsets(EdgeInsets())
                                     .buttonStyle(.borderless)
                                     .swipeActions {
@@ -719,7 +720,7 @@ struct SiteGamesView: View {
                 .listStyle(.insetGrouped)
                 .contentMargins(.top, 0, for: .scrollContent)
                 .scrollContentBackground(.hidden)
-                .background(Color(uiColor: .systemGroupedBackground))
+                .background(appearance.background)
                 .environment(\.openSitePlayer, OpenSitePlayerAction { openedPlayer = $0 })
             }
             .navigationDestination(item: $openedPlayer) { route in
@@ -990,6 +991,8 @@ struct VollisGameRow: View {
 }
 
 struct OtherGameNavigation: View {
+    @Environment(\.siteAppearance) private var appearance
+
     @Binding var section: GameSection
     @Binding var selection: String
     @Binding var selectedYear: String
@@ -1110,7 +1113,7 @@ struct OtherGameNavigation: View {
             Text(title).font(.subheadline.weight(.semibold))
                 .padding(.horizontal, 12).padding(.vertical, 9)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(selected ? Color.accentColor.opacity(0.18) : Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 10))
+                .background(selected ? Color.accentColor.opacity(0.18) : appearance.panel, in: RoundedRectangle(cornerRadius: appearance.style.radius(10)))
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(selected ? .isSelected : [])

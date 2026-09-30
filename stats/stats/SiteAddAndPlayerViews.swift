@@ -80,6 +80,8 @@ struct SiteAddHubView: View {
 }
 
 struct SitePlayerDetailView: View {
+    @Environment(\.siteAppearance) private var appearance
+
     var name: String
     var year: String
     var section: GameSection
@@ -160,7 +162,7 @@ struct SitePlayerDetailView: View {
                 }
             }
         }
-        .background(Color(uiColor: .systemGroupedBackground))
+        .background(appearance.background)
         .navigationTitle(name)
         .toolbar {
             if auth.isLoggedIn {

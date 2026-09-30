@@ -4,6 +4,8 @@ import Combine
 /// Keep the hub controls in the same scroll area as the fields so focusing even
 /// the first player can move them offscreen and leave room for suggestions.
 struct SiteAddFormScrollView<Field: Hashable, Content: View>: View {
+    @Environment(\.siteAppearance) private var appearance
+
     var focused: Field?
     var header: AnyView?
     @ViewBuilder var content: Content
@@ -21,7 +23,7 @@ struct SiteAddFormScrollView<Field: Hashable, Content: View>: View {
                         }
                     }
                 }
-                .background(Color(uiColor: .systemGroupedBackground))
+                .background(appearance.background)
                 .scrollDismissesKeyboard(.interactively)
                 .task(id: focused) {
                     guard let focused else { return }
@@ -46,7 +48,8 @@ struct SiteAddFormScrollView<Field: Hashable, Content: View>: View {
 }
 
 enum SiteAddAccent {
-    static let orange = Color(red: 1, green: 0.45, blue: 0.3)
+    // Existing call sites inherit the selected app accent.
+    static var orange: Color { Color.accentColor }
 }
 
 func siteNowString() -> String {
@@ -103,6 +106,8 @@ func siteRememberGameLocation(_ location: String) {
 }
 
 struct SiteAddTextRow<Field: Hashable>: View {
+    @Environment(\.siteAppearance) private var appearance
+
     var label: String
     @Binding var text: String
     var field: Field
@@ -128,9 +133,9 @@ struct SiteAddTextRow<Field: Hashable>: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 12)
                 .padding(.trailing, 28)
-                .background(RoundedRectangle(cornerRadius: 10).fill(Color(.secondarySystemFill)))
+                .background(RoundedRectangle(cornerRadius: appearance.style.radius(10)).fill(Color(.secondarySystemFill)))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 10)
+                    RoundedRectangle(cornerRadius: appearance.style.radius(10))
                         .stroke(isFocused ? SiteAddAccent.orange : Color.clear, lineWidth: 2)
                 )
             if !text.trimmingCharacters(in: .whitespaces).isEmpty {
@@ -148,6 +153,8 @@ struct SiteAddTextRow<Field: Hashable>: View {
 
 /// Paragraph input shared by game comments and AI prompts.
 struct SiteParagraphField: View {
+    @Environment(\.siteAppearance) private var appearance
+
     var placeholder: String
     @Binding var text: String
 
@@ -159,11 +166,13 @@ struct SiteParagraphField: View {
             .keyboardType(.default)
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
-            .background(RoundedRectangle(cornerRadius: 10).fill(Color(.secondarySystemFill)))
+            .background(RoundedRectangle(cornerRadius: appearance.style.radius(10)).fill(Color(.secondarySystemFill)))
     }
 }
 
 struct SiteAddCommentRow<Field: Hashable>: View {
+    @Environment(\.siteAppearance) private var appearance
+
     @Binding var text: String
     var field: Field
     var focus: FocusState<Field?>.Binding
@@ -172,7 +181,7 @@ struct SiteAddCommentRow<Field: Hashable>: View {
         SiteParagraphField(placeholder: "Comment (optional)", text: $text)
             .focused(focus, equals: field)
             .overlay(
-                RoundedRectangle(cornerRadius: 10)
+                RoundedRectangle(cornerRadius: appearance.style.radius(10))
                     .stroke(focus.wrappedValue == field ? SiteAddAccent.orange : Color.clear, lineWidth: 2)
             )
             .id(field)
@@ -180,6 +189,8 @@ struct SiteAddCommentRow<Field: Hashable>: View {
 }
 
 struct SiteAddScoreRow<Field: Hashable>: View {
+    @Environment(\.siteAppearance) private var appearance
+
     var label: String
     @Binding var value: Int?
     var field: Field
@@ -211,9 +222,9 @@ struct SiteAddScoreRow<Field: Hashable>: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 12)
                 .padding(.trailing, 28)
-                .background(RoundedRectangle(cornerRadius: 10).fill(Color(.secondarySystemFill)))
+                .background(RoundedRectangle(cornerRadius: appearance.style.radius(10)).fill(Color(.secondarySystemFill)))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 10)
+                    RoundedRectangle(cornerRadius: appearance.style.radius(10))
                         .stroke(isFocused ? SiteAddAccent.orange : Color.clear, lineWidth: 2)
                 )
             if value != nil {
@@ -230,6 +241,8 @@ struct SiteAddScoreRow<Field: Hashable>: View {
 }
 
 struct SiteAddSuggestionList: View {
+    @Environment(\.siteAppearance) private var appearance
+
     var names: [String]
     var onPick: (String) -> Void
 
@@ -252,12 +265,14 @@ struct SiteAddSuggestionList: View {
                 }
             }
             .background(Color(.secondarySystemBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .clipShape(RoundedRectangle(cornerRadius: appearance.style.radius(10)))
         }
     }
 }
 
 struct SiteAddScoreChips: View {
+    @Environment(\.siteAppearance) private var appearance
+
     var scores: [Int]
     var selected: Int?
     var onPick: (Int) -> Void
@@ -272,12 +287,12 @@ struct SiteAddScoreChips: View {
                         } label: {
                             Text("\(s)")
                                 .font(.headline)
-                                .foregroundStyle(selected == s ? Color.black : Color.primary)
+                                .foregroundStyle(selected == s ? appearance.onAccent : Color.primary)
                                 .frame(minWidth: 44)
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 8)
                                 .background(selected == s ? SiteAddAccent.orange : Color(.secondarySystemFill))
-                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                                .clipShape(RoundedRectangle(cornerRadius: appearance.style.radius(10)))
                         }
                         .buttonStyle(.plain)
                     }
@@ -288,6 +303,8 @@ struct SiteAddScoreChips: View {
 }
 
 struct SiteAddBanner: View {
+    @Environment(\.siteAppearance) private var appearance
+
     var text: String
     var isError: Bool = false
 
@@ -298,11 +315,13 @@ struct SiteAddBanner: View {
             .frame(maxWidth: .infinity)
             .padding(10)
             .background((isError ? Color.red : Color.green).opacity(0.12))
-            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .clipShape(RoundedRectangle(cornerRadius: appearance.style.radius(10)))
     }
 }
 
 struct SiteAddActionButton: View {
+    @Environment(\.siteAppearance) private var appearance
+
     var title: String
     var filled: Bool = false
     var disabled: Bool = false
@@ -315,8 +334,8 @@ struct SiteAddActionButton: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
                 .background(filled ? SiteAddAccent.orange : Color(.secondarySystemFill))
-                .foregroundStyle(filled ? Color.black : Color.primary)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .foregroundStyle(filled ? appearance.onAccent : Color.primary)
+                .clipShape(RoundedRectangle(cornerRadius: appearance.style.radius(10)))
         }
         .disabled(disabled)
         .opacity(disabled ? 0.5 : 1)

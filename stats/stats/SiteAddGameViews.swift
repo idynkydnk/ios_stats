@@ -244,8 +244,7 @@ struct SiteAddDoublesView: View {
         banner = nil
         error = nil
         let cleanLocation = location.trimmingCharacters(in: .whitespacesAndNewlines)
-        let fields: [String: Any] = [
-            "game_date": siteNowString(),
+        var fields: [String: Any] = [
             "winner1": names[0], "winner2": names[1],
             "loser1": names[2], "loser2": names[3],
             "winner_score": ws, "loser_score": ls,
@@ -253,6 +252,9 @@ struct SiteAddDoublesView: View {
             "entered_timezone": TimeZone.current.identifier,
             "location": cleanLocation,
         ]
+        // Edits omit the date so the server keeps the original game time,
+        // including when an offline edit is synced later.
+        if gameToEdit == nil { fields["game_date"] = siteNowString() }
         do {
             if !network.isConnected {
                 if let g = gameToEdit {
@@ -435,13 +437,14 @@ struct SiteAddVollisView: View {
         banner = nil
         error = nil
         let cleanLocation = location.trimmingCharacters(in: .whitespacesAndNewlines)
-        let fields: [String: Any] = [
-            "game_date": siteNowString(),
+        var fields: [String: Any] = [
             "winner": w, "loser": l,
             "winner_score": ws, "loser_score": ls,
             "entered_timezone": TimeZone.current.identifier,
             "location": cleanLocation,
         ]
+        // Edits omit the date so the server keeps the original game time.
+        if gameToEdit == nil { fields["game_date"] = siteNowString() }
         do {
             if let g = gameToEdit {
                 try await PythonAnywhereClient.shared.updateVollis(id: g.id, fields: fields)
@@ -796,6 +799,13 @@ struct SiteAddOtherView: View {
             self.error = error.localizedDescription
             return
         }
+        // Remember the players actually saved, excluding unused blank slots.
+        // The next entry for this game should reflect this result, not the
+        // defaults fetched when the form first opened.
+        entryDefaults[gameName.trimmingCharacters(in: .whitespaces).lowercased()] =
+            PythonAnywhereClient.OtherGameEntryInfo(
+                gameType: gameType, scoreType: scoreType,
+                winnerCount: w.count, loserCount: l.count)
         siteRememberGameLocation(cleanLocation)
         saving = false
         banner = "Game saved"

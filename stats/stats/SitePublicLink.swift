@@ -139,6 +139,8 @@ struct SitePhotoSaveError: LocalizedError {
 
 /// Saves a flyer JPEG to the photo library so it can be shared from Photos.
 struct SiteSaveFlyerPictureButton: View {
+    @Environment(\.siteAppearance) private var appearance
+
     var imageURL: URL
     @State private var working = false
     @State private var saved = false
@@ -163,7 +165,7 @@ struct SiteSaveFlyerPictureButton: View {
                 .font(.subheadline.weight(.semibold))
                 .padding(.vertical, 10)
                 .background(saved ? Color.green.opacity(0.18) : SiteAddAccent.orange)
-                .foregroundStyle(saved ? Color.green : Color.black)
+                .foregroundStyle(saved ? Color.green : appearance.onAccent)
                 .clipShape(RoundedRectangle(cornerRadius: 10))
             }
             .buttonStyle(.plain)

@@ -6,7 +6,6 @@ import AVFoundation
 
 struct SiteMoreView: View {
     @ObservedObject private var auth = SiteAuthManager.shared
-    @ObservedObject private var theme = SiteTheme.shared
 
     var body: some View {
         NavigationStack {
@@ -19,7 +18,11 @@ struct SiteMoreView: View {
                     } else {
                         NavigationLink("Login") { LoginView() }
                     }
-                    Button(theme.isDark ? "Light mode" : "Dark mode") { theme.toggle() }
+                    NavigationLink {
+                        SiteAppearanceView()
+                    } label: {
+                        Label("Appearance", systemImage: "paintpalette")
+                    }
                 }
                 SiteListSection("Browse") {
                     NavigationLink("Players") { SitePlayersView() }
@@ -49,6 +52,50 @@ struct SiteMoreView: View {
             }
             .navigationTitle("More")
         }
+    }
+}
+
+struct SiteAppearanceView: View {
+    @ObservedObject private var theme = SiteTheme.shared
+    @Environment(\.siteAppearance) private var appearance
+
+    var body: some View {
+        List {
+            SiteListSection("Appearance") {
+                Picker("Mode", selection: $theme.mode) {
+                    ForEach(SiteAppearanceMode.allCases) { Text($0.title).tag($0) }
+                }
+                Picker("Color scheme", selection: $theme.palette) {
+                    ForEach(SitePalette.allCases) { Text($0.title).tag($0) }
+                }
+                Picker("Style", selection: $theme.style) {
+                    ForEach(SiteVisualStyle.allCases) { Text($0.title).tag($0) }
+                }
+            } footer: {
+                Text("Changes apply instantly and are saved on this iPhone.")
+            }
+            SiteListSection("Preview") {
+                VStack(alignment: .leading, spacing: 16) {
+                    Label("Your stats, your style", systemImage: "chart.bar.fill")
+                        .font(.headline)
+                        .foregroundStyle(appearance.accent)
+                    Text("Colors update throughout the app. Soft adds rounder cards and controls; Sharp gives them crisp corners.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    HStack {
+                        Label("24 games", systemImage: "volleyball.fill")
+                        Spacer()
+                        Text("View stats").foregroundStyle(appearance.accent)
+                    }
+                    .font(.subheadline.weight(.semibold))
+                }
+                .padding(16)
+                .modifier(SiteCardSurface())
+                .listRowBackground(Color.clear)
+            }
+        }
+        .navigationTitle("Appearance")
+        .background(appearance.background)
     }
 }
 
@@ -609,6 +656,8 @@ struct SiteNetworkView: View {
 }
 
 struct SiteNetworkPersonView: View {
+    @Environment(\.siteAppearance) private var appearance
+
     var name: String
     var year: String
     var payload: NetworkPayload
@@ -660,7 +709,7 @@ struct SiteNetworkPersonView: View {
                             .frame(minWidth: 36)
                             .padding(.vertical, 6)
                             .background(minGames == n ? SiteAddAccent.orange : Color(.secondarySystemFill))
-                            .foregroundStyle(minGames == n ? Color.black : Color.primary)
+                            .foregroundStyle(minGames == n ? appearance.onAccent : Color.primary)
                             .clipShape(RoundedRectangle(cornerRadius: 8))
                     }
                     .buttonStyle(.plain)
@@ -1739,6 +1788,8 @@ struct SiteFlyersView: View {
 }
 
 struct SiteFlyerView: View {
+    @Environment(\.siteAppearance) private var appearance
+
     enum Field: Hashable { case player, location, details }
 
     @State private var gameType = "doubles"
@@ -1868,7 +1919,7 @@ struct SiteFlyerView: View {
                                         .padding(.horizontal, 12)
                                         .padding(.vertical, 8)
                                         .background(selectedPreset ? SiteAddAccent.orange : Color(.secondarySystemFill))
-                                        .foregroundStyle(selectedPreset ? Color.black : Color.primary)
+                                        .foregroundStyle(selectedPreset ? appearance.onAccent : Color.primary)
                                         .clipShape(RoundedRectangle(cornerRadius: 10))
                                 }
                                 .buttonStyle(.plain)
@@ -1948,7 +1999,7 @@ struct SiteFlyerView: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .background(same ? SiteAddAccent.orange : Color(.secondarySystemFill))
-                .foregroundStyle(same ? Color.black : Color.primary)
+                .foregroundStyle(same ? appearance.onAccent : Color.primary)
                 .clipShape(RoundedRectangle(cornerRadius: 10))
         }
         .buttonStyle(.plain)
