@@ -1,5 +1,6 @@
 import SwiftUI
 import Combine
+import UIKit
 
 struct SiteRootView: View {
     @ObservedObject private var auth = SiteAuthManager.shared
@@ -436,6 +437,18 @@ struct RankingTable: View {
         sortLikeToday ? RankingRow.sortedForToday(rows) : rows
     }
 
+    @ScaledMetric(relativeTo: .subheadline) private var nameTextScale = 1.0
+
+    private var minimumTableWidth: CGFloat {
+        let font = UIFont.systemFont(ofSize: 15, weight: .semibold)
+        let nameWidth = displayedRows.map {
+            ($0.name as NSString).size(withAttributes: [.font: font]).width
+        }.max() ?? 0
+        // Keep full names readable; the existing horizontal scroll handles narrow screens.
+        return max(100, ceil(nameWidth * nameTextScale) + 2)
+            + 162 + (showRating ? 68 : 0) + (showPlusMinus ? 40 : 0)
+    }
+
     var body: some View {
         SiteExpandableSection(title: title ?? "Standings", count: displayedRows.count, subtitle: subtitle) {
             ScrollView(.horizontal, showsIndicators: false) {
@@ -447,7 +460,10 @@ struct RankingTable: View {
                         } label: {
                             HStack(spacing: 4) {
                                 Text("\(idx + 1)").frame(width: 22, alignment: .leading).foregroundStyle(.secondary)
-                                Text(row.name).fontWeight(.semibold).frame(maxWidth: .infinity, alignment: .leading)
+                                Text(row.name)
+                                    .fontWeight(.semibold)
+                                    .lineLimit(1)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
                                 if showRating {
                                     Text(row.rating.map { String(format: "%.2f", $0) } ?? "—")
                                         .accessibilityLabel(row.rating.map { String(format: "Rating %.2f", $0) } ?? "Unrated")
@@ -476,11 +492,13 @@ struct RankingTable: View {
                         Text("No players to show").font(.subheadline).foregroundStyle(.secondary).padding(24)
                     }
                 }
-                .containerRelativeFrame(.horizontal)
+                .containerRelativeFrame(.horizontal) { availableWidth, _ in
+                    max(availableWidth, minimumTableWidth)
+                }
             }
             .background(appearance.panel)
         }
-        .padding(.horizontal, 16).padding(.bottom, 20)
+        .padding(.horizontal, 8).padding(.bottom, 20)
     }
 
     private var headerRow: some View {
