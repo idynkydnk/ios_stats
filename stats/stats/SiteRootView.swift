@@ -7,6 +7,7 @@ struct SiteRootView: View {
     @ObservedObject private var network = NetworkMonitor.shared
     @ObservedObject private var queue = SiteOfflineQueue.shared
     @State private var selectedTab = 0
+    @State private var browseStarterStats = SiteAuthManager.shared.isPreviewing
     @State private var section: GameSection = .doubles
     @State private var selectedOtherGame = ""
     @State private var doublesYear: String = String(Calendar.current.component(.year, from: Date()))
@@ -24,11 +25,31 @@ struct SiteRootView: View {
     @State private var addKind: GameSection = .doubles
 
     var body: some View {
+        VStack(spacing: 0) {
+            if selectedTab < 2 {
+                if !auth.isLoggedIn {
+                    HStack {
+                        Text("KT Stats").font(.subheadline.weight(.semibold))
+                        Spacer()
+                        Button("Create account or sign in") { selectedTab = 2 }
+                    }.padding(.horizontal).padding(.vertical, 8)
+                } else if auth.isPrivate && auth.showStarterStats {
+                    Picker("Stats account", selection: $browseStarterStats) {
+                        Text("KT Stats").tag(true)
+                        Text("My stats").tag(false)
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.horizontal).padding(.vertical, 8)
+                    if browseStarterStats { SiteStarterStatsControl() }
+                }
+            }
         TabView(selection: $selectedTab) {
             SiteStatsView(selectedOtherGame: $selectedOtherGame, section: $section, selectedYear: selectedYear, years: years)
+                .id(auth.isPreviewing)
                 .tabItem { Label("Stats", systemImage: "chart.bar.fill") }
                 .tag(0)
-            SiteGamesView(selectedOtherGame: $selectedOtherGame, section: $section, selectedYear: selectedYear, years: years, canEdit: auth.isLoggedIn, onEditDoubles: { doublesEdit = $0; addKind = .doubles; selectedTab = 2 }, onEditVollis: { vollisEdit = $0; addKind = .vollis; selectedTab = 2 })
+            SiteGamesView(selectedOtherGame: $selectedOtherGame, section: $section, selectedYear: selectedYear, years: years, canEdit: auth.isLoggedIn && !auth.isPreviewing, onEditDoubles: { doublesEdit = $0; addKind = .doubles; selectedTab = 2 }, onEditVollis: { vollisEdit = $0; addKind = .vollis; selectedTab = 2 })
+                .id(auth.isPreviewing)
                 .tabItem { Label("Games", systemImage: "list.bullet") }
                 .tag(1)
             SiteAddHubView(section: $addKind, doublesEdit: $doublesEdit, vollisEdit: $vollisEdit)
@@ -37,6 +58,7 @@ struct SiteRootView: View {
             SiteMoreView()
                 .tabItem { Label("More", systemImage: "line.3.horizontal") }
                 .tag(3)
+        }
         }
         .tint(theme.appearance.accent)
         .overlay(alignment: .top) {
@@ -65,6 +87,18 @@ struct SiteRootView: View {
         .onChange(of: section) { _, _ in
             Task { await loadYears() }
         }
+        .onChange(of: selectedTab) { _, _ in updatePreview() }
+        .onChange(of: browseStarterStats) { _, _ in updatePreview() }
+        .onChange(of: auth.showStarterStats) { _, visible in
+            browseStarterStats = visible
+            updatePreview()
+        }
+        .onChange(of: auth.isPreviewing) { _, _ in
+            doublesEdit = nil
+            vollisEdit = nil
+            Task { await loadYears() }
+            if !auth.isPreviewing && network.isConnected { Task { await queue.flush() } }
+        }
         .onChange(of: network.isConnected) { _, online in
             if online { Task { await queue.flush() } }
         }
@@ -76,6 +110,10 @@ struct SiteRootView: View {
                 auth.clearWelcome()
             }
         }
+    }
+
+    private func updatePreview() {
+        auth.isPreviewing = selectedTab < 2 && (!auth.isLoggedIn || (auth.isPrivate && auth.showStarterStats && browseStarterStats))
     }
 
     private func loadYears() async {
@@ -90,6 +128,36 @@ struct SiteRootView: View {
                 if years.isEmpty { years = ["All years", selectedYear.wrappedValue] }
             }
         } catch { }
+    }
+}
+
+struct SiteStarterStatsControl: View {
+    @ObservedObject private var auth = SiteAuthManager.shared
+    @State private var confirmHide = false
+    @State private var error: String?
+    @State private var busy = false
+
+    var body: some View {
+        VStack(spacing: 4) {
+            Button { confirmHide = true } label: {
+                Label("Hide KT Stats", systemImage: "eye.slash")
+            }.disabled(busy)
+            if let error { Text(error).font(.caption).foregroundStyle(.red) }
+        }
+        .padding(.bottom, 8)
+        .confirmationDialog("Hide KT Stats?", isPresented: $confirmHide, titleVisibility: .visible) {
+            Button("Hide KT Stats") {
+                Task {
+                    busy = true
+                    error = nil
+                    do { try await auth.setStarterStats(visible: false) }
+                    catch { self.error = error.localizedDescription }
+                    busy = false
+                }
+            }
+        } message: {
+            Text("Only your games and stats will be shown. Nothing is deleted. You can show KT Stats again in More.")
+        }
     }
 }
 

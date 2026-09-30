@@ -12,6 +12,10 @@ final class SiteAuthManager: ObservableObject {
     @Published private(set) var token: String?
     @Published private(set) var username: String?
     @Published private(set) var isAdmin: Bool = false
+    @Published private(set) var isPrivate: Bool = true
+    @Published private(set) var sessionReady = false
+    @Published private(set) var showStarterStats = true
+    @Published var isPreviewing = true
     @Published var lastError: String?
     @Published private(set) var welcomeMessage: String?
 
@@ -20,15 +24,36 @@ final class SiteAuthManager: ObservableObject {
     private init() {
         token = KeychainStore.get(tokenKey)
         username = UserDefaults.standard.string(forKey: usernameKey)
-        isAdmin = UserDefaults.standard.bool(forKey: adminKey)
+        // Privileges and storage scope must be verified before showing data.
     }
 
-    func login(username: String, password: String) async throws {
-        let me = try await PythonAnywhereClient.shared.login(username: username, password: password)
+    func login(username: String, password: String, registering: Bool = false) async throws {
+        let (me, token) = try await PythonAnywhereClient.shared.login(username: username, password: password, registering: registering)
+        await accept(me: me, token: token)
+    }
+
+    func loginWithGoogle(idToken: String) async throws {
+        let (me, token) = try await PythonAnywhereClient.shared.googleLogin(idToken: idToken)
+        await accept(me: me, token: token)
+    }
+
+    func loginWithApple(idToken: String, nonce: String) async throws {
+        let (me, token) = try await PythonAnywhereClient.shared.appleLogin(idToken: idToken, nonce: nonce)
+        await accept(me: me, token: token)
+    }
+
+    private func accept(me: MePayload, token: String) async {
         await MainActor.run {
-            self.token = KeychainStore.get(self.tokenKey)
+            SiteOfflineQueue.shared.clear()
+            KeychainStore.set(self.tokenKey, value: token)
+            self.token = token
             self.username = me.username
+            SiteOfflineQueue.shared.selectAccount(me.username)
             self.isAdmin = me.isAdmin
+            self.isPrivate = me.isPrivate ?? true
+            self.showStarterStats = me.showStarterStats ?? true
+            self.isPreviewing = self.isPrivate && self.showStarterStats
+            self.sessionReady = true
             UserDefaults.standard.set(me.username, forKey: self.usernameKey)
             UserDefaults.standard.set(me.isAdmin, forKey: self.adminKey)
             self.lastError = nil
@@ -37,18 +62,30 @@ final class SiteAuthManager: ObservableObject {
     }
 
     func refreshMe() async {
-        guard isLoggedIn else { return }
+        guard isLoggedIn else {
+            await MainActor.run { self.sessionReady = true }
+            return
+        }
         do {
             let me = try await PythonAnywhereClient.shared.me()
+            guard me.isPrivate != nil else {
+                throw SiteAPIError.message("The server needs the accounts update before you can sign in.")
+            }
             await MainActor.run {
                 self.username = me.username
+                SiteOfflineQueue.shared.selectAccount(me.username)
                 self.isAdmin = me.isAdmin
+                self.isPrivate = me.isPrivate ?? true
+                self.showStarterStats = me.showStarterStats ?? true
+                if !self.sessionReady { self.isPreviewing = self.isPrivate && self.showStarterStats }
+                self.sessionReady = true
                 UserDefaults.standard.set(me.username, forKey: self.usernameKey)
                 UserDefaults.standard.set(me.isAdmin, forKey: self.adminKey)
             }
         } catch {
-            if case SiteAPIError.unauthorized = error {
-                await MainActor.run { self.clearSession() }
+            await MainActor.run {
+                self.clearSession()
+                self.lastError = error.localizedDescription
             }
         }
     }
@@ -58,26 +95,17 @@ final class SiteAuthManager: ObservableObject {
         await MainActor.run { clearSession() }
     }
 
-    func storeToken(_ token: String, username: String) {
-        KeychainStore.set(tokenKey, value: token)
-        if Thread.isMainThread {
-            self.token = token
-            self.username = username
-            UserDefaults.standard.set(username, forKey: usernameKey)
-        } else {
-            DispatchQueue.main.async {
-                self.token = token
-                self.username = username
-                UserDefaults.standard.set(username, forKey: self.usernameKey)
-            }
-        }
-    }
-
     private func clearSession() {
+        SiteOfflineQueue.shared.clear()
+        URLCache.shared.removeAllCachedResponses()
         KeychainStore.delete(tokenKey)
         token = nil
         username = nil
         isAdmin = false
+        isPrivate = true
+        showStarterStats = true
+        isPreviewing = true
+        sessionReady = true
         UserDefaults.standard.removeObject(forKey: usernameKey)
         UserDefaults.standard.removeObject(forKey: adminKey)
         welcomeMessage = nil
@@ -85,6 +113,22 @@ final class SiteAuthManager: ObservableObject {
 
     func clearWelcome() {
         welcomeMessage = nil
+    }
+
+    func setStarterStats(visible: Bool) async throws {
+        try await PythonAnywhereClient.shared.setStarterStats(visible: visible)
+        await MainActor.run {
+            showStarterStats = visible
+            if !visible { isPreviewing = false }
+        }
+    }
+
+    func deleteAccount() async throws {
+        try await PythonAnywhereClient.shared.deleteAccount()
+        await MainActor.run {
+            if let username { SiteOfflineQueue.shared.removeAccount(username) }
+            clearSession()
+        }
     }
 }
 

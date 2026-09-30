@@ -6,6 +6,9 @@ import AVFoundation
 
 struct SiteMoreView: View {
     @ObservedObject private var auth = SiteAuthManager.shared
+    @State private var confirmDeletion = false
+    @State private var accountError: String?
+    @State private var updatingStarterStats = false
 
     var body: some View {
         NavigationStack {
@@ -15,6 +18,22 @@ struct SiteMoreView: View {
                         Text("Signed in as \(auth.username ?? "")")
                         if auth.isAdmin { Text("Admin").foregroundStyle(.orange) }
                         Button("Log out") { Task { await auth.logout() } }
+                        if auth.isPrivate {
+                            Toggle("Show KT Stats", isOn: Binding(
+                                get: { auth.showStarterStats },
+                                set: { visible in
+                                    Task {
+                                        updatingStarterStats = true
+                                        accountError = nil
+                                        do { try await auth.setStarterStats(visible: visible) }
+                                        catch { accountError = error.localizedDescription }
+                                        updatingStarterStats = false
+                                    }
+                                }
+                            )).disabled(updatingStarterStats)
+                            Button("Delete account", role: .destructive) { confirmDeletion = true }
+                        }
+                        if let accountError { Text(accountError).foregroundStyle(.red) }
                     } else {
                         NavigationLink("Login") { LoginView() }
                     }
@@ -24,6 +43,7 @@ struct SiteMoreView: View {
                         Label("Appearance", systemImage: "paintpalette")
                     }
                 }
+                if auth.isLoggedIn {
                 SiteListSection("Browse") {
                     NavigationLink("Players") { SitePlayersView() }
                     NavigationLink("Player network") { SiteNetworkView() }
@@ -31,12 +51,15 @@ struct SiteMoreView: View {
                         NavigationLink("Tournaments") { SiteTournamentsView() }
                     }
                     NavigationLink("Volleyball") { SiteVolleyballView() }
-                    NavigationLink("AI Recaps") { SiteRecapsView() }
-                    if auth.isLoggedIn {
+                    if !auth.isPrivate {
+                        NavigationLink("AI Recaps") { SiteRecapsView() }
+                    }
+                    if auth.isLoggedIn && !auth.isPrivate {
                         NavigationLink("Flyers") { SiteFlyersView() }
                     }
                 }
-                if auth.isLoggedIn {
+                }
+                if auth.isLoggedIn && !auth.isPrivate {
                     SiteListSection("Create") {
                         NavigationLink("AI Summary") { SiteAISummaryView() }
                         NavigationLink("Create Flyer") { SiteFlyerView() }
@@ -51,6 +74,16 @@ struct SiteMoreView: View {
                 }
             }
             .navigationTitle("More")
+            .confirmationDialog("Delete your account and all your games?", isPresented: $confirmDeletion, titleVisibility: .visible) {
+                Button("Delete account", role: .destructive) {
+                    Task {
+                        do { try await auth.deleteAccount() }
+                        catch { accountError = error.localizedDescription }
+                    }
+                }
+            } message: {
+                Text("This permanently deletes your private games, players, and stats.")
+            }
         }
     }
 }
@@ -211,6 +244,7 @@ struct SiteEditPlayerView: View {
             .listRowBackground(Color.clear)
 
             if auth.isLoggedIn {
+                if !auth.isPrivate {
                 PhotosPicker("Upload face photo", selection: $picker, matching: .images)
                 SiteListSection("AI character") {
                     if let url = SitePublicLink.absolute(aiImageUrl) {
@@ -316,6 +350,7 @@ struct SiteEditPlayerView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                }
                 SiteListSection("Profile") {
                     TextField("Name", text: $name)
                     TextField("Nickname", text: $nickname)
@@ -412,7 +447,7 @@ struct SiteEditPlayerView: View {
     private func refreshFromServer() async {
         guard let player = try? await PythonAnywhereClient.shared.player(named: canonicalName) else { return }
         apply(player)
-        await refreshAIVersions()
+        if !auth.isPrivate { await refreshAIVersions() }
     }
 
     private func save() async {

@@ -92,12 +92,13 @@ enum SitePublicLink {
 }
 
 struct SiteCopyLinkButton: View {
+    @ObservedObject private var auth = SiteAuthManager.shared
     var url: URL?
     var showsTitle: Bool = false
     @State private var copied = false
 
     var body: some View {
-        if let url {
+        if let url, !auth.isPrivate {
             Button {
                 UIPasteboard.general.string = url.absoluteString
                 copied = true

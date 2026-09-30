@@ -343,11 +343,12 @@ struct SiteAddActionButton: View {
 }
 
 struct SitePlayerAvatar: View {
+    @ObservedObject private var auth = SiteAuthManager.shared
     var name: String
     var size: CGFloat = 72
 
     var body: some View {
-        AsyncImage(url: SitePublicLink.faceThumb(name: name, size: Int(size * 3))) { phase in
+        AsyncImage(url: auth.isPrivate && !auth.isPreviewing ? nil : SitePublicLink.faceThumb(name: name, size: Int(size * 3))) { phase in
             switch phase {
             case .success(let img):
                 img.resizable().scaledToFill()

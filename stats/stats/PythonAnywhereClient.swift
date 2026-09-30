@@ -10,9 +10,9 @@ final class PythonAnywhereClient {
     private let session: URLSession
 
     private init() {
-        let config = URLSessionConfiguration.default
-        config.httpCookieStorage = HTTPCookieStorage.shared
-        config.httpShouldSetCookies = true
+        let config = URLSessionConfiguration.ephemeral
+        config.httpShouldSetCookies = false
+        config.urlCache = nil
         config.timeoutIntervalForRequest = 60
         session = URLSession(configuration: config)
         decoder = JSONDecoder()
@@ -23,17 +23,56 @@ final class PythonAnywhereClient {
 
     private var token: String? { SiteAuthManager.shared.token }
 
-    func login(username: String, password: String) async throws -> MePayload {
+    func login(username: String, password: String, registering: Bool = false) async throws -> (MePayload, String) {
         struct Body: Encodable { var username: String; var password: String }
-        struct LoginResp: Decodable { var token: String; var username: String }
-        let resp: LoginResp = try await post("/api/auth/login", body: Body(username: username, password: password), authed: false)
-        await MainActor.run {
-            SiteAuthManager.shared.storeToken(resp.token, username: resp.username)
+        let response: AuthResponse = try await post(registering ? "/api/auth/register" : "/api/auth/login", body: Body(username: username, password: password), authed: false)
+        return try await verifiedSession(response.token)
+    }
+
+    private struct AuthResponse: Decodable { var token: String }
+
+    private func verifiedSession(_ token: String) async throws -> (MePayload, String) {
+        var req = request("/api/me", method: "GET", authed: false)
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let me: MePayload = try await decode(req)
+        guard me.loggedIn, me.isPrivate != nil else {
+            throw SiteAPIError.message("The server needs the accounts update before you can sign in.")
         }
-        if let me: MePayload = try? await get("/api/me") {
-            return me
-        }
-        return MePayload(username: resp.username, isAdmin: username.lowercased() == "kyle", loggedIn: true)
+        return (me, token)
+    }
+
+    func googleClientID() async throws -> String {
+        struct Config: Decodable { var googleIosClientId: String }
+        let value: Config = try await decode(request("/api/auth/config", method: "GET", authed: false))
+        return value.googleIosClientId
+    }
+
+    func googleLogin(idToken: String) async throws -> (MePayload, String) {
+        struct Body: Encodable { var idToken: String }
+        let response: AuthResponse = try await post("/api/auth/google", body: Body(idToken: idToken), authed: false)
+        return try await verifiedSession(response.token)
+    }
+
+    func deleteAccount() async throws {
+        try await delete("/api/account")
+    }
+
+    func setStarterStats(visible: Bool) async throws {
+        struct Preference: Decodable { var showStarterStats: Bool }
+        let _: Preference = try await putJSON("/api/account/starter-stats", json: ["show_starter_stats": visible])
+    }
+
+    func appleChallenge() async throws -> String {
+        struct Empty: Encodable {}
+        struct Challenge: Decodable { var nonce: String }
+        let response: Challenge = try await post("/api/auth/apple/challenge", body: Empty(), authed: false)
+        return response.nonce
+    }
+
+    func appleLogin(idToken: String, nonce: String) async throws -> (MePayload, String) {
+        struct Body: Encodable { var idToken: String; var nonce: String }
+        let response: AuthResponse = try await post("/api/auth/apple", body: Body(idToken: idToken, nonce: nonce), authed: false)
+        return try await verifiedSession(response.token)
     }
 
     func logout() async throws {
@@ -82,10 +121,10 @@ final class PythonAnywhereClient {
         try await get("/api/vollis/stats", query: ["year": year])
     }
 
-    func vollisGames(year: String? = nil) async throws -> GamesListPayload<VollisGame> {
+    func vollisGames(year: String? = nil, preview: Bool? = nil) async throws -> GamesListPayload<VollisGame> {
         var q: [String: String] = [:]
         if let year { q["year"] = year }
-        return try await get("/api/vollis/games", query: q)
+        return try await get("/api/vollis/games", query: q, preview: preview)
     }
 
     func createVollis(_ fields: [String: Any]) async throws {
@@ -113,11 +152,11 @@ final class PythonAnywhereClient {
         try await get("/api/other/stats", query: ["year": year])
     }
 
-    func otherGames(year: String? = nil, gameName: String? = nil) async throws -> GamesListPayload<OtherGame> {
+    func otherGames(year: String? = nil, gameName: String? = nil, preview: Bool? = nil) async throws -> GamesListPayload<OtherGame> {
         var q: [String: String] = [:]
         if let year { q["year"] = year }
         if let gameName { q["game_name"] = gameName }
-        return try await get("/api/other/games", query: q)
+        return try await get("/api/other/games", query: q, preview: preview)
     }
 
     func createOther(_ fields: [String: Any]) async throws {
@@ -281,7 +320,7 @@ final class PythonAnywhereClient {
             var gameTypes: [String]?
             var entryDefaults: [String: OtherGameEntryInfo]?
         }
-        let w: Wrap = try await get("/api/other/game-types")
+        let w: Wrap = try await get("/api/other/game-types", preview: false)
         return (w.gameNames ?? [], w.gameTypes ?? [], w.entryDefaults ?? [:])
     }
 
@@ -624,7 +663,7 @@ final class PythonAnywhereClient {
         return comps.url!
     }
 
-    private func request(_ path: String, method: String, query: [String: String] = [:], authed: Bool = true) -> URLRequest {
+    private func request(_ path: String, method: String, query: [String: String] = [:], authed: Bool = true, preview: Bool? = nil) -> URLRequest {
         var query = query
         if method == "GET" && (path.hasPrefix("/api/doubles/") || path == "/api/network") {
             query["division"] = UserDefaults.standard.string(forKey: "stats.doublesDivision") ?? "open"
@@ -632,14 +671,20 @@ final class PythonAnywhereClient {
         var req = URLRequest(url: url(path, query: query))
         req.httpMethod = method
         req.setValue("application/json", forHTTPHeaderField: "Accept")
+        req.setValue("1", forHTTPHeaderField: "X-Stats-Account-Required")
+        let previewPaths = ["/api/years", "/api/network", "/api/doubles/", "/api/vollis/", "/api/other/", "/api/volleyball/stats"]
+        if preview ?? SiteAuthManager.shared.isPreviewing,
+           previewPaths.contains(where: { $0.hasSuffix("/") ? path.hasPrefix($0) : path == $0 }) {
+            req.setValue("1", forHTTPHeaderField: "X-Stats-Preview")
+        }
         if authed, let token {
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         return req
     }
 
-    private func get<T: Decodable>(_ path: String, query: [String: String] = [:]) async throws -> T {
-        let req = request(path, method: "GET", query: query, authed: token != nil)
+    private func get<T: Decodable>(_ path: String, query: [String: String] = [:], preview: Bool? = nil) async throws -> T {
+        let req = request(path, method: "GET", query: query, authed: token != nil, preview: preview)
         return try await decode(req)
     }
 
@@ -751,20 +796,41 @@ final class PythonAnywhereClient {
 final class SiteOfflineQueue: ObservableObject {
     static let shared = SiteOfflineQueue()
     private let key = "com.kt.stats.pa.offline_queue"
+    private var storedItems: [OfflineMutation] = []
     @Published var items: [OfflineMutation] = []
 
     private init() { load() }
 
+    func clear() {
+        items = []
+    }
+
+    func selectAccount(_ username: String) {
+        items = storedItems.filter { $0.ownerUsername == username }
+    }
+
+    func removeAccount(_ username: String) {
+        storedItems.removeAll { $0.ownerUsername == username }
+        items = []
+        save()
+    }
+
     func enqueue(method: String, path: String, body: [String: Any]?) {
+        guard let owner = SiteAuthManager.shared.username else { return }
         let data = body.flatMap { try? JSONSerialization.data(withJSONObject: $0) }
-        let item = OfflineMutation(id: UUID().uuidString, method: method, path: path, body: data)
+        let item = OfflineMutation(id: UUID().uuidString, method: method, path: path, body: data, ownerUsername: owner)
+        storedItems.append(item)
         items.append(item)
         save()
     }
 
     func flush() async {
+        let ownerToken = SiteAuthManager.shared.token
+        guard ownerToken != nil, !SiteAuthManager.shared.isPreviewing else { return }
         let pending = items
         for item in pending {
+            guard SiteAuthManager.shared.token == ownerToken else { return }
+            guard item.ownerUsername == SiteAuthManager.shared.username else { continue }
             do {
                 var json: Any = [String: Any]()
                 if let body = item.body {
@@ -783,6 +849,7 @@ final class SiteOfflineQueue: ObservableObject {
                     break
                 }
                 await MainActor.run {
+                    storedItems.removeAll { $0.id == item.id }
                     items.removeAll { $0.id == item.id }
                     save()
                 }
@@ -793,7 +860,7 @@ final class SiteOfflineQueue: ObservableObject {
     }
 
     private func save() {
-        if let data = try? JSONEncoder().encode(items) {
+        if let data = try? JSONEncoder().encode(storedItems) {
             UserDefaults.standard.set(data, forKey: key)
         }
     }
@@ -801,7 +868,13 @@ final class SiteOfflineQueue: ObservableObject {
     private func load() {
         guard let data = UserDefaults.standard.data(forKey: key),
               let decoded = try? JSONDecoder().decode([OfflineMutation].self, from: data) else { return }
-        items = decoded
+        let previousOwner = UserDefaults.standard.string(forKey: "com.kt.stats.pa.username")
+        storedItems = decoded.map { item in
+            var owned = item
+            if owned.ownerUsername == nil { owned.ownerUsername = previousOwner }
+            return owned
+        }
+        if let previousOwner { selectAccount(previousOwner) }
     }
 }
 

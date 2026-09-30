@@ -37,6 +37,7 @@ struct SiteAddHubView: View {
 
     private var addHeader: some View {
         VStack(alignment: .leading, spacing: 0) {
+            if auth.isPrivate && auth.showStarterStats { SiteStarterStatsControl().padding(.horizontal) }
             Text("Add")
                 .font(.largeTitle.bold())
                 .padding(.horizontal)
@@ -52,11 +53,13 @@ struct SiteAddHubView: View {
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
+                    if !auth.isPrivate {
                     addLink("AI Summary", systemImage: "sparkles") { SiteAISummaryView() }
                     addLink("New Flyer", systemImage: "megaphone") { SiteFlyerView() }
                     addLink("Flyers", systemImage: "photo") { SiteFlyersView() }
                     addLink("Recaps", systemImage: "text.bubble") { SiteRecapsView() }
                     addLink("Voice", systemImage: "mic") { SiteVoiceAddView() }
+                    }
                     addLink("Tournament", systemImage: "trophy") { SiteTournamentsView() }
                     addLink("Player", systemImage: "person.badge.plus") { SitePlayersView() }
                 }
@@ -165,7 +168,7 @@ struct SitePlayerDetailView: View {
         .background(appearance.background)
         .navigationTitle(name)
         .toolbar {
-            if auth.isLoggedIn {
+            if auth.isLoggedIn && !auth.isPreviewing {
                 ToolbarItem(placement: .topBarTrailing) {
                     NavigationLink("Edit") {
                         SiteEditPlayerView(name: payload?.name ?? name)
@@ -182,7 +185,7 @@ struct SitePlayerDetailView: View {
 
     @ViewBuilder
     private func playerIdentity(_ p: DoublesPlayerPayload) -> some View {
-        if auth.isLoggedIn {
+        if auth.isLoggedIn && !auth.isPreviewing {
             NavigationLink {
                 SiteEditPlayerView(name: p.name)
             } label: {
@@ -203,7 +206,7 @@ struct SitePlayerDetailView: View {
                 if let r = p.rating, let rank = p.rank {
                     Text("Rating \(String(format: "%.2f", r)) · #\(rank) of \(p.totalRanked ?? 0)")
                 }
-                if auth.isLoggedIn {
+                if auth.isLoggedIn && !auth.isPreviewing {
                     Text("Edit player")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.tint)
@@ -257,29 +260,63 @@ struct LoginView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var username = ""
     @State private var password = ""
+    @State private var confirmation = ""
+    @State private var registering = true
+    @StateObject private var google = SiteGoogleSignIn()
     @State private var busy = false
     @State private var error: String?
 
     var body: some View {
         Form {
+            Section {
+                Picker("Account", selection: $registering) {
+                    Text("Create account").tag(true)
+                    Text("Sign in").tag(false)
+                }.pickerStyle(.segmented)
+            }
             if let error { Text(error).foregroundStyle(.red) }
+            if let message = auth.lastError { Text(message).foregroundStyle(.red) }
+            Section {
             TextField("Username", text: $username)
+                .textContentType(.username)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
             SecureField("Password", text: $password)
-            Button(busy ? "Signing in…" : "Sign in") {
+                .textContentType(registering ? .newPassword : .password)
+            if registering {
+                SecureField("Confirm password", text: $confirmation).textContentType(.newPassword)
+            }
+            Button(busy ? "Please wait..." : (registering ? "Create account" : "Sign in")) {
                 Task { await signIn() }
             }
-            .disabled(busy || username.isEmpty || password.isEmpty)
+            .disabled(busy || username.isEmpty || password.isEmpty || (registering && (password.count < 12 || password != confirmation)))
+            } footer: {
+                if registering { Text("Use at least 12 characters for your password.") }
+            }
+            Section {
+                SiteAppleSignInButton(busy: $busy, error: $error)
+                Button("Continue with Google") {
+                    Task {
+                        busy = true
+                        error = nil
+                        auth.lastError = nil
+                        do { try await google.signIn() }
+                        catch { self.error = error.localizedDescription }
+                        busy = false
+                    }
+                }.disabled(busy)
+            }
         }
-        .navigationTitle("Login")
+        .navigationTitle("Welcome to Stats")
+        .onChange(of: registering) { _, _ in error = nil; auth.lastError = nil }
     }
 
     private func signIn() async {
         busy = true
         error = nil
+        auth.lastError = nil
         do {
-            try await auth.login(username: username, password: password)
+            try await auth.login(username: username.trimmingCharacters(in: .whitespacesAndNewlines), password: password, registering: registering)
             dismiss()
         } catch {
             self.error = error.localizedDescription

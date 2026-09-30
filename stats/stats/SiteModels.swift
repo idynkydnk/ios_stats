@@ -532,6 +532,8 @@ struct MePayload: Codable {
     var username: String
     var isAdmin: Bool
     var loggedIn: Bool
+    var isPrivate: Bool? = nil
+    var showStarterStats: Bool? = nil
 }
 
 struct SiteUser: Codable, Identifiable {
@@ -915,6 +917,7 @@ struct OfflineMutation: Codable, Identifiable {
     var method: String
     var path: String
     var body: Data?
+    var ownerUsername: String? = nil
 }
 
 enum SiteAPIError: LocalizedError {

@@ -31,6 +31,7 @@ struct SiteAddDoublesView: View {
     @FocusState private var focused: Field?
     @ObservedObject private var network = NetworkMonitor.shared
     @ObservedObject private var queue = SiteOfflineQueue.shared
+    @ObservedObject private var auth = SiteAuthManager.shared
 
     private let winnerChips = [21, 15, 22, 23, 16]
 
@@ -95,7 +96,9 @@ struct SiteAddDoublesView: View {
         .sensoryFeedback(.success, trigger: successTick)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button { showVoice = true } label: { Image(systemName: "mic.fill") }
+                if !auth.isPrivate {
+                    Button { showVoice = true } label: { Image(systemName: "mic.fill") }
+                }
             }
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()
@@ -413,7 +416,7 @@ struct SiteAddVollisView: View {
     private func refreshToday() async {
         players = (try? await PythonAnywhereClient.shared.vollisPlayers()) ?? []
         let year = String(Calendar.current.component(.year, from: Date()))
-        let all = (try? await PythonAnywhereClient.shared.vollisGames(year: year))?.games ?? []
+        let all = (try? await PythonAnywhereClient.shared.vollisGames(year: year, preview: false))?.games ?? []
         todayGames = all.filter { siteIsToday($0.date) }
     }
 
@@ -614,7 +617,7 @@ struct SiteAddOtherView: View {
             }
             players = knownNames
             let year = String(Calendar.current.component(.year, from: Date()))
-            let all = (try? await PythonAnywhereClient.shared.otherGames(year: year))?.games ?? []
+            let all = (try? await PythonAnywhereClient.shared.otherGames(year: year, preview: false))?.games ?? []
             todayGames = all.filter { siteIsToday(DoublesGame.parseDate($0.gameDateOnly ?? $0.gameDate) ?? .distantPast) }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { focused = .gameName }
         }
@@ -813,7 +816,7 @@ struct SiteAddOtherView: View {
         sitePromote(w + l, in: &players)
         clearForm()
         let year = String(Calendar.current.component(.year, from: Date()))
-        let all = (try? await PythonAnywhereClient.shared.otherGames(year: year))?.games ?? []
+        let all = (try? await PythonAnywhereClient.shared.otherGames(year: year, preview: false))?.games ?? []
         todayGames = all.filter { siteIsToday(DoublesGame.parseDate($0.gameDateOnly ?? $0.gameDate) ?? .distantPast) }
     }
 }
