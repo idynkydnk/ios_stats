@@ -32,10 +32,6 @@ enum SitePublicLink {
         }
     }
 
-    static func network(year: String) -> URL? {
-        doublesPage("player_network", normalizedYear(year))
-    }
-
     static func volleyball(year: String) -> URL? {
         page("volleyball_stats", normalizedYear(year))
     }

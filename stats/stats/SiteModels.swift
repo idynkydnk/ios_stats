@@ -487,35 +487,6 @@ struct Tournament: Codable, Identifiable {
     var tournamentName: String?
 }
 
-struct NetworkPayload: Codable {
-    var year: String
-    var displayYear: String
-    var allYears: [String]
-    var network: NetworkData
-}
-
-struct NetworkData: Codable {
-    var nodes: [NetworkNode]
-    var partnerEdges: [NetworkEdge]
-    var gameEdges: [NetworkEdge]
-}
-
-struct NetworkNode: Codable, Identifiable {
-    var id: String
-    var label: String?
-    var games: Int?
-}
-
-struct NetworkEdge: Codable, Identifiable {
-    var source: String
-    var target: String
-    var games: Int?
-    var wins: Int?
-    var losses: Int?
-    var winRate: Double?
-    var id: String { source + "-" + target }
-}
-
 struct TodaysDoublesDashboard {
     var year: String
     var stats: [RankingRow]

@@ -55,7 +55,7 @@ struct SiteRootView: View {
             SiteAddHubView(section: $addKind, doublesEdit: $doublesEdit, vollisEdit: $vollisEdit)
                 .tabItem { Label("Add", systemImage: "plus.circle.fill") }
                 .tag(2)
-            SiteMoreView()
+            SiteMoreView(onHome: { selectedTab = 0 })
                 .tabItem { Label("More", systemImage: "line.3.horizontal") }
                 .tag(3)
         }

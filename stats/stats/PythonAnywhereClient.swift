@@ -113,10 +113,6 @@ final class PythonAnywhereClient {
         return try await get("/api/doubles/players/\(encoded)", query: ["year": year])
     }
 
-    func network(year: String) async throws -> NetworkPayload {
-        try await get("/api/network", query: ["year": year])
-    }
-
     func vollisStats(year: String) async throws -> VollisStatsPayload {
         try await get("/api/vollis/stats", query: ["year": year])
     }
@@ -665,14 +661,14 @@ final class PythonAnywhereClient {
 
     private func request(_ path: String, method: String, query: [String: String] = [:], authed: Bool = true, preview: Bool? = nil) -> URLRequest {
         var query = query
-        if method == "GET" && (path.hasPrefix("/api/doubles/") || path == "/api/network") {
+        if method == "GET" && path.hasPrefix("/api/doubles/") {
             query["division"] = UserDefaults.standard.string(forKey: "stats.doublesDivision") ?? "open"
         }
         var req = URLRequest(url: url(path, query: query))
         req.httpMethod = method
         req.setValue("application/json", forHTTPHeaderField: "Accept")
         req.setValue("1", forHTTPHeaderField: "X-Stats-Account-Required")
-        let previewPaths = ["/api/years", "/api/network", "/api/doubles/", "/api/vollis/", "/api/other/", "/api/volleyball/stats"]
+        let previewPaths = ["/api/years", "/api/doubles/", "/api/vollis/", "/api/other/", "/api/volleyball/stats"]
         if preview ?? SiteAuthManager.shared.isPreviewing,
            previewPaths.contains(where: { $0.hasSuffix("/") ? path.hasPrefix($0) : path == $0 }) {
             req.setValue("1", forHTTPHeaderField: "X-Stats-Preview")

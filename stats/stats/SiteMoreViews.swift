@@ -5,6 +5,7 @@ import Speech
 import AVFoundation
 
 struct SiteMoreView: View {
+    var onHome: () -> Void
     @ObservedObject private var auth = SiteAuthManager.shared
     @State private var confirmDeletion = false
     @State private var accountError: String?
@@ -13,6 +14,17 @@ struct SiteMoreView: View {
     var body: some View {
         NavigationStack {
             List {
+                if !auth.isLoggedIn {
+                    SiteListSection("Menu") {
+                        Button(action: onHome) { Label("Home", systemImage: "house") }
+                        NavigationLink { SiteAppearanceView() } label: {
+                            Label("Appearance", systemImage: "paintpalette")
+                        }
+                        NavigationLink("AI Recaps") { SiteRecapsView() }
+                        NavigationLink("Login") { LoginView() }
+                    }
+                }
+                if auth.isLoggedIn {
                 SiteListSection("Account") {
                     if auth.isLoggedIn {
                         Text("Signed in as \(auth.username ?? "")")
@@ -34,8 +46,6 @@ struct SiteMoreView: View {
                             Button("Delete account", role: .destructive) { confirmDeletion = true }
                         }
                         if let accountError { Text(accountError).foregroundStyle(.red) }
-                    } else {
-                        NavigationLink("Login") { LoginView() }
                     }
                     NavigationLink {
                         SiteAppearanceView()
@@ -43,15 +53,12 @@ struct SiteMoreView: View {
                         Label("Appearance", systemImage: "paintpalette")
                     }
                 }
+                }
                 if auth.isLoggedIn {
                 SiteListSection("Browse") {
                     NavigationLink("Players") { SitePlayersView() }
-                    NavigationLink("Player network") { SiteNetworkView() }
-                    if auth.isLoggedIn {
-                        NavigationLink("Tournaments") { SiteTournamentsView() }
-                    }
-                    NavigationLink("Volleyball") { SiteVolleyballView() }
                     if !auth.isPrivate {
+                        NavigationLink("Volleyball") { SiteVolleyballView() }
                         NavigationLink("AI Recaps") { SiteRecapsView() }
                     }
                     if auth.isLoggedIn && !auth.isPrivate {
@@ -61,7 +68,6 @@ struct SiteMoreView: View {
                 }
                 if auth.isLoggedIn && !auth.isPrivate {
                     SiteListSection("Create") {
-                        NavigationLink("AI Summary") { SiteAISummaryView() }
                         NavigationLink("Create Flyer") { SiteFlyerView() }
                         NavigationLink("Add doubles by voice") { SiteVoiceAddView() }
                     }
@@ -602,251 +608,6 @@ struct SiteEditPlayerView: View {
             self.error = error.localizedDescription
         }
         aiBusy = false
-    }
-}
-
-struct SiteNetworkView: View {
-    @State private var payload: NetworkPayload?
-    @State private var year = String(Calendar.current.component(.year, from: Date()))
-    @State private var search = ""
-    @State private var error: String?
-    @State private var loading = false
-
-    var body: some View {
-        VStack(spacing: 0) {
-            if let error {
-                SiteAddBanner(text: error, isError: true)
-                    .padding()
-            }
-            if let p = payload {
-                Picker("Year", selection: $year) {
-                    ForEach(p.allYears, id: \.self) { y in
-                        Text(y == "All years" ? "All" : y).tag(y)
-                    }
-                }
-                .pickerStyle(.menu)
-                .padding(.horizontal)
-                TextField("Search players", text: $search)
-                    .textFieldStyle(.roundedBorder)
-                    .padding(.horizontal)
-                    .padding(.top, 8)
-                Text("Tap a player to see who they play with, and how often they win together.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal)
-                    .padding(.top, 6)
-                    .padding(.bottom, 8)
-                if loading { ProgressView().padding() }
-                List(filteredPlayers) { node in
-                    NavigationLink {
-                        SiteNetworkPersonView(name: node.id, year: year, payload: p)
-                    } label: {
-                        HStack {
-                            Text(node.label ?? node.id)
-                            Spacer()
-                            Text("\(node.games ?? 0) games")
-                                .foregroundStyle(.secondary)
-                                .monospacedDigit()
-                        }
-                    }
-                }
-                .listStyle(.plain)
-                .refreshable { await load() }
-            } else {
-                ScrollView {
-                    if loading {
-                        ProgressView().padding()
-                    } else {
-                        Text("Pull down to reload.")
-                            .foregroundStyle(.secondary)
-                            .padding()
-                    }
-                }
-                .refreshable { await load() }
-            }
-        }
-        .navigationTitle("Network")
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                SiteCopyLinkButton(url: SitePublicLink.network(year: year))
-            }
-        }
-        .task(id: year) { await load() }
-    }
-
-    private var filteredPlayers: [NetworkNode] {
-        let nodes = (payload?.network.nodes ?? []).sorted { ($0.games ?? 0) > ($1.games ?? 0) }
-        let q = search.trimmingCharacters(in: .whitespaces).lowercased()
-        if q.isEmpty { return nodes }
-        return nodes.filter { ($0.label ?? $0.id).lowercased().contains(q) }
-    }
-
-    private func load() async {
-        loading = true
-        error = nil
-        do { payload = try await PythonAnywhereClient.shared.network(year: year) }
-        catch { self.error = error.localizedDescription }
-        loading = false
-    }
-}
-
-struct SiteNetworkPersonView: View {
-    @Environment(\.siteAppearance) private var appearance
-
-    var name: String
-    var year: String
-    var payload: NetworkPayload
-    @State private var mode = NetworkMode.partners
-    @State private var minGames = 1
-    @ObservedObject private var auth = SiteAuthManager.shared
-
-    private enum NetworkMode: String, CaseIterable, Identifiable {
-        case partners, shared
-        var id: String { rawValue }
-        var title: String {
-            switch self {
-            case .partners: return "Partners"
-            case .shared: return "Shared games"
-            }
-        }
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            Picker("Mode", selection: $mode) {
-                ForEach(NetworkMode.allCases) { m in
-                    Text(m.title).tag(m)
-                }
-            }
-            .pickerStyle(.segmented)
-            .padding(.horizontal)
-            .padding(.top, 8)
-
-            if let node {
-                Text("\(node.games ?? 0) games in \(payload.displayYear)")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal)
-                    .padding(.top, 6)
-            }
-
-            HStack {
-                Text("Min games")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                ForEach([1, 3, 5, 10], id: \.self) { n in
-                    Button {
-                        minGames = n
-                    } label: {
-                        Text("\(n)")
-                            .font(.subheadline.weight(.semibold))
-                            .frame(minWidth: 36)
-                            .padding(.vertical, 6)
-                            .background(minGames == n ? SiteAddAccent.orange : Color(.secondarySystemFill))
-                            .foregroundStyle(minGames == n ? appearance.onAccent : Color.primary)
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal)
-            .padding(.vertical, 10)
-
-            Text(mode == .partners
-                 ? "Teammates, with win rate as a pair."
-                 : "Anyone in the same game, partner or opponent.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal)
-                .padding(.bottom, 8)
-
-            if connections.isEmpty {
-                Text("No connections with at least \(minGames) game\(minGames == 1 ? "" : "s").")
-                    .foregroundStyle(.secondary)
-                    .padding()
-                Spacer()
-            } else {
-                List(connections, id: \.other) { row in
-                    NavigationLink {
-                        SiteNetworkPersonView(name: row.other, year: year, payload: payload)
-                    } label: {
-                        connectionRow(row)
-                    }
-                }
-                .listStyle(.plain)
-            }
-        }
-        .navigationTitle(name)
-        .toolbar {
-            if auth.isLoggedIn {
-                ToolbarItem(placement: .topBarTrailing) {
-                    NavigationLink("Edit") {
-                        SiteEditPlayerView(name: name)
-                    }
-                }
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                NavigationLink("Stats") {
-                    SitePlayerDetailView(name: name, year: year, section: .doubles)
-                }
-            }
-        }
-    }
-
-    private var node: NetworkNode? {
-        payload.network.nodes.first { $0.id == name }
-    }
-
-    private var connections: [(other: String, edge: NetworkEdge)] {
-        let edges = mode == .partners ? payload.network.partnerEdges : payload.network.gameEdges
-        return edges.compactMap { edge -> (String, NetworkEdge)? in
-            guard (edge.games ?? 0) >= minGames else { return nil }
-            if edge.source == name { return (edge.target, edge) }
-            if edge.target == name { return (edge.source, edge) }
-            return nil
-        }
-        .sorted { ($0.edge.games ?? 0) > ($1.edge.games ?? 0) }
-    }
-
-    @ViewBuilder
-    private func connectionRow(_ row: (other: String, edge: NetworkEdge)) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(row.other)
-                .font(.body.weight(.semibold))
-            HStack {
-                Text("\(row.edge.games ?? 0) games")
-                    .foregroundStyle(.secondary)
-                if mode == .partners {
-                    Spacer()
-                    if let w = row.edge.wins, let l = row.edge.losses {
-                        Text("\(w)–\(l)")
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
-                    }
-                    Text(winPct(row.edge.winRate))
-                        .monospacedDigit()
-                        .foregroundStyle(winRateColor(row.edge.winRate))
-                        .frame(width: 44, alignment: .trailing)
-                }
-            }
-            .font(.subheadline)
-        }
-        .padding(.vertical, 2)
-    }
-
-    private func winPct(_ rate: Double?) -> String {
-        let r = rate ?? 0
-        let pct = r <= 1 ? r * 100 : r
-        return String(format: "%.0f%%", pct)
-    }
-
-    private func winRateColor(_ rate: Double?) -> Color {
-        let r = rate ?? 0
-        let pct = r <= 1 ? r : r / 100
-        if pct >= 0.55 { return .green }
-        if pct >= 0.45 { return Color.yellow }
-        return .red
     }
 }
 
