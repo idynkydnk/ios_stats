@@ -31,8 +31,8 @@ struct SiteMoreView: View {
                         NavigationLink("Tournaments") { SiteTournamentsView() }
                     }
                     NavigationLink("Volleyball") { SiteVolleyballView() }
+                    NavigationLink("AI Recaps") { SiteRecapsView() }
                     if auth.isLoggedIn {
-                        NavigationLink("AI Recaps") { SiteRecapsView() }
                         NavigationLink("Flyers") { SiteFlyersView() }
                     }
                 }
@@ -1601,11 +1601,19 @@ private func siteWaitForAIShare(jobId: Int, recap: Bool) async -> SiteAIShareRes
 }
 
 struct SiteRecapsView: View {
+    @ObservedObject private var auth = SiteAuthManager.shared
     @State private var items: [RecapItem] = []
     @State private var error: String?
 
     var body: some View {
         List {
+            if let url = SitePublicLink.absolute("/ai-recaps/") {
+                NavigationLink {
+                    SiteRecapPageView(title: "Subscribe to AI Recaps", url: url)
+                } label: {
+                    Label("Subscribe by email", systemImage: "envelope")
+                }
+            }
             if let error {
                 Text(error).foregroundStyle(.red)
             }
@@ -1617,15 +1625,17 @@ struct SiteRecapsView: View {
                 recapRow(r)
             }
         }
-        .navigationTitle(SiteAuthManager.shared.isAdmin ? "All recaps" : "AI Recaps")
+        .navigationTitle("AI Recaps")
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                NavigationLink {
-                    SiteAISummaryView()
-                } label: {
-                    Image(systemName: "plus")
+            if auth.isLoggedIn {
+                ToolbarItem(placement: .primaryAction) {
+                    NavigationLink {
+                        SiteAISummaryView()
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .accessibilityLabel("Create recap")
                 }
-                .accessibilityLabel("Create recap")
             }
         }
         .task { await load() }

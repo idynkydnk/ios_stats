@@ -93,44 +93,20 @@ struct SiteRootView: View {
     }
 }
 
-struct SectionYearBar: View {
-    @Environment(\.siteAppearance) private var appearance
-
-    @Binding var section: GameSection
+struct SiteYearMenu: View {
     @Binding var selectedYear: String
     var years: [String]
-    @Binding var search: String
-    var searchPrompt: String
 
     var body: some View {
-        VStack(spacing: 12) {
-            HStack(spacing: 8) {
-                Picker("Year", selection: $selectedYear) {
-                    ForEach(normalizedYears, id: \.self) { y in
-                        Text(y == "All years" ? "All" : y).tag(displayTag(y))
-                    }
-                }
-                .pickerStyle(.menu)
-                .labelsHidden()
-                .fixedSize()
+        Picker("Year", selection: $selectedYear) {
+            ForEach(normalizedYears, id: \.self) { year in
+                Text(year == "All years" ? "All" : year).tag(year)
             }
-            HStack(spacing: 10) {
-                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                TextField(searchPrompt, text: $search)
-                    .autocorrectionDisabled()
-                if !search.isEmpty {
-                    Button { search = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
-                        .accessibilityLabel("Clear search")
-                }
-            }
-            .padding(12)
-            .background(appearance.panel, in: RoundedRectangle(cornerRadius: appearance.style.radius(16)))
         }
-        .fixedSize(horizontal: false, vertical: true)
-        .padding(.horizontal)
-        .padding(.top, 4)
-        .padding(.bottom, 8)
-        .background(appearance.background)
+        .pickerStyle(.menu)
+        .labelsHidden()
+        .fixedSize()
+        .accessibilityLabel("Year")
     }
 
     private var normalizedYears: [String] {
@@ -140,9 +116,31 @@ struct SectionYearBar: View {
         }
         return list
     }
+}
 
-    private func displayTag(_ y: String) -> String {
-        y == "All years" ? "All years" : y
+struct SiteSearchBar: View {
+    @Environment(\.siteAppearance) private var appearance
+
+    @Binding var search: String
+    var searchPrompt: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            TextField(searchPrompt, text: $search)
+                .autocorrectionDisabled()
+            if !search.isEmpty {
+                Button { search = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
+                    .accessibilityLabel("Clear search")
+            }
+        }
+        .padding(12)
+        .background(appearance.panel, in: RoundedRectangle(cornerRadius: appearance.style.radius(16)))
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(.horizontal)
+        .padding(.top, 4)
+        .padding(.bottom, 8)
+        .background(appearance.background)
     }
 }
 
@@ -451,7 +449,7 @@ struct SiteStatsView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                SectionYearBar(section: $section, selectedYear: $selectedYear, years: years, search: $search, searchPrompt: "Search players...")
+                SiteSearchBar(search: $search, searchPrompt: "Search players...")
                 ScrollView {
                     OtherGameNavigation(section: $section, selection: $selectedOtherGame, selectedYear: $selectedYear)
                     if loading { ProgressView().padding() }
@@ -539,6 +537,9 @@ struct SiteStatsView: View {
             .navigationTitle("Stats")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    SiteYearMenu(selectedYear: $selectedYear, years: years)
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     SiteCopyLinkButton(url: SitePublicLink.stats(section: section, year: selectedYear, gameName: selectedOtherGame))
                 }
@@ -625,7 +626,7 @@ struct SiteGamesView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                SectionYearBar(section: $section, selectedYear: $selectedYear, years: years, search: $search, searchPrompt: "Search")
+                SiteSearchBar(search: $search, searchPrompt: "Search")
                 if let banner {
                     SiteAddBanner(text: banner, isError: bannerIsError)
                         .padding(.horizontal)
@@ -730,6 +731,9 @@ struct SiteGamesView: View {
             .navigationTitle("Games")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    SiteYearMenu(selectedYear: $selectedYear, years: years)
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     SiteCopyLinkButton(url: SitePublicLink.games(section: section, year: selectedYear, gameName: selectedOtherGame))
                 }
