@@ -37,7 +37,6 @@ struct SiteAddHubView: View {
 
     private var addHeader: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if auth.isPrivate && auth.showStarterStats { SiteStarterStatsControl().padding(.horizontal) }
             Text("Add")
                 .font(.largeTitle.bold())
                 .padding(.horizontal)
@@ -53,8 +52,8 @@ struct SiteAddHubView: View {
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
-                    if !auth.isPrivate {
                     addLink("AI Summary", systemImage: "sparkles") { SiteAISummaryView() }
+                    if !auth.isPrivate {
                     addLink("New Flyer", systemImage: "megaphone") { SiteFlyerView() }
                     addLink("Flyers", systemImage: "photo") { SiteFlyersView() }
                     addLink("Recaps", systemImage: "text.bubble") { SiteRecapsView() }
@@ -295,16 +294,29 @@ struct LoginView: View {
             }
             Section {
                 SiteAppleSignInButton(busy: $busy, error: $error)
-                Button("Continue with Google") {
+                Button {
                     Task {
                         busy = true
                         error = nil
                         auth.lastError = nil
-                        do { try await google.signIn() }
+                        do { try await google.signIn(); dismiss() }
                         catch { self.error = error.localizedDescription }
                         busy = false
                     }
-                }.disabled(busy)
+                } label: {
+                    HStack(spacing: 12) {
+                        Text("G").font(.title3.weight(.bold)).foregroundStyle(Color.blue)
+                        Text("Continue with Google").font(.system(size: 17, weight: .medium))
+                    }
+                    .foregroundStyle(Color.black)
+                    .frame(maxWidth: .infinity, minHeight: 50)
+                    .background(Color.white, in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.gray.opacity(0.4)))
+                }
+                .buttonStyle(.plain)
+                .disabled(busy)
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0))
             }
         }
         .navigationTitle("Welcome to Stats")

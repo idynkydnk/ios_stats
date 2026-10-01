@@ -6,6 +6,7 @@ import AVFoundation
 
 struct SiteMoreView: View {
     var onHome: () -> Void
+    @Binding var browseStarterStats: Bool
     @ObservedObject private var auth = SiteAuthManager.shared
     @State private var confirmDeletion = false
     @State private var accountError: String?
@@ -31,6 +32,13 @@ struct SiteMoreView: View {
                         if auth.isAdmin { Text("Admin").foregroundStyle(.orange) }
                         Button("Log out") { Task { await auth.logout() } }
                         if auth.isPrivate {
+                            if auth.showStarterStats {
+                                Picker("Browse stats", selection: $browseStarterStats) {
+                                    Text("My stats").tag(false)
+                                    Text("KT Stats").tag(true)
+                                }
+                                .pickerStyle(.menu)
+                            }
                             Toggle("Show KT Stats", isOn: Binding(
                                 get: { auth.showStarterStats },
                                 set: { visible in
@@ -59,8 +67,9 @@ struct SiteMoreView: View {
                     NavigationLink("Players") { SitePlayersView() }
                     if !auth.isPrivate {
                         NavigationLink("Volleyball") { SiteVolleyballView() }
-                        NavigationLink("AI Recaps") { SiteRecapsView() }
                     }
+                    NavigationLink("AI Summaries") { SiteAISummaryView() }
+                    NavigationLink("AI Recaps") { SiteRecapsView() }
                     if auth.isLoggedIn && !auth.isPrivate {
                         NavigationLink("Flyers") { SiteFlyersView() }
                     }
@@ -250,7 +259,6 @@ struct SiteEditPlayerView: View {
             .listRowBackground(Color.clear)
 
             if auth.isLoggedIn {
-                if !auth.isPrivate {
                 PhotosPicker("Upload face photo", selection: $picker, matching: .images)
                 SiteListSection("AI character") {
                     if let url = SitePublicLink.absolute(aiImageUrl) {
@@ -355,7 +363,6 @@ struct SiteEditPlayerView: View {
                     Text("Separate details for the AI to exaggerate in recaps and flyers.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                }
                 }
                 SiteListSection("Profile") {
                     TextField("Name", text: $name)

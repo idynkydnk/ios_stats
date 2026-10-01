@@ -26,23 +26,6 @@ struct SiteRootView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if selectedTab < 2 {
-                if !auth.isLoggedIn {
-                    HStack {
-                        Text("KT Stats").font(.subheadline.weight(.semibold))
-                        Spacer()
-                        Button("Create account or sign in") { selectedTab = 2 }
-                    }.padding(.horizontal).padding(.vertical, 8)
-                } else if auth.isPrivate && auth.showStarterStats {
-                    Picker("Stats account", selection: $browseStarterStats) {
-                        Text("KT Stats").tag(true)
-                        Text("My stats").tag(false)
-                    }
-                    .pickerStyle(.segmented)
-                    .padding(.horizontal).padding(.vertical, 8)
-                    if browseStarterStats { SiteStarterStatsControl() }
-                }
-            }
         TabView(selection: $selectedTab) {
             SiteStatsView(selectedOtherGame: $selectedOtherGame, section: $section, selectedYear: selectedYear, years: years)
                 .id(auth.isPreviewing)
@@ -55,7 +38,7 @@ struct SiteRootView: View {
             SiteAddHubView(section: $addKind, doublesEdit: $doublesEdit, vollisEdit: $vollisEdit)
                 .tabItem { Label("Add", systemImage: "plus.circle.fill") }
                 .tag(2)
-            SiteMoreView(onHome: { selectedTab = 0 })
+            SiteMoreView(onHome: { selectedTab = 0 }, browseStarterStats: $browseStarterStats)
                 .tabItem { Label("More", systemImage: "line.3.horizontal") }
                 .tag(3)
         }
