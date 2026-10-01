@@ -405,6 +405,7 @@ struct SiteExpandableSection<Content: View>: View {
 
 struct RankingTable: View {
     @Environment(\.siteAppearance) private var appearance
+    @ScaledMetric(relativeTo: .subheadline) private var recordDigitWidth: CGFloat = 10
 
     var title: String?
     var subtitle: String? = nil
@@ -417,6 +418,20 @@ struct RankingTable: View {
 
     private var displayedRows: [RankingRow] {
         sortLikeToday ? RankingRow.sortedForToday(rows) : rows
+    }
+
+    // Keep each column wide enough for the full table, including hidden rows.
+    private var winsColumnWidth: CGFloat {
+        recordColumnWidth(rows.map(\.wins))
+    }
+
+    private var lossesColumnWidth: CGFloat {
+        recordColumnWidth(rows.map(\.losses))
+    }
+
+    private func recordColumnWidth(_ counts: [Int]) -> CGFloat {
+        let digits = counts.map { String($0).count }.max() ?? 1
+        return max(24, CGFloat(digits) * recordDigitWidth + 2)
     }
 
     var body: some View {
@@ -465,8 +480,14 @@ struct RankingTable: View {
                 .frame(width: 64, alignment: .trailing)
         }
         HStack(spacing: 2) {
-            Text("\(row.wins)").frame(width: 24, alignment: .trailing).foregroundStyle(.green)
-            Text("\(row.losses)").frame(width: 24, alignment: .trailing).foregroundStyle(.red)
+            Text("\(row.wins)")
+                .lineLimit(1)
+                .frame(width: winsColumnWidth, alignment: .trailing)
+                .foregroundStyle(.green)
+            Text("\(row.losses)")
+                .lineLimit(1)
+                .frame(width: lossesColumnWidth, alignment: .trailing)
+                .foregroundStyle(.red)
         }
         Text(row.winPctDisplay).frame(width: 44, alignment: .trailing)
         if showPlusMinus {
@@ -492,8 +513,8 @@ struct RankingTable: View {
     private var statHeaders: some View {
         if showRating { Text("Rating").frame(width: 64, alignment: .trailing) }
         HStack(spacing: 2) {
-            Text("W").frame(width: 24, alignment: .trailing)
-            Text("L").frame(width: 24, alignment: .trailing)
+            Text("W").frame(width: winsColumnWidth, alignment: .trailing)
+            Text("L").frame(width: lossesColumnWidth, alignment: .trailing)
         }
         Text("Win%").frame(width: 44, alignment: .trailing)
         if showPlusMinus { Text("+/-").frame(width: 36, alignment: .trailing) }
