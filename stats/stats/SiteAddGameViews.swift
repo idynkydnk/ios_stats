@@ -25,7 +25,7 @@ struct SiteAddDoublesView: View {
     @State private var bannerIsError = false
     @State private var saving = false
     @State private var successTick = 0
-    @State private var savedGame: SiteSavedGameReceipt?
+    @Environment(\.gameSaveStatus) private var gameSaveStatus
     @State private var rematch: (String, String, String, String)?
     @State private var today: TodaysDoublesDashboard?
     @State private var showVoice = false
@@ -40,9 +40,6 @@ struct SiteAddDoublesView: View {
         SiteAddFormScrollView(focused: focused, header: header) {
             VStack(alignment: .leading, spacing: 14) {
                 SiteContentCard(title: "Doubles game") {
-                    if let banner {
-                        SiteAddBanner(text: banner, isError: bannerIsError)
-                    }
                     if let error {
                         SiteAddBanner(text: error, isError: true)
                     }
@@ -85,6 +82,7 @@ struct SiteAddDoublesView: View {
                     }
 
                 }
+                .disabled(saving)
 
                 if let today, !today.stats.isEmpty || !today.games.isEmpty {
                     todayBoard(today)
@@ -93,9 +91,7 @@ struct SiteAddDoublesView: View {
             .padding()
             .padding(.bottom, 40)
         }
-        .disabled(saving)
         .sensoryFeedback(.success, trigger: successTick)
-        .savedGamePopup($savedGame) { focused = .w1 }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 if !auth.isPrivate {
@@ -245,6 +241,7 @@ struct SiteAddDoublesView: View {
             error = "Four unique player names required."
             return
         }
+        var savedGame: SiteSavedGameReceipt?
         saving = true
         banner = nil
         error = nil
@@ -260,6 +257,13 @@ struct SiteAddDoublesView: View {
         // Edits omit the date so the server keeps the original game time,
         // including when an offline edit is synced later.
         if gameToEdit == nil { fields["game_date"] = siteNowString() }
+        focused = nil
+        if gameToEdit == nil {
+            savedGame = SiteSavedGameReceipt(title: "Doubles", status: "Saving…", isSaving: true,
+                winners: "\(names[0]) & \(names[1])", losers: "\(names[2]) & \(names[3])",
+                winnerScore: ws, loserScore: ls, location: cleanLocation, comment: comments)
+        }
+        if let savedGame { gameSaveStatus(savedGame) }
         do {
             if !network.isConnected {
                 if let g = gameToEdit {
@@ -276,6 +280,10 @@ struct SiteAddDoublesView: View {
                 banner = "Game saved"
             }
         } catch {
+            savedGame?.status = error.localizedDescription
+            savedGame?.isSaving = false
+            savedGame?.isError = true
+            if let savedGame { gameSaveStatus(savedGame) }
             saving = false
             banner = nil
             self.error = error.localizedDescription
@@ -285,11 +293,9 @@ struct SiteAddDoublesView: View {
         saving = false
         rematch = (names[0], names[1], names[2], names[3])
         sitePromote(names, in: &players)
-        if gameToEdit == nil {
-            savedGame = SiteSavedGameReceipt(title: "Doubles", status: banner ?? "Game saved",
-                winners: "\(names[0]) & \(names[1])", losers: "\(names[2]) & \(names[3])",
-                winnerScore: ws, loserScore: ls, location: cleanLocation, comment: comments)
-        }
+        savedGame?.status = banner ?? "Game saved"
+        savedGame?.isSaving = false
+        if let savedGame { gameSaveStatus(savedGame) }
         clearForm(focusFirst: false)
         focused = nil
         bannerIsError = false
@@ -319,7 +325,7 @@ struct SiteAddVollisView: View {
     @State private var banner: String?
     @State private var saving = false
     @State private var successTick = 0
-    @State private var savedGame: SiteSavedGameReceipt?
+    @Environment(\.gameSaveStatus) private var gameSaveStatus
     @FocusState private var focused: Field?
     @ObservedObject private var auth = SiteAuthManager.shared
 
@@ -329,7 +335,6 @@ struct SiteAddVollisView: View {
         SiteAddFormScrollView(focused: focused, header: header) {
             VStack(alignment: .leading, spacing: 14) {
                 SiteContentCard(title: "Vollis game") {
-                    if let banner { SiteAddBanner(text: banner) }
                     if let error { SiteAddBanner(text: error, isError: true) }
 
                     SiteAddTextRow(label: "Winner", text: $winner, field: .winner, focus: $focused, submit: .done, onSubmit: {
@@ -380,6 +385,7 @@ struct SiteAddVollisView: View {
                     }
 
                 }
+                .disabled(saving)
 
                 if !todayGames.isEmpty {
                     SiteExpandableSection(title: "Games", count: todayGames.count, subtitle: "Today") {
@@ -392,9 +398,7 @@ struct SiteAddVollisView: View {
             .padding()
             .padding(.bottom, 40)
         }
-        .disabled(saving)
         .sensoryFeedback(.success, trigger: successTick)
-        .savedGamePopup($savedGame) { focused = .winner }
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()
@@ -446,6 +450,7 @@ struct SiteAddVollisView: View {
             error = "Check names and scores."
             return
         }
+        var savedGame: SiteSavedGameReceipt?
         saving = true
         banner = nil
         error = nil
@@ -458,6 +463,12 @@ struct SiteAddVollisView: View {
         ]
         // Edits omit the date so the server keeps the original game time.
         if gameToEdit == nil { fields["game_date"] = siteNowString() }
+        focused = nil
+        if gameToEdit == nil {
+            savedGame = SiteSavedGameReceipt(title: "Vollis", status: "Saving…", isSaving: true, winners: w, losers: l,
+                winnerScore: ws, loserScore: ls, location: cleanLocation)
+        }
+        if let savedGame { gameSaveStatus(savedGame) }
         do {
             if let g = gameToEdit {
                 try await PythonAnywhereClient.shared.updateVollis(id: g.id, fields: fields)
@@ -465,6 +476,10 @@ struct SiteAddVollisView: View {
                 try await PythonAnywhereClient.shared.createVollis(fields)
             }
         } catch {
+            savedGame?.status = error.localizedDescription
+            savedGame?.isSaving = false
+            savedGame?.isError = true
+            if let savedGame { gameSaveStatus(savedGame) }
             saving = false
             self.error = error.localizedDescription
             return
@@ -474,10 +489,9 @@ struct SiteAddVollisView: View {
         banner = "Game saved"
         successTick += 1
         sitePromote([w, l], in: &players)
-        if gameToEdit == nil {
-            savedGame = SiteSavedGameReceipt(title: "Vollis", winners: w, losers: l,
-                winnerScore: ws, loserScore: ls, location: cleanLocation)
-        }
+        savedGame?.status = "Game saved"
+        savedGame?.isSaving = false
+        if let savedGame { gameSaveStatus(savedGame) }
         clearForm()
         focused = nil
         if gameToEdit != nil { onDone() }
@@ -514,7 +528,7 @@ struct SiteAddOtherView: View {
     @State private var banner: String?
     @State private var saving = false
     @State private var successTick = 0
-    @State private var savedGame: SiteSavedGameReceipt?
+    @Environment(\.gameSaveStatus) private var gameSaveStatus
     @State private var todayGames: [OtherGame] = []
     @FocusState private var focused: Field?
 
@@ -522,7 +536,6 @@ struct SiteAddOtherView: View {
         SiteAddFormScrollView(focused: focused, header: header) {
             VStack(alignment: .leading, spacing: 14) {
                 SiteContentCard(title: "Other game") {
-                    if let banner { SiteAddBanner(text: banner) }
                     if let error { SiteAddBanner(text: error, isError: true) }
 
                     SiteAddTextRow(label: "Game name", text: $gameName, field: .gameName, focus: $focused, submit: .done, onSubmit: {
@@ -595,6 +608,7 @@ struct SiteAddOtherView: View {
                     }
 
                 }
+                .disabled(saving)
 
                 if !todayGames.isEmpty {
                     SiteContentCard(title: "Today's Games") {
@@ -612,9 +626,7 @@ struct SiteAddOtherView: View {
             .padding()
             .padding(.bottom, 40)
         }
-        .disabled(saving)
         .sensoryFeedback(.success, trigger: successTick)
-        .savedGamePopup($savedGame) { focused = .gameName }
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()
@@ -792,6 +804,7 @@ struct SiteAddOtherView: View {
             return
         }
         if gameType.isEmpty { gameType = knownTypes.first ?? "Other" }
+        var savedGame: SiteSavedGameReceipt?
         saving = true
         banner = nil
         error = nil
@@ -812,9 +825,28 @@ struct SiteAddOtherView: View {
             fields["winner_scores"] = winners.indices.map { winnerIndiv.indices.contains($0) ? (winnerIndiv[$0].map { "\($0)" } ?? "") : "" }
             fields["loser_scores"] = losers.indices.map { loserIndiv.indices.contains($0) ? (loserIndiv[$0].map { "\($0)" } ?? "") : "" }
         }
+        focused = nil
+        func side(_ names: [String], _ scores: [Int?]) -> String {
+            names.indices.compactMap { index in
+                let name = names[index].trimmingCharacters(in: .whitespaces)
+                guard !name.isEmpty else { return nil }
+                if scoreType == "individual", scores.indices.contains(index), let score = scores[index] { return "\(name) (\(score))" }
+                return name
+            }.joined(separator: ", ")
+        }
+        savedGame = SiteSavedGameReceipt(title: gameName, status: "Saving…", isSaving: true, winners: side(winners, winnerIndiv),
+            losers: side(losers, loserIndiv),
+            winnerScore: scoreType == "team" ? teamWinnerScore : nil,
+            loserScore: scoreType == "team" ? teamLoserScore : nil,
+            location: cleanLocation, comment: comment)
+        if let savedGame { gameSaveStatus(savedGame) }
         do {
             try await PythonAnywhereClient.shared.createOther(fields)
         } catch {
+            savedGame?.status = error.localizedDescription
+            savedGame?.isSaving = false
+            savedGame?.isError = true
+            if let savedGame { gameSaveStatus(savedGame) }
             saving = false
             self.error = error.localizedDescription
             return
@@ -831,19 +863,9 @@ struct SiteAddOtherView: View {
         banner = "Game saved"
         successTick += 1
         sitePromote(w + l, in: &players)
-        func side(_ names: [String], _ scores: [Int?]) -> String {
-            names.indices.compactMap { index in
-                let name = names[index].trimmingCharacters(in: .whitespaces)
-                guard !name.isEmpty else { return nil }
-                if scoreType == "individual", let score = scores[index] { return "\(name) (\(score))" }
-                return name
-            }.joined(separator: ", ")
-        }
-        savedGame = SiteSavedGameReceipt(title: gameName, winners: side(winners, winnerIndiv),
-            losers: side(losers, loserIndiv),
-            winnerScore: scoreType == "team" ? teamWinnerScore : nil,
-            loserScore: scoreType == "team" ? teamLoserScore : nil,
-            location: cleanLocation, comment: comment)
+        savedGame?.status = "Game saved"
+        savedGame?.isSaving = false
+        if let savedGame { gameSaveStatus(savedGame) }
         clearForm()
         focused = nil
         let year = String(Calendar.current.component(.year, from: Date()))
@@ -878,7 +900,7 @@ struct SiteAddVoiceSheet: View {
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
             .onAppear {
                 SFSpeechRecognizer.requestAuthorization { _ in }
-                AVAudioSession.sharedInstance().requestRecordPermission { _ in }
+                AVAudioApplication.requestRecordPermission { _ in }
             }
         }
     }
@@ -894,75 +916,23 @@ struct SiteAddVoiceSheet: View {
 }
 
 
-private struct SiteSavedGameReceipt {
+struct SiteSavedGameReceipt: Identifiable {
+    let id = UUID()
     var title: String
     var status = "Game added"
+    var isSaving = false
+    var isError = false
     var winners: String
     var losers: String
     var winnerScore: Int?
     var loserScore: Int?
     var location: String
     var comment = ""
-}
 
-private extension View {
-    func savedGamePopup(_ receipt: Binding<SiteSavedGameReceipt?>, addAnother: @escaping () -> Void) -> some View {
-        self
-            .accessibilityHidden(receipt.wrappedValue != nil)
-            .overlay {
-                if let game = receipt.wrappedValue {
-                    ZStack {
-                        Color.black.opacity(0.5)
-                            .ignoresSafeArea()
-                            .contentShape(Rectangle())
-                            .onTapGesture { receipt.wrappedValue = nil }
-                            .accessibilityLabel("Dismiss saved game")
-                            .accessibilityAddTraits(.isButton)
-                        ScrollView {
-                            VStack(alignment: .leading, spacing: 16) {
-                                HStack {
-                                    Label(game.status, systemImage: "checkmark.circle.fill")
-                                        .font(.title2.bold())
-                                    Spacer()
-                                    Button { receipt.wrappedValue = nil } label: {
-                                        Image(systemName: "xmark.circle.fill").font(.title2)
-                                    }
-                                    .accessibilityLabel("Close")
-                                }
-                                Text(game.title).font(.headline)
-                                receiptSide("Winners", names: game.winners, score: game.winnerScore)
-                                receiptSide("Losers", names: game.losers, score: game.loserScore)
-                                if !game.location.isEmpty { Label(game.location, systemImage: "mappin.and.ellipse") }
-                                if !game.comment.isEmpty { Text(game.comment).foregroundStyle(.secondary) }
-                                SiteAddActionButton(title: "Add another game", filled: true) {
-                                    receipt.wrappedValue = nil
-                                    addAnother()
-                                }
-                                SiteAddActionButton(title: "Done") { receipt.wrappedValue = nil }
-                            }
-                            .padding(24)
-                        }
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: 420, maxHeight: 560)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
-                        .padding(24)
-                        .accessibilityAddTraits(.isModal)
-                    }
-                }
-            }
-    }
-
-    func receiptSide(_ label: String, names: String, score: Int?) -> some View {
-        HStack(alignment: .top, spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(label).font(.caption).foregroundStyle(.secondary)
-                Text(names).font(.body.weight(.medium))
-            }
-            Spacer()
-            if let score { Text("\(score)").font(.title2.bold()) }
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
+    var detail: String {
+        let wScore = winnerScore.map { " (\($0))" } ?? ""
+        let lScore = loserScore.map { " (\($0))" } ?? ""
+        return (["\(winners)\(wScore) beat \(losers)\(lScore)"] +
+                [location, comment].filter { !$0.isEmpty }).joined(separator: " · ")
     }
 }

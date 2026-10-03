@@ -302,20 +302,45 @@ struct SiteAddScoreChips: View {
     }
 }
 
-struct SiteAddBanner: View {
+struct SiteBackgroundStatusBanner: View {
     @Environment(\.siteAppearance) private var appearance
-
     var text: String
-    var isError: Bool = false
+    var detail: String? = nil
+    var isBusy = false
+    var isError = false
+    var actionTitle: String? = nil
+    var onAction: (() -> Void)? = nil
+    var onDismiss: (() -> Void)? = nil
 
     var body: some View {
-        Text(text)
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(isError ? Color.red : Color.green)
-            .frame(maxWidth: .infinity)
-            .padding(10)
-            .background((isError ? Color.red : Color.green).opacity(0.12))
-            .clipShape(RoundedRectangle(cornerRadius: appearance.style.radius(10)))
+        HStack(alignment: .top, spacing: 10) {
+            if isBusy { ProgressView().tint(.green) }
+            VStack(alignment: .leading, spacing: 4) {
+                Text(text).font(.subheadline.weight(.semibold))
+                if let detail { Text(detail).font(.caption).lineLimit(3) }
+                if let actionTitle, let onAction {
+                    Button(actionTitle, action: onAction).font(.subheadline.weight(.semibold))
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if let onDismiss {
+                Button(action: onDismiss) { Image(systemName: "xmark") }
+                    .accessibilityLabel("Dismiss status")
+            }
+        }
+        .foregroundStyle(isError ? Color.red : Color.green)
+        .padding(10)
+        .background((isError ? Color.red : Color.green).opacity(0.12))
+        .clipShape(RoundedRectangle(cornerRadius: appearance.style.radius(10)))
+    }
+}
+
+struct SiteAddBanner: View {
+    var text: String
+    var isError = false
+
+    var body: some View {
+        SiteBackgroundStatusBanner(text: text, isError: isError)
     }
 }
 

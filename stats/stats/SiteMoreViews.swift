@@ -67,20 +67,19 @@ struct SiteMoreView: View {
                 if auth.isLoggedIn {
                 SiteListSection("Browse") {
                     NavigationLink("Players") { SitePlayersView() }
-                    if !auth.isPrivate {
-                        NavigationLink("Volleyball") { SiteVolleyballView() }
-                    }
-                    NavigationLink("AI Summaries") { SiteAISummaryView() }
                     NavigationLink("AI Recaps") { SiteRecapsView() }
                     if auth.isLoggedIn && !auth.isPrivate {
                         NavigationLink("Flyers") { SiteFlyersView() }
                     }
                 }
                 }
-                if auth.isLoggedIn && !auth.isPrivate {
+                if auth.isLoggedIn {
                     SiteListSection("Create") {
-                        NavigationLink("Create Flyer") { SiteFlyerView() }
-                        NavigationLink("Add doubles by voice") { SiteVoiceAddView() }
+                        NavigationLink("AI Recap") { SiteAISummaryView() }
+                        if !auth.isPrivate {
+                            NavigationLink("Flyer") { SiteFlyerView() }
+                            NavigationLink("Doubles by voice") { SiteVoiceAddView() }
+                        }
                     }
                 }
                 if auth.isAdmin {
@@ -208,6 +207,7 @@ struct SitePlayersView: View {
 }
 
 struct SiteEditPlayerView: View {
+    @Environment(\.backgroundStatus) private var backgroundStatus
     @State private var canonicalName: String
     @State private var name: String
     @State private var nickname: String
@@ -519,6 +519,8 @@ struct SiteEditPlayerView: View {
         aiBusy = true
         error = nil
         banner = nil
+        var notice = SiteBackgroundNotice(text: "Creating \(canonicalName)’s AI character…")
+        backgroundStatus(notice)
         do {
             let result = try await PythonAnywhereClient.shared.generatePlayerAIImage(name: canonicalName)
             if let url = result.imageUrl, !url.isEmpty {
@@ -539,6 +541,10 @@ struct SiteEditPlayerView: View {
             self.error = error.localizedDescription
         }
         aiBusy = false
+        notice.text = error ?? banner ?? "Check this player for your AI character."
+        notice.isBusy = false
+        notice.isError = error != nil
+        backgroundStatus(notice)
     }
 
     private func waitForPlayerAIImage(jobId: Int) async -> String? {
@@ -952,6 +958,7 @@ struct SiteFlyerDraft: Hashable {
 }
 
 struct SiteAIRosterView: View {
+    @Environment(\.backgroundStatus) private var backgroundStatus
     enum Kind: Hashable {
         case recap(gameType: String, gameIds: [String])
         case flyer(SiteFlyerDraft)
@@ -1160,6 +1167,8 @@ struct SiteAIRosterView: View {
         flyerImageURL = nil
         flyerDownloadURL = nil
         bannerIsError = false
+        var notice = SiteBackgroundNotice(text: "Creating your flyer in the background…")
+        backgroundStatus(notice)
         do {
             let id = try await PythonAnywhereClient.shared.createFlyer([
                 "players": draft.players,
@@ -1188,6 +1197,13 @@ struct SiteAIRosterView: View {
             bannerIsError = true
         }
         creating = false
+        notice.text = bannerIsError ? (banner ?? "Could not create flyer.") :
+            (flyerImageURL != nil || flyerDownloadURL != nil || shareURL != nil ?
+                "Your flyer is ready. Open More → Flyers to save it." :
+                "Still generating. Check Flyers in a few minutes.")
+        notice.isBusy = false
+        notice.isError = bannerIsError
+        backgroundStatus(notice)
     }
 }
 

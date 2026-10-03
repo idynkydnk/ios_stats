@@ -5,12 +5,38 @@ private struct SiteAISummaryQueuedKey: EnvironmentKey {
     static let defaultValue: (Int) -> Void = { _ in }
 }
 
+struct SiteBackgroundNotice: Identifiable {
+    var id = UUID()
+    var text: String
+    var detail: String? = nil
+    var isBusy = true
+    var isError = false
+}
+
+private struct SiteBackgroundStatusKey: EnvironmentKey {
+    static let defaultValue: (SiteBackgroundNotice) -> Void = { _ in }
+}
+
+private struct SiteGameSaveStatusKey: EnvironmentKey {
+    static let defaultValue: (SiteSavedGameReceipt) -> Void = { _ in }
+}
+
 private struct SiteRecapPresentation: Identifiable {
     let url: URL
     var id: String { url.absoluteString }
 }
 
 extension EnvironmentValues {
+    var backgroundStatus: (SiteBackgroundNotice) -> Void {
+        get { self[SiteBackgroundStatusKey.self] }
+        set { self[SiteBackgroundStatusKey.self] = newValue }
+    }
+
+    var gameSaveStatus: (SiteSavedGameReceipt) -> Void {
+        get { self[SiteGameSaveStatusKey.self] }
+        set { self[SiteGameSaveStatusKey.self] = newValue }
+    }
+
     var aiSummaryQueued: (Int) -> Void {
         get { self[SiteAISummaryQueuedKey.self] }
         set { self[SiteAISummaryQueuedKey.self] = newValue }
@@ -40,6 +66,8 @@ struct SiteRootView: View {
     @State private var vollisEdit: VollisGame?
     @State private var addKind: GameSection = .doubles
     @State private var addNavigationID = UUID()
+    @State private var backgroundStatuses: [SiteBackgroundNotice] = []
+    @State private var dismissedStatuses: Set<UUID> = []
     @State private var recapJobID: Int?
     @State private var recapStatus: String?
     @State private var recapReadyURL: URL?
@@ -48,8 +76,36 @@ struct SiteRootView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            if !queue.items.isEmpty {
+                SiteBackgroundStatusBanner(
+                    text: "\(queue.items.count) \(queue.items.count == 1 ? "change" : "changes") waiting to sync",
+                    isBusy: network.isConnected)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 4)
+            }
             recapBanner
+            ForEach(backgroundStatuses) { game in
+                SiteBackgroundStatusBanner(
+                    text: game.text,
+                    detail: game.detail,
+                    isBusy: game.isBusy,
+                    isError: game.isError,
+                    onDismiss: {
+                        dismissedStatuses.insert(game.id)
+                        backgroundStatuses.removeAll { $0.id == game.id }
+                    })
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 4)
+            }
             mainTabs
+        }
+        .environment(\.backgroundStatus) { notice in
+            reportBackgroundStatus(notice)
+        }
+        .environment(\.gameSaveStatus) { game in
+            reportBackgroundStatus(SiteBackgroundNotice(id: game.id,
+                text: "\(game.title) · \(game.status)", detail: game.detail,
+                isBusy: game.isSaving, isError: game.isError))
         }
         .environment(\.aiSummaryQueued) { jobID in
             recapReadyURL = nil
@@ -92,13 +148,6 @@ struct SiteRootView: View {
                         .background(Color.green.opacity(0.92))
                         .foregroundStyle(.black)
                 }
-                if !queue.items.isEmpty {
-                    Text("\(queue.items.count) change(s) waiting to sync")
-                        .font(.caption)
-                        .padding(8)
-                        .frame(maxWidth: .infinity)
-                        .background(Color.orange.opacity(0.9))
-                }
             }
         }
         .task {
@@ -128,6 +177,8 @@ struct SiteRootView: View {
             recapStatus = nil
             recapReadyURL = nil
             recapToOpen = nil
+            backgroundStatuses = []
+            dismissedStatuses = []
         }
         .onChange(of: auth.welcomeMessage) { _, message in
             guard message != nil else { return }
@@ -139,25 +190,30 @@ struct SiteRootView: View {
         }
     }
 
+    private func reportBackgroundStatus(_ notice: SiteBackgroundNotice) {
+        guard !dismissedStatuses.contains(notice.id) else { return }
+        if let index = backgroundStatuses.firstIndex(where: { $0.id == notice.id }) {
+            backgroundStatuses[index] = notice
+        } else {
+            backgroundStatuses.removeAll { !$0.isBusy }
+            backgroundStatuses.append(notice)
+        }
+    }
+
     @ViewBuilder
     private var recapBanner: some View {
         if let recapStatus {
-            HStack(spacing: 10) {
-                if recapJobID != nil { ProgressView() }
-                Text(recapStatus).font(.subheadline)
-                if let recapReadyURL {
-                    Button("Open recap") { recapToOpen = SiteRecapPresentation(url: recapReadyURL) }
-                }
-                if recapJobID == nil {
-                    Button { self.recapStatus = nil } label: {
-                        Image(systemName: "xmark")
-                    }
-                    .accessibilityLabel("Dismiss recap status")
-                }
-            }
-            .padding(12)
-            .frame(maxWidth: .infinity)
-            .background(recapIsError ? Color.red.opacity(0.15) : theme.appearance.accent.opacity(0.15))
+            SiteBackgroundStatusBanner(
+                text: recapStatus,
+                isBusy: recapJobID != nil,
+                isError: recapIsError,
+                actionTitle: recapReadyURL == nil ? nil : "Open recap",
+                onAction: {
+                    if let recapReadyURL { recapToOpen = SiteRecapPresentation(url: recapReadyURL) }
+                },
+                onDismiss: { self.recapStatus = nil })
+                .padding(.horizontal, 12)
+                .padding(.vertical, 4)
         }
     }
 
@@ -795,6 +851,7 @@ struct SiteGamesView: View {
     @State private var error: String?
     @State private var banner: String?
     @State private var bannerIsError = false
+    @State private var isDeleting = false
     @State private var successTick = 0
     @State private var openedPlayer: SitePlayerRoute?
     @ObservedObject private var network = NetworkMonitor.shared
@@ -804,6 +861,18 @@ struct SiteGamesView: View {
         NavigationStack {
             VStack(spacing: 0) {
                 SiteSearchBar(search: $search, searchPrompt: "Search")
+                if isDeleting && banner == nil {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                        Text("Deleting game…")
+                            .font(.subheadline.weight(.semibold))
+                        Spacer()
+                    }
+                    .padding(12)
+                    .background(appearance.panel, in: RoundedRectangle(cornerRadius: 12))
+                    .padding(.horizontal)
+                    .accessibilityElement(children: .combine)
+                }
                 if let banner {
                     SiteAddBanner(text: banner, isError: bannerIsError)
                         .padding(.horizontal)
@@ -829,13 +898,13 @@ struct SiteGamesView: View {
                                         .listRowInsets(EdgeInsets())
                                     .buttonStyle(.borderless)
                                     .swipeActions {
-                                        if canEdit {
+                                        if canEdit && !isDeleting {
                                             Button("Edit") { onEditDoubles(g) }
                                             Button("Delete", role: .destructive) { Task { await deleteDoubles(g) } }
                                         }
                                     }
                                     .contextMenu {
-                                        if canEdit {
+                                        if canEdit && !isDeleting {
                                             Button("Edit") { onEditDoubles(g) }
                                             Button("Delete", role: .destructive) { Task { await deleteDoubles(g) } }
                                         }
@@ -849,13 +918,13 @@ struct SiteGamesView: View {
                                         .listRowInsets(EdgeInsets())
                                     .buttonStyle(.borderless)
                                     .swipeActions {
-                                        if canEdit {
+                                        if canEdit && !isDeleting {
                                             Button("Edit") { onEditVollis(g) }
                                             Button("Delete", role: .destructive) { Task { await deleteVollis(g) } }
                                         }
                                     }
                                     .contextMenu {
-                                        if canEdit {
+                                        if canEdit && !isDeleting {
                                             Button("Edit") { onEditVollis(g) }
                                             Button("Delete", role: .destructive) { Task { await deleteVollis(g) } }
                                         }
@@ -880,12 +949,12 @@ struct SiteGamesView: View {
                                         .listRowInsets(EdgeInsets())
                                     .buttonStyle(.borderless)
                                     .swipeActions {
-                                        if canEdit {
+                                        if canEdit && !isDeleting {
                                             Button("Delete", role: .destructive) { Task { await deleteOther(g) } }
                                         }
                                     }
                                     .contextMenu {
-                                        if canEdit {
+                                        if canEdit && !isDeleting {
                                             Button("Delete", role: .destructive) { Task { await deleteOther(g) } }
                                         }
                                     }
@@ -979,7 +1048,13 @@ struct SiteGamesView: View {
         successTick += 1
     }
 
+    @MainActor
     private func deleteDoubles(_ g: DoublesGame) async {
+        guard !isDeleting else { return }
+        isDeleting = true
+        banner = nil
+        error = nil
+        defer { isDeleting = false }
         if !network.isConnected {
             queue.enqueue(method: "DELETE", path: "/api/doubles/games/\(g.id)", body: nil)
             doubles.removeAll { $0.id == g.id }
@@ -988,6 +1063,7 @@ struct SiteGamesView: View {
         }
         do {
             try await PythonAnywhereClient.shared.deleteDoubles(id: g.id)
+            doubles.removeAll { $0.id == g.id }
             showDeletedBanner()
             await load()
         } catch {
@@ -995,9 +1071,16 @@ struct SiteGamesView: View {
             self.error = error.localizedDescription
         }
     }
+    @MainActor
     private func deleteVollis(_ g: VollisGame) async {
+        guard !isDeleting else { return }
+        isDeleting = true
+        banner = nil
+        error = nil
+        defer { isDeleting = false }
         do {
             try await PythonAnywhereClient.shared.deleteVollis(id: g.id)
+            vollis.removeAll { $0.id == g.id }
             showDeletedBanner()
             await load()
         } catch {
@@ -1005,9 +1088,16 @@ struct SiteGamesView: View {
             self.error = error.localizedDescription
         }
     }
+    @MainActor
     private func deleteOther(_ g: OtherGame) async {
+        guard !isDeleting else { return }
+        isDeleting = true
+        banner = nil
+        error = nil
+        defer { isDeleting = false }
         do {
             try await PythonAnywhereClient.shared.deleteOther(id: g.id)
+            other.removeAll { $0.id == g.id }
             showDeletedBanner()
             await load()
         } catch {

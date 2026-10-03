@@ -41,43 +41,28 @@ struct SiteAddHubView: View {
                 .font(.largeTitle.bold())
                 .padding(.horizontal)
                 .padding(.top, 8)
-            Picker("Type", selection: $section) {
-                ForEach(GameSection.allCases) { s in
-                    Text(s.title).tag(s)
-                }
+            Picker("Type", selection: Binding(
+                get: { section == .doubles ? GameSection.doubles : .other },
+                set: { section = $0 }
+            )) {
+                Text("Doubles").tag(GameSection.doubles)
+                Text("Other").tag(GameSection.other)
             }
             .pickerStyle(.segmented)
             .padding(.horizontal)
             .padding(.top, 8)
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    addLink("AI Summary", systemImage: "sparkles") { SiteAISummaryView() }
-                    if !auth.isPrivate {
-                    addLink("New Flyer", systemImage: "megaphone") { SiteFlyerView() }
-                    addLink("Flyers", systemImage: "photo") { SiteFlyersView() }
-                    addLink("Recaps", systemImage: "text.bubble") { SiteRecapsView() }
-                    addLink("Voice", systemImage: "mic") { SiteVoiceAddView() }
-                    }
-                    addLink("Tournament", systemImage: "trophy") { SiteTournamentsView() }
-                    addLink("Player", systemImage: "person.badge.plus") { SitePlayersView() }
+            if section != .doubles {
+                Picker("Game", selection: $section) {
+                    Text("Other games").tag(GameSection.other)
+                    Text("Vollis").tag(GameSection.vollis)
                 }
+                .pickerStyle(.menu)
                 .padding(.horizontal)
-                .padding(.vertical, 10)
+                .padding(.top, 8)
             }
         }
-    }
-
-    private func addLink<V: View>(_ title: String, systemImage: String, @ViewBuilder destination: () -> V) -> some View {
-        NavigationLink(destination: destination) {
-            Label(title, systemImage: systemImage)
-                .font(.subheadline.weight(.semibold))
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(Color(.secondarySystemFill))
-                .clipShape(Capsule())
-        }
-        .buttonStyle(.plain)
+        .padding(.bottom, 12)
     }
 }
 
