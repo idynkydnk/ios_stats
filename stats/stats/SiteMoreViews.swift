@@ -5,6 +5,7 @@ import Speech
 import AVFoundation
 
 struct SiteMoreView: View {
+    @Environment(\.siteAppearance) private var appearance
     var onHome: () -> Void
     @Binding var browseStarterStats: Bool
     @ObservedObject private var auth = SiteAuthManager.shared
@@ -16,7 +17,7 @@ struct SiteMoreView: View {
         NavigationStack {
             List {
                 if !auth.isLoggedIn {
-                    SiteListSection("Menu") {
+                    Section {
                         Button(action: onHome) { Label("Home", systemImage: "house") }
                         NavigationLink { SiteAppearanceView() } label: {
                             Label("Appearance", systemImage: "paintpalette")
@@ -24,6 +25,7 @@ struct SiteMoreView: View {
                         NavigationLink("AI Recaps") { SiteRecapsView() }
                         NavigationLink("Login") { LoginView() }
                     }
+                    .listRowBackground(appearance.panel)
                 }
                 if auth.isLoggedIn {
                 SiteListSection("Account") {
@@ -88,7 +90,7 @@ struct SiteMoreView: View {
                     }
                 }
             }
-            .navigationTitle("More")
+            .navigationTitle("Menu")
             .confirmationDialog("Delete your account and all your games?", isPresented: $confirmDeletion, titleVisibility: .visible) {
                 Button("Delete account", role: .destructive) {
                     Task {
@@ -1391,6 +1393,16 @@ struct SiteRecapsView: View {
     @State private var error: String?
 
     var body: some View {
+        Group {
+            if !auth.isLoggedIn, let url = SitePublicLink.absolute("/ai-recaps/") {
+                SiteRecapPageView(title: "AI Recaps", url: url)
+            } else {
+                recapList
+            }
+        }
+    }
+
+    private var recapList: some View {
         List {
             if let url = SitePublicLink.absolute("/ai-recaps/") {
                 NavigationLink {
