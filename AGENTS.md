@@ -1,5 +1,12 @@
 # iPhone app project instructions
 
+## Push requests
+
+When the user says "push", commit and push pending changes in both this app
+repository and `/Users/mila/Library/CloudStorage/Dropbox/coding/stats`. Check both
+repositories even when the chat is opened in only one. Include the app update
+notes with the website push.
+
 ## Shared Site updates page
 
 Kyle's Site updates page covers the website and iPhone app. Whenever you make a

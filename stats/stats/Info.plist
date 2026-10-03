@@ -2,12 +2,14 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleURLTypes</key>
-    <array>
-        <dict>
-            <key>CFBundleURLSchemes</key>
-            <array><string>com.googleusercontent.apps.195048170299-63t84plh4cae8a7r5nk70d8l8hkr3t8p</string></array>
-        </dict>
-    </array>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.195048170299-63t84plh4cae8a7r5nk70d8l8hkr3t8p</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

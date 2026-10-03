@@ -1,6 +1,22 @@
 import SwiftUI
 import Combine
 
+private struct SiteAISummaryQueuedKey: EnvironmentKey {
+    static let defaultValue: (Int) -> Void = { _ in }
+}
+
+private struct SiteRecapPresentation: Identifiable {
+    let url: URL
+    var id: String { url.absoluteString }
+}
+
+extension EnvironmentValues {
+    var aiSummaryQueued: (Int) -> Void {
+        get { self[SiteAISummaryQueuedKey.self] }
+        set { self[SiteAISummaryQueuedKey.self] = newValue }
+    }
+}
+
 struct SiteRootView: View {
     @ObservedObject private var auth = SiteAuthManager.shared
     @ObservedObject private var theme = SiteTheme.shared
@@ -23,27 +39,49 @@ struct SiteRootView: View {
     @State private var doublesEdit: DoublesGame?
     @State private var vollisEdit: VollisGame?
     @State private var addKind: GameSection = .doubles
+    @State private var addNavigationID = UUID()
+    @State private var recapJobID: Int?
+    @State private var recapStatus: String?
+    @State private var recapReadyURL: URL?
+    @State private var recapToOpen: SiteRecapPresentation?
+    @State private var recapIsError = false
 
     var body: some View {
         VStack(spacing: 0) {
-        TabView(selection: $selectedTab) {
-            SiteStatsView(selectedOtherGame: $selectedOtherGame, section: $section, selectedYear: selectedYear, years: years)
-                .id(auth.isPreviewing)
-                .tabItem { Label("Stats", systemImage: "chart.bar.fill") }
-                .tag(0)
-            SiteGamesView(selectedOtherGame: $selectedOtherGame, section: $section, selectedYear: selectedYear, years: years, canEdit: auth.isLoggedIn && !auth.isPreviewing, onEditDoubles: { doublesEdit = $0; addKind = .doubles; selectedTab = 2 }, onEditVollis: { vollisEdit = $0; addKind = .vollis; selectedTab = 2 })
-                .id(auth.isPreviewing)
-                .tabItem { Label("Games", systemImage: "list.bullet") }
-                .tag(1)
-            SiteAddHubView(section: $addKind, doublesEdit: $doublesEdit, vollisEdit: $vollisEdit)
-                .tabItem { Label("Add", systemImage: "plus.circle.fill") }
-                .tag(2)
-            SiteMoreView(onHome: { selectedTab = 0 }, browseStarterStats: $browseStarterStats)
-                .tabItem { Label("More", systemImage: "line.3.horizontal") }
-                .tag(3)
+            recapBanner
+            mainTabs
         }
+        .environment(\.aiSummaryQueued) { jobID in
+            recapReadyURL = nil
+            recapIsError = false
+            recapStatus = "Generating your recap in the background…"
+            recapJobID = jobID
+            browseStarterStats = false
+            selectedTab = 0
+            addNavigationID = UUID()
         }
         .tint(theme.appearance.accent)
+        .sheet(item: $recapToOpen) { recap in
+            NavigationStack {
+                SiteRecapPageView(title: "Recap", url: recap.url)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { recapToOpen = nil }
+                        }
+                    }
+            }
+        }
+        .task(id: recapJobID) {
+            guard let jobID = recapJobID else { return }
+            let result = await siteWaitForAIShare(jobId: jobID, recap: true)
+            guard !Task.isCancelled, recapJobID == jobID else { return }
+            recapJobID = nil
+            recapReadyURL = result.pageURL
+            recapIsError = result.error != nil
+            recapStatus = result.pageURL != nil
+                ? "Your recap is ready."
+                : result.error ?? "Still generating. Check Recaps in a few minutes."
+        }
         .overlay(alignment: .top) {
             VStack(spacing: 0) {
                 if let welcome = auth.welcomeMessage {
@@ -85,6 +123,12 @@ struct SiteRootView: View {
         .onChange(of: network.isConnected) { _, online in
             if online { Task { await queue.flush() } }
         }
+        .onChange(of: auth.username) { _, _ in
+            recapJobID = nil
+            recapStatus = nil
+            recapReadyURL = nil
+            recapToOpen = nil
+        }
         .onChange(of: auth.welcomeMessage) { _, message in
             guard message != nil else { return }
             selectedTab = 0
@@ -92,6 +136,48 @@ struct SiteRootView: View {
                 try? await Task.sleep(nanoseconds: 2_400_000_000)
                 auth.clearWelcome()
             }
+        }
+    }
+
+    @ViewBuilder
+    private var recapBanner: some View {
+        if let recapStatus {
+            HStack(spacing: 10) {
+                if recapJobID != nil { ProgressView() }
+                Text(recapStatus).font(.subheadline)
+                if let recapReadyURL {
+                    Button("Open recap") { recapToOpen = SiteRecapPresentation(url: recapReadyURL) }
+                }
+                if recapJobID == nil {
+                    Button { self.recapStatus = nil } label: {
+                        Image(systemName: "xmark")
+                    }
+                    .accessibilityLabel("Dismiss recap status")
+                }
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity)
+            .background(recapIsError ? Color.red.opacity(0.15) : theme.appearance.accent.opacity(0.15))
+        }
+    }
+
+    private var mainTabs: some View {
+        TabView(selection: $selectedTab) {
+            SiteStatsView(selectedOtherGame: $selectedOtherGame, section: $section, selectedYear: selectedYear, years: years)
+                .id(auth.isPreviewing)
+                .tabItem { Label("Stats", systemImage: "chart.bar.fill") }
+                .tag(0)
+            SiteGamesView(selectedOtherGame: $selectedOtherGame, section: $section, selectedYear: selectedYear, years: years, canEdit: auth.isLoggedIn && !auth.isPreviewing, onEditDoubles: { doublesEdit = $0; addKind = .doubles; selectedTab = 2 }, onEditVollis: { vollisEdit = $0; addKind = .vollis; selectedTab = 2 })
+                .id(auth.isPreviewing)
+                .tabItem { Label("Games", systemImage: "list.bullet") }
+                .tag(1)
+            SiteAddHubView(section: $addKind, doublesEdit: $doublesEdit, vollisEdit: $vollisEdit)
+                .id(addNavigationID)
+                .tabItem { Label("Add", systemImage: "plus.circle.fill") }
+                .tag(2)
+            SiteMoreView(onHome: { selectedTab = 0 }, browseStarterStats: $browseStarterStats)
+                .tabItem { Label("More", systemImage: "line.3.horizontal") }
+                .tag(3)
         }
     }
 
@@ -732,13 +818,13 @@ struct SiteGamesView: View {
                         SiteSectionBubble(title: "Games", count: visibleGameCount, expanded: $gamesExpanded)
                             .listRowInsets(EdgeInsets())
                             .listRowBackground(appearance.panel)
-                            .listRowSeparator(.visible)
+                            .listRowSeparator(.hidden)
                         if gamesExpanded {
                             switch section {
                             case .doubles:
                                 SiteLimitedRows(filteredDoubles) { g in
                                     DoublesGameRow(game: g, year: selectedYear, section: .doubles)
-                                        .listRowSeparator(.visible)
+                                        .listRowSeparator(.hidden)
                                         .listRowBackground(appearance.panel)
                                         .listRowInsets(EdgeInsets())
                                     .buttonStyle(.borderless)
@@ -758,7 +844,7 @@ struct SiteGamesView: View {
                             case .vollis:
                                 SiteLimitedRows(filteredVollis) { g in
                                     VollisGameRow(game: g, year: selectedYear, section: .vollis)
-                                        .listRowSeparator(.visible)
+                                        .listRowSeparator(.hidden)
                                         .listRowBackground(appearance.panel)
                                         .listRowInsets(EdgeInsets())
                                     .buttonStyle(.borderless)
@@ -779,7 +865,7 @@ struct SiteGamesView: View {
                                 SiteLimitedRows(filteredOther) { g in
                                     VStack(alignment: .leading, spacing: 7) {
                                         Text("\(g.gameName ?? "") · \(g.gameType ?? "")").font(.headline)
-                                        SiteGameDateLabel(raw: g.gameDateOnly ?? g.gameDate)
+                                        SiteGameDateLabel(raw: g.gameDate ?? g.gameDateOnly)
                                         SiteTeamScorePanel(score: g.winnerScore, winner: true) {
                                             SitePlayerNamesLine(names: g.displayWinners, year: selectedYear, section: .other, color: .green)
                                         }
@@ -789,7 +875,7 @@ struct SiteGamesView: View {
                                         if let c = g.comment, !c.isEmpty { Text(c).font(.caption).italic() }
                                     }
                                     .padding(.horizontal, 12).padding(.vertical, 10)
-                                        .listRowSeparator(.visible)
+                                        .listRowSeparator(.hidden)
                                         .listRowBackground(appearance.panel)
                                         .listRowInsets(EdgeInsets())
                                     .buttonStyle(.borderless)
@@ -998,7 +1084,11 @@ struct SiteGameDateLabel: View {
     var body: some View {
         Group {
             if let date = DoublesGame.parseDate(raw) {
-                Text(date, style: .date)
+                if raw?.contains(":") == true {
+                    Text(date.formatted(.dateTime.month(.wide).day().year().hour().minute()))
+                } else {
+                    Text(date, style: .date)
+                }
             } else if let raw, !raw.isEmpty {
                 Text(raw)
             }
@@ -1054,7 +1144,6 @@ struct DoublesGameRow: View {
         }
         .padding(.horizontal, 12).padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .overlay(alignment: .bottom) { Divider().padding(.horizontal, 16) }
     }
 
     private func playerPair(_ a: String?, _ b: String?, color: Color) -> some View {
@@ -1081,7 +1170,6 @@ struct VollisGameRow: View {
         }
         .padding(.horizontal, 12).padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .overlay(alignment: .bottom) { Divider().padding(.horizontal, 16) }
     }
 }
 

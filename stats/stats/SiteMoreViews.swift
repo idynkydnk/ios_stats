@@ -1190,6 +1190,7 @@ struct SiteAIRosterView: View {
 }
 
 struct SiteAIStyleView: View {
+    @Environment(\.aiSummaryQueued) private var aiSummaryQueued
     var gameType: String
     var gameIds: [String]
     var animationPlayers: [String]
@@ -1201,17 +1202,12 @@ struct SiteAIStyleView: View {
     @State private var generating = false
     @State private var banner: String?
     @State private var bannerIsError = false
-    @State private var shareURL: URL?
-    @State private var recapToOpen: URL?
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 if let banner {
                     SiteAddBanner(text: banner, isError: bannerIsError)
-                }
-                if let shareURL {
-                    SiteRecapActions(title: "Recap", url: shareURL)
                 }
 
                 Text("Writing style")
@@ -1291,9 +1287,6 @@ struct SiteAIStyleView: View {
             .padding(.bottom, 24)
         }
         .navigationTitle("AI style")
-        .navigationDestination(item: $recapToOpen) { url in
-            SiteRecapPageView(title: "Recap", url: url)
-        }
         .scrollDismissesKeyboard(.interactively)
     }
 
@@ -1336,8 +1329,6 @@ struct SiteAIStyleView: View {
     private func generate(imageMode: String) async {
         generating = true
         banner = nil
-        shareURL = nil
-        recapToOpen = nil
         bannerIsError = false
         do {
             let jobId = try await PythonAnywhereClient.shared.generateAISummary(
@@ -1348,20 +1339,7 @@ struct SiteAIStyleView: View {
                 imageMode: imageMode,
                 imageDetails: imageMode == "animation" ? "Moving player: \(animationPlayer)\nAction: \(animationDetails)" : imageDetails
             )
-            banner = imageMode != "none"
-                ? "Working in the background. You can leave and check Recaps in a few minutes."
-                : "Working in the background. You can leave and check Recaps."
-            let result = await siteWaitForAIShare(jobId: jobId, recap: true)
-            if let url = result.pageURL {
-                shareURL = url
-                banner = "Recap ready"
-                recapToOpen = url
-            } else if let err = result.error {
-                banner = err
-                bannerIsError = true
-            } else {
-                banner = "Still working in the background. Check Recaps in a few minutes."
-            }
+            aiSummaryQueued(jobId)
         } catch {
             banner = error.localizedDescription
             bannerIsError = true
@@ -1370,16 +1348,20 @@ struct SiteAIStyleView: View {
     }
 }
 
-private struct SiteAIShareResult {
+struct SiteAIShareResult {
     var pageURL: URL?
     var imageURL: URL?
     var downloadURL: URL?
     var error: String?
 }
 
-private func siteWaitForAIShare(jobId: Int, recap: Bool) async -> SiteAIShareResult {
+func siteWaitForAIShare(jobId: Int, recap: Bool) async -> SiteAIShareResult {
     for i in 0..<90 {
-        if i > 0 { try? await Task.sleep(nanoseconds: 4_000_000_000) }
+        if Task.isCancelled { return SiteAIShareResult() }
+        if i > 0 {
+            do { try await Task.sleep(nanoseconds: 4_000_000_000) }
+            catch { return SiteAIShareResult() }
+        }
         guard let job = try? await PythonAnywhereClient.shared.aiJob(id: jobId) else { continue }
         let status = (job["status"] as? String ?? "").lowercased()
         if status == "failed" || status == "error" {

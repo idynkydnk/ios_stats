@@ -14,11 +14,11 @@
 		21CE52F62F56966500D23678 /* Exceptions for "stats" folder in "stats" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				"GoogleService-Info.plist",
 				Info.plist,
 				"STATS WEB SITE",
-				stats.db,
 				stats_backup.db,
-				"GoogleService-Info.plist",
+				stats.db,
 				"Supabase-Info.plist",
 			);
 			target = 21A359812E9C6A3900D8875E /* stats */;
@@ -311,7 +311,7 @@
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
-				MARKETING_VERSION = 7.6;
+				MARKETING_VERSION = 7.9;
 				PRODUCT_BUNDLE_IDENTIFIER = com.kt.stats;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -369,7 +369,7 @@
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
-				MARKETING_VERSION = 7.6;
+				MARKETING_VERSION = 7.9;
 				PRODUCT_BUNDLE_IDENTIFIER = com.kt.stats;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
