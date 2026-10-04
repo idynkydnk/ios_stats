@@ -1,8 +1,6 @@
 import SwiftUI
 import Combine
 import PhotosUI
-import Speech
-import AVFoundation
 
 struct SiteMoreView: View {
     @Environment(\.siteAppearance) private var appearance
@@ -78,7 +76,6 @@ struct SiteMoreView: View {
                         NavigationLink("AI Recap") { SiteAISummaryView() }
                         if !auth.isPrivate {
                             NavigationLink("Flyer") { SiteFlyerView() }
-                            NavigationLink("Doubles by voice") { SiteVoiceAddView() }
                         }
                     }
                 }
@@ -1903,132 +1900,5 @@ struct SiteFlyerView: View {
             location: location.trimmingCharacters(in: .whitespaces),
             imageDetails: imageDetails.trimmingCharacters(in: .whitespacesAndNewlines)
         )
-    }
-}
-
-struct SiteVoiceAddView: View {
-    @StateObject private var capture = VoiceCapture()
-    @State private var parsed: [String: Any] = [:]
-    @State private var status = ""
-
-    var body: some View {
-        Form {
-            Text("Speak a result like “Kyle and Aaron beat Dan and Ryan 21 15”.")
-            TextEditor(text: $capture.transcript).frame(minHeight: 80)
-            Button(capture.isRecording ? "Stop recording" : "Record") {
-                Task { await capture.toggle() }
-            }
-            Button("Parse") { Task { await parse() } }
-            if !parsed.isEmpty {
-                Text(String(describing: parsed)).font(.caption)
-                Button("Save game") { Task { await save() } }
-            }
-            Text(status.isEmpty ? capture.status : status).foregroundStyle(.secondary)
-        }
-        .navigationTitle("Voice")
-        .onAppear {
-            SFSpeechRecognizer.requestAuthorization { _ in }
-            AVAudioApplication.requestRecordPermission { _ in }
-        }
-    }
-
-    private func parse() async {
-        do {
-            parsed = try await PythonAnywhereClient.shared.parseVoice(transcript: capture.transcript)
-            status = "Parsed."
-        } catch { status = error.localizedDescription }
-    }
-
-    private func save() async {
-        guard let w1 = parsed["winner1"] as? String, let w2 = parsed["winner2"] as? String,
-              let l1 = parsed["loser1"] as? String, let l2 = parsed["loser2"] as? String else { return }
-        let ws = parsed["winner_score"] as? Int ?? Int("\(parsed["winner_score"] ?? "")") ?? 0
-        let ls = parsed["loser_score"] as? Int ?? Int("\(parsed["loser_score"] ?? "")") ?? 0
-        let df = DateFormatter(); df.dateFormat = "yyyy-MM-dd HH:mm:ss"
-        do {
-            try await PythonAnywhereClient.shared.createDoubles([
-                "game_date": df.string(from: Date()),
-                "winner1": w1, "winner2": w2, "loser1": l1, "loser2": l2,
-                "winner_score": ws, "loser_score": ls,
-                "entered_timezone": TimeZone.current.identifier,
-            ])
-            status = "Saved."
-        } catch { status = error.localizedDescription }
-    }
-}
-
-@MainActor
-final class VoiceCapture: ObservableObject {
-    @Published var transcript = ""
-    @Published var isRecording = false
-    @Published var status = ""
-
-    private let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en_US"))
-    private var request: SFSpeechAudioBufferRecognitionRequest?
-    private var task: SFSpeechRecognitionTask?
-    private let engine = AVAudioEngine()
-    private var hasTap = false
-
-    func toggle() async {
-        if isRecording {
-            stop()
-            return
-        }
-        guard let recognizer, recognizer.isAvailable else {
-            status = "Speech recognition isn’t available. Type the result instead."
-            return
-        }
-        do {
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.record, mode: .measurement, options: .duckOthers)
-            try session.setActive(true, options: .notifyOthersOnDeactivation)
-            let request = SFSpeechAudioBufferRecognitionRequest()
-            request.shouldReportPartialResults = true
-            self.request = request
-            let input = engine.inputNode
-            let format = input.outputFormat(forBus: 0)
-            if hasTap {
-                input.removeTap(onBus: 0)
-                hasTap = false
-            }
-            input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
-                request.append(buffer)
-            }
-            hasTap = true
-            engine.prepare()
-            try engine.start()
-            isRecording = true
-            status = "Listening…"
-            task = recognizer.recognitionTask(with: request) { [weak self] result, error in
-                guard let self else { return }
-                if let result {
-                    Task { @MainActor in
-                        self.transcript = result.bestTranscription.formattedString
-                    }
-                }
-                if error != nil || (result?.isFinal ?? false) {
-                    Task { @MainActor in self.stop() }
-                }
-            }
-        } catch {
-            status = error.localizedDescription
-            stop()
-        }
-    }
-
-    func stop() {
-        if engine.isRunning {
-            engine.stop()
-        }
-        if hasTap {
-            engine.inputNode.removeTap(onBus: 0)
-            hasTap = false
-        }
-        request?.endAudio()
-        task?.cancel()
-        task = nil
-        request = nil
-        isRecording = false
-        if status == "Listening…" { status = "Stopped." }
     }
 }

@@ -23,6 +23,7 @@ struct SiteAddHubView: View {
                         case .vollis:
                             SiteAddVollisView(gameToEdit: vollisEdit, header: AnyView(addHeader)) {
                                 vollisEdit = nil
+                                section = .other
                             }
                         case .other:
                             SiteAddOtherView(header: AnyView(addHeader))
@@ -51,16 +52,6 @@ struct SiteAddHubView: View {
             .pickerStyle(.segmented)
             .padding(.horizontal)
             .padding(.top, 8)
-
-            if section != .doubles {
-                Picker("Game", selection: $section) {
-                    Text("Other games").tag(GameSection.other)
-                    Text("Vollis").tag(GameSection.vollis)
-                }
-                .pickerStyle(.menu)
-                .padding(.horizontal)
-                .padding(.top, 8)
-            }
         }
         .padding(.bottom, 12)
     }

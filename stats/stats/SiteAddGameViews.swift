@@ -1,6 +1,4 @@
 import SwiftUI
-import Speech
-import AVFoundation
 
 struct SiteAddDoublesView: View {
     var gameToEdit: DoublesGame?
@@ -28,7 +26,6 @@ struct SiteAddDoublesView: View {
     @Environment(\.gameSaveStatus) private var gameSaveStatus
     @State private var rematch: (String, String, String, String)?
     @State private var today: TodaysDoublesDashboard?
-    @State private var showVoice = false
     @FocusState private var focused: Field?
     @ObservedObject private var network = NetworkMonitor.shared
     @ObservedObject private var queue = SiteOfflineQueue.shared
@@ -93,11 +90,6 @@ struct SiteAddDoublesView: View {
         }
         .sensoryFeedback(.success, trigger: successTick)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                if !auth.isPrivate {
-                    Button { showVoice = true } label: { Image(systemName: "mic.fill") }
-                }
-            }
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()
                 Button {
@@ -106,12 +98,6 @@ struct SiteAddDoublesView: View {
                     Image(systemName: "keyboard.chevron.compact.down")
                 }
                 .accessibilityLabel("Hide keyboard")
-            }
-        }
-        .sheet(isPresented: $showVoice) {
-            SiteAddVoiceSheet { parsed in
-                applyParsed(parsed)
-                showVoice = false
             }
         }
         .task { await bootstrap() }
@@ -218,16 +204,6 @@ struct SiteAddDoublesView: View {
         location = siteLastGameLocation()
         error = nil
         if focusFirst { focused = .w1 }
-    }
-
-    private func applyParsed(_ parsed: [String: Any]) {
-        if let v = parsed["winner1"] as? String { winner1 = v }
-        if let v = parsed["winner2"] as? String { winner2 = v }
-        if let v = parsed["loser1"] as? String { loser1 = v }
-        if let v = parsed["loser2"] as? String { loser2 = v }
-        winnerScore = parsed["winner_score"] as? Int ?? Int("\(parsed["winner_score"] ?? "")")
-        loserScore = parsed["loser_score"] as? Int ?? Int("\(parsed["loser_score"] ?? "")")
-        focused = .comment
     }
 
     private func save() async {
@@ -517,7 +493,7 @@ struct SiteAddOtherView: View {
     @State private var teamLoserScore: Int?
     @State private var comment = ""
     @State private var location = siteLastGameLocation()
-    @State private var knownNames: [String] = []
+    @State private var knownNames: [String] = ["Vollis"]
     @State private var knownTypes: [String] = []
     @State private var entryDefaults: [String: PythonAnywhereClient.OtherGameEntryInfo] = [:]
     @State private var players: [String] = []
@@ -530,6 +506,11 @@ struct SiteAddOtherView: View {
     @State private var successTick = 0
     @Environment(\.gameSaveStatus) private var gameSaveStatus
     @State private var todayGames: [OtherGame] = []
+    @State private var todayVollisGames: [VollisGame] = []
+
+    private var isVollis: Bool {
+        gameName.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare("Vollis") == .orderedSame
+    }
     @FocusState private var focused: Field?
 
     var body: some View {
@@ -543,13 +524,13 @@ struct SiteAddOtherView: View {
                         Task { await applyGameName(advanceFocus: false) }
                     }, onFocus: {})
                     if focused == .gameName {
-                        SiteAddSuggestionList(names: siteFilterPlayers(knownNames, query: gameName, excluding: [])) { name in
+                        SiteAddSuggestionList(names: siteFilterPlayers(knownNames, query: gameName, excluding: [], limit: knownNames.count)) { name in
                             gameName = name
                             Task { await applyGameName() }
                         }
                     }
 
-                    if !knownTypes.isEmpty {
+                    if !isVollis && !knownTypes.isEmpty {
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack {
                                 ForEach(knownTypes, id: \.self) { t in
@@ -561,26 +542,32 @@ struct SiteAddOtherView: View {
                         }
                     }
 
-                    Picker("Scoring", selection: $scoreType) {
-                        Text("Team").tag("team")
-                        Text("Individual").tag("individual")
-                        Text("None").tag("none")
+                    if !isVollis {
+                        Picker("Scoring", selection: $scoreType) {
+                            Text("Team").tag("team")
+                            Text("Individual").tag("individual")
+                            Text("None").tag("none")
+                        }
+                        .pickerStyle(.segmented)
                     }
-                    .pickerStyle(.segmented)
 
                     Text("Winners").font(.headline)
                     ForEach(winners.indices, id: \.self) { i in
                         playerSlot(side: .winner, index: i)
                     }
-                    Button("Add winner") { addSlot(winner: true) }
-                        .font(.subheadline)
+                    if !isVollis {
+                        Button("Add winner") { addSlot(winner: true) }
+                            .font(.subheadline)
+                    }
 
                     Text("Losers").font(.headline)
                     ForEach(losers.indices, id: \.self) { i in
                         playerSlot(side: .loser, index: i)
                     }
-                    Button("Add loser") { addSlot(winner: false) }
-                        .font(.subheadline)
+                    if !isVollis {
+                        Button("Add loser") { addSlot(winner: false) }
+                            .font(.subheadline)
+                    }
 
                     if scoreType == "team" {
                         SiteAddScoreRow(label: "Winner score", value: $teamWinnerScore, field: .teamW, focus: $focused, onSubmit: { focused = .teamL })
@@ -590,16 +577,18 @@ struct SiteAddOtherView: View {
                                 focused = .teamL
                             }
                         }
-                        SiteAddScoreRow(label: "Loser score", value: $teamLoserScore, field: .teamL, focus: $focused, submit: .next, onSubmit: { focused = .comment })
+                        SiteAddScoreRow(label: "Loser score", value: $teamLoserScore, field: .teamL, focus: $focused, submit: .next, onSubmit: { focused = isVollis ? .location : .comment })
                         if focused == .teamL {
                             SiteAddScoreChips(scores: loserChipsForTeam(), selected: teamLoserScore) { s in
                                 teamLoserScore = s
-                                focused = .comment
+                                focused = isVollis ? .location : .comment
                             }
                         }
                     }
 
-                    SiteAddCommentRow(text: $comment, field: .comment, focus: $focused)
+                    if !isVollis {
+                        SiteAddCommentRow(text: $comment, field: .comment, focus: $focused)
+                    }
                     SiteAddTextRow(label: "Location (optional)", text: $location, field: .location, focus: $focused, submit: .done, onSubmit: { focused = nil })
 
                     HStack(spacing: 8) {
@@ -610,6 +599,13 @@ struct SiteAddOtherView: View {
                 }
                 .disabled(saving)
 
+                if !todayVollisGames.isEmpty {
+                    SiteExpandableSection(title: "Vollis games", count: todayVollisGames.count, subtitle: "Today") {
+                        ForEach(todayVollisGames) { game in
+                            VollisGameRow(game: game)
+                        }
+                    }
+                }
                 if !todayGames.isEmpty {
                     SiteContentCard(title: "Today's Games") {
                     ForEach(todayGames) { g in
@@ -638,17 +634,19 @@ struct SiteAddOtherView: View {
                 .accessibilityLabel("Hide keyboard")
             }
         }
+        .onAppear { focused = .gameName }
+        .onChange(of: gameName) { _, _ in
+            if isVollis { configureVollis() }
+        }
         .task {
             if let info = try? await PythonAnywhereClient.shared.otherGameTypes() {
-                knownNames = info.names
+                knownNames = ["Vollis"] + info.names.filter { $0.caseInsensitiveCompare("Vollis") != .orderedSame }
                 knownTypes = info.types
                 entryDefaults = info.defaults
             }
-            players = knownNames
             let year = String(Calendar.current.component(.year, from: Date()))
             let all = (try? await PythonAnywhereClient.shared.otherGames(year: year, preview: false))?.games ?? []
             todayGames = all.filter { siteIsToday(DoublesGame.parseDate($0.gameDateOnly ?? $0.gameDate) ?? .distantPast) }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { focused = .gameName }
         }
     }
 
@@ -759,9 +757,32 @@ struct SiteAddOtherView: View {
         return loserChips
     }
 
+    private func configureVollis() {
+        gameType = "Volleyball"
+        scoreType = "team"
+        resizeSlots(winnerCount: 1, loserCount: 1)
+        winnerChips = Array(11...21)
+    }
+
     private func applyGameName(advanceFocus: Bool = true) async {
         let name = gameName.trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty else { return }
+        if isVollis {
+            gameName = "Vollis"
+            configureVollis()
+            if advanceFocus { focused = .winner(0) }
+            let ordered = (try? await PythonAnywhereClient.shared.vollisPlayers()) ?? []
+            guard isVollis else { return }
+            players = ordered
+            let year = String(Calendar.current.component(.year, from: Date()))
+            let games = (try? await PythonAnywhereClient.shared.vollisGames(year: year, preview: false))?.games ?? []
+            guard isVollis else { return }
+            todayVollisGames = games.filter { siteIsToday($0.date) }
+            return
+        }
+        todayVollisGames = []
+        winnerChips = [21, 25, 15, 18, 20]
+        loserChips = [19, 23, 12, 16, 17]
         let key = name.lowercased()
         var defaults = entryDefaults[key]
         if defaults == nil, let info = try? await PythonAnywhereClient.shared.otherGameInfo(name: name) {
@@ -803,6 +824,15 @@ struct SiteAddOtherView: View {
             error = "Game name, winners, and losers are required."
             return
         }
+        let savingVollis = isVollis
+        if savingVollis {
+            guard w.count == 1, l.count == 1, w[0] != l[0],
+                  let ws = teamWinnerScore, let ls = teamLoserScore, ws > ls else {
+                error = "Vollis needs one winner, one different loser, and a higher winner's score."
+                return
+            }
+            scoreType = "team"
+        }
         if gameType.isEmpty { gameType = knownTypes.first ?? "Other" }
         var savedGame: SiteSavedGameReceipt?
         saving = true
@@ -838,10 +868,21 @@ struct SiteAddOtherView: View {
             losers: side(losers, loserIndiv),
             winnerScore: scoreType == "team" ? teamWinnerScore : nil,
             loserScore: scoreType == "team" ? teamLoserScore : nil,
-            location: cleanLocation, comment: comment)
+            location: cleanLocation, comment: savingVollis ? "" : comment)
         if let savedGame { gameSaveStatus(savedGame) }
         do {
-            try await PythonAnywhereClient.shared.createOther(fields)
+            if savingVollis {
+                let vollisFields: [String: Any] = [
+                    "winner": w[0], "loser": l[0],
+                    "winner_score": teamWinnerScore!, "loser_score": teamLoserScore!,
+                    "game_date": fields["game_date"]!,
+                    "entered_timezone": TimeZone.current.identifier,
+                    "location": cleanLocation,
+                ]
+                try await PythonAnywhereClient.shared.createVollis(vollisFields)
+            } else {
+                try await PythonAnywhereClient.shared.createOther(fields)
+            }
         } catch {
             savedGame?.status = error.localizedDescription
             savedGame?.isSaving = false
@@ -858,6 +899,7 @@ struct SiteAddOtherView: View {
             PythonAnywhereClient.OtherGameEntryInfo(
                 gameType: gameType, scoreType: scoreType,
                 winnerCount: w.count, loserCount: l.count)
+        sitePromote([gameName], in: &knownNames)
         siteRememberGameLocation(cleanLocation)
         saving = false
         banner = "Game saved"
@@ -869,52 +911,14 @@ struct SiteAddOtherView: View {
         clearForm()
         focused = nil
         let year = String(Calendar.current.component(.year, from: Date()))
+        if savingVollis {
+            let games = (try? await PythonAnywhereClient.shared.vollisGames(year: year, preview: false))?.games ?? []
+            todayVollisGames = games.filter { siteIsToday($0.date) }
+        }
         let all = (try? await PythonAnywhereClient.shared.otherGames(year: year, preview: false))?.games ?? []
         todayGames = all.filter { siteIsToday(DoublesGame.parseDate($0.gameDateOnly ?? $0.gameDate) ?? .distantPast) }
     }
 }
-
-struct SiteAddVoiceSheet: View {
-    var onFill: ([String: Any]) -> Void
-    @StateObject private var capture = VoiceCapture()
-    @State private var status = ""
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            VStack(alignment: .leading, spacing: 16) {
-                Text("Speak a result like “Kyle and Aaron beat Dan and Ryan 21 15”.")
-                TextEditor(text: $capture.transcript)
-                    .frame(minHeight: 100)
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.3)))
-                Button(capture.isRecording ? "Stop" : "Record") { Task { await capture.toggle() } }
-                    .buttonStyle(.borderedProminent)
-                    .tint(SiteAddAccent.orange)
-                Button("Use this") { Task { await parse() } }
-                    .disabled(capture.transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                Text(status.isEmpty ? capture.status : status).foregroundStyle(.secondary)
-                Spacer()
-            }
-            .padding()
-            .navigationTitle("Voice")
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
-            .onAppear {
-                SFSpeechRecognizer.requestAuthorization { _ in }
-                AVAudioApplication.requestRecordPermission { _ in }
-            }
-        }
-    }
-
-    private func parse() async {
-        do {
-            let parsed = try await PythonAnywhereClient.shared.parseVoice(transcript: capture.transcript)
-            onFill(parsed)
-        } catch {
-            status = error.localizedDescription
-        }
-    }
-}
-
 
 struct SiteSavedGameReceipt: Identifiable {
     let id = UUID()

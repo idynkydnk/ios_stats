@@ -431,10 +431,6 @@ final class PythonAnywhereClient {
         let _: T = try await postJSON("/api/tournaments", json: fields)
     }
 
-    func parseVoice(transcript: String) async throws -> [String: Any] {
-        try await postJSONDict("/api/parse_voice_doubles", json: ["transcript": transcript])
-    }
-
     func generateAISummary(
         gameType: String,
         gameIds: [String],
@@ -734,15 +730,6 @@ final class PythonAnywhereClient {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONSerialization.data(withJSONObject: json)
         return try await decode(req)
-    }
-
-    private func postJSONDict(_ path: String, json: Any) async throws -> [String: Any] {
-        var req = request(path, method: "POST", authed: true)
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try JSONSerialization.data(withJSONObject: json)
-        let (data, resp) = try await session.data(for: req)
-        try throwIfNeeded(data, resp)
-        return (try JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
     }
 
     private func putJSON<T: Decodable>(_ path: String, json: Any) async throws -> T {
