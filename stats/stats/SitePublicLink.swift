@@ -3,7 +3,7 @@ import UIKit
 import Photos
 
 enum SitePublicLink {
-    static let host = "https://idynkydnk.pythonanywhere.com"
+    nonisolated static let host = "https://idynkydnk.pythonanywhere.com"
 
     static func stats(section: GameSection, year: String, gameName: String = "") -> URL? {
         let y = normalizedYear(year)
@@ -36,11 +36,11 @@ enum SitePublicLink {
         page("volleyball_stats", normalizedYear(year))
     }
 
-    static func recap(_ shareId: String) -> URL? {
+    nonisolated static func recap(_ shareId: String) -> URL? {
         page("recap", shareId)
     }
 
-    static func flyer(_ shareId: String) -> URL? {
+    nonisolated static func flyer(_ shareId: String) -> URL? {
         page("flyer", shareId)
     }
 
@@ -79,7 +79,7 @@ enum SitePublicLink {
         return components?.url
     }
 
-    private static func page(_ parts: String...) -> URL? {
+    nonisolated private static func page(_ parts: String...) -> URL? {
         var allowed = CharacterSet.urlPathAllowed
         allowed.remove(charactersIn: "/")
         let encoded = parts.map { $0.addingPercentEncoding(withAllowedCharacters: allowed) ?? $0 }

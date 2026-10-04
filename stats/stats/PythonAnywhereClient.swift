@@ -8,6 +8,7 @@ final class PythonAnywhereClient {
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
     private let session: URLSession
+    private let browsingSession: URLSession
 
     private init() {
         let config = URLSessionConfiguration.ephemeral
@@ -15,6 +16,13 @@ final class PythonAnywhereClient {
         config.urlCache = nil
         config.timeoutIntervalForRequest = 60
         session = URLSession(configuration: config)
+        let browsingConfig = URLSessionConfiguration.ephemeral
+        browsingConfig.httpShouldSetCookies = false
+        browsingConfig.urlCache = nil
+        browsingConfig.timeoutIntervalForRequest = 15
+        browsingConfig.timeoutIntervalForResource = 25
+        browsingConfig.waitsForConnectivity = false
+        browsingSession = URLSession(configuration: browsingConfig)
         decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         encoder = JSONEncoder()
@@ -669,7 +677,7 @@ final class PythonAnywhereClient {
         req.setValue("application/json", forHTTPHeaderField: "Accept")
         req.setValue("1", forHTTPHeaderField: "X-Stats-Account-Required")
         let previewPaths = ["/api/years", "/api/doubles/", "/api/vollis/", "/api/other/", "/api/volleyball/stats"]
-        if preview ?? SiteAuthManager.shared.isPreviewing,
+        if preview ?? (token == nil || SiteAuthManager.shared.isPreviewing),
            previewPaths.contains(where: { $0.hasSuffix("/") ? path.hasPrefix($0) : path == $0 }) {
             req.setValue("1", forHTTPHeaderField: "X-Stats-Preview")
         }
@@ -765,7 +773,20 @@ final class PythonAnywhereClient {
     }
 
     private func decode<T: Decodable>(_ req: URLRequest) async throws -> T {
-        let (data, resp) = try await session.data(for: req)
+        let browsingPaths = ["/api/years", "/api/doubles/", "/api/vollis/", "/api/other/", "/api/volleyball/stats"]
+        let isBrowsing = req.httpMethod == "GET" && browsingPaths.contains {
+            $0.hasSuffix("/") ? (req.url?.path.hasPrefix($0) ?? false) : req.url?.path == $0
+        }
+        let activeSession = isBrowsing ? browsingSession : session
+        var boundedRequest = req
+        if isBrowsing { boundedRequest.timeoutInterval = 15 }
+        let data: Data
+        let resp: URLResponse
+        do {
+            (data, resp) = try await activeSession.data(for: boundedRequest)
+        } catch let error as URLError where isBrowsing && error.code == .timedOut {
+            throw SiteAPIError.message("Loading took too long. Pull down to try again.")
+        }
         try throwIfNeeded(data, resp)
         do {
             return try decoder.decode(T.self, from: data)

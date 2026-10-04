@@ -1928,7 +1928,7 @@ struct SiteVoiceAddView: View {
         .navigationTitle("Voice")
         .onAppear {
             SFSpeechRecognizer.requestAuthorization { _ in }
-            AVAudioSession.sharedInstance().requestRecordPermission { _ in }
+            AVAudioApplication.requestRecordPermission { _ in }
         }
     }
 

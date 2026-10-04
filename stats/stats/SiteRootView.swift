@@ -151,8 +151,8 @@ struct SiteRootView: View {
             }
         }
         .task {
-            await loadYears()
             await auth.refreshMe()
+            await loadYears()
         }
         .onChange(of: section) { _, _ in
             Task { await loadYears() }
@@ -220,11 +220,11 @@ struct SiteRootView: View {
     private var mainTabs: some View {
         TabView(selection: $selectedTab) {
             SiteStatsView(selectedOtherGame: $selectedOtherGame, section: $section, selectedYear: selectedYear, years: years)
-                .id(auth.isPreviewing)
+                .id("\(auth.sessionReady)-\(auth.username ?? "signed-out")-\(auth.isLoggedIn)-\(auth.isPreviewing)")
                 .tabItem { Label("Stats", systemImage: "chart.bar.fill") }
                 .tag(0)
             SiteGamesView(selectedOtherGame: $selectedOtherGame, section: $section, selectedYear: selectedYear, years: years, canEdit: auth.isLoggedIn && !auth.isPreviewing, onEditDoubles: { doublesEdit = $0; addKind = .doubles; selectedTab = 2 }, onEditVollis: { vollisEdit = $0; addKind = .vollis; selectedTab = 2 })
-                .id(auth.isPreviewing)
+                .id("\(auth.sessionReady)-\(auth.username ?? "signed-out")-\(auth.isLoggedIn)-\(auth.isPreviewing)")
                 .tabItem { Label("Games", systemImage: "list.bullet") }
                 .tag(1)
             SiteAddHubView(section: $addKind, doublesEdit: $doublesEdit, vollisEdit: $vollisEdit)
@@ -238,7 +238,7 @@ struct SiteRootView: View {
     }
 
     private func updatePreview() {
-        auth.isPreviewing = selectedTab < 2 && (!auth.isLoggedIn || (auth.isPrivate && auth.showStarterStats && browseStarterStats))
+        auth.isPreviewing = !auth.isLoggedIn || (selectedTab < 2 && auth.isPrivate && auth.showStarterStats && browseStarterStats)
     }
 
     private func loadYears() async {
@@ -678,14 +678,41 @@ struct SiteStatsView: View {
     @State private var search = ""
     @State private var error: String?
     @State private var loading = false
+    @ObservedObject private var auth = SiteAuthManager.shared
+    @State private var loadID = UUID()
+
+    // Only public results are shared between view instances. Private results
+    // remain in the current view and are discarded when the account changes.
+    private struct Snapshot {
+        var doubles: DoublesStatsPayload?
+        var vollis: VollisStatsPayload?
+        var other: OtherStatsPayload?
+    }
+    @MainActor private static var publicSnapshots: [String: Snapshot] = [:]
+
+    private var cacheKey: String { "\(section.rawValue)-\(selectedYear)-\(division)" }
+    private var hasStats: Bool {
+        switch section {
+        case .doubles: return doubles != nil
+        case .vollis: return vollis != nil
+        case .other: return other != nil
+        }
+    }
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
                 SiteSearchBar(search: $search, searchPrompt: "Search players...")
+                if loading {
+                    SiteBackgroundStatusBanner(
+                        text: hasStats ? "Updating stats…" : "Loading stats for the first time…",
+                        detail: "You can keep browsing while stats load in the background.",
+                        isBusy: true)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 4)
+                }
                 ScrollView {
                     OtherGameNavigation(section: $section, selection: $selectedOtherGame, selectedYear: $selectedYear)
-                    if loading { ProgressView().padding() }
                     if let error { Text(error).foregroundStyle(.red).padding() }
                     switch section {
                     case .doubles:
@@ -791,8 +818,20 @@ struct SiteStatsView: View {
         n == 1 ? "1 game" : "\(n) games"
     }
 
+    @MainActor
     private func load() async {
+        guard auth.sessionReady else { return }
+        let requestID = UUID()
+        loadID = requestID
+        let key = cacheKey
+        let publicStats = !auth.isLoggedIn || auth.isPreviewing
+        if publicStats, let cached = Self.publicSnapshots[key] {
+            doubles = cached.doubles
+            vollis = cached.vollis
+            other = cached.other
+        }
         loading = true
+        defer { if loadID == requestID { loading = false } }
         error = nil
         let year = selectedYear == "All" ? "All years" : selectedYear
         do {
@@ -800,11 +839,12 @@ struct SiteStatsView: View {
             case .doubles:
                 let payload = try await PythonAnywhereClient.shared.doublesStats(year: year)
                 try Task.checkCancellation()
+                guard loadID == requestID else { return }
                 doubles = payload
                 if payload.showingPreviousYear { selectedYear = payload.displayYear }
             case .vollis:
                 var payload = try await PythonAnywhereClient.shared.vollisStats(year: year)
-                if (payload.todayStats ?? []).isEmpty {
+                if payload.todayStats == nil {
                     let games = (try? await PythonAnywhereClient.shared.vollisGames(year: String(Calendar.current.component(.year, from: Date()))))?.games ?? []
                     let todayGames = games.filter { siteIsToday($0.date) }
                     if !todayGames.isEmpty {
@@ -813,22 +853,32 @@ struct SiteStatsView: View {
                     }
                 }
                 try Task.checkCancellation()
+                guard loadID == requestID else { return }
                 vollis = payload
                 if payload.showingPreviousYear { selectedYear = payload.displayYear }
             case .other:
-                var payload = try await PythonAnywhereClient.shared.otherStats(year: year)
-                let volleyball = try await PythonAnywhereClient.shared.volleyballStats(year: payload.displayYear)
+                async let otherRequest = PythonAnywhereClient.shared.otherStats(year: year)
+                async let volleyballRequest = PythonAnywhereClient.shared.volleyballStats(year: year)
+                var payload = try await otherRequest
+                var volleyball = try await volleyballRequest
+                if payload.displayYear != year {
+                    volleyball = try await PythonAnywhereClient.shared.volleyballStats(year: payload.displayYear)
+                }
                 payload.gameCards.removeAll { $0.isConsolidated == true }
                 payload.gameCards.append(contentsOf: volleyball.gameCards)
                 try Task.checkCancellation()
+                guard loadID == requestID else { return }
                 other = payload
                 if payload.showingPreviousYear { selectedYear = payload.displayYear }
             }
+            if publicStats {
+                if Self.publicSnapshots.count >= 24 { Self.publicSnapshots.removeAll() }
+                Self.publicSnapshots[key] = Snapshot(doubles: doubles, vollis: vollis, other: other)
+            }
         } catch {
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, loadID == requestID else { return }
             self.error = error.localizedDescription
         }
-        loading = false
     }
 }
 
@@ -1018,6 +1068,7 @@ struct SiteGamesView: View {
     }
 
     private func load() async {
+        guard SiteAuthManager.shared.sessionReady else { return }
         let year = selectedYear == "All" ? "All years" : selectedYear
         do {
             switch section {
