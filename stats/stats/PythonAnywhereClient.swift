@@ -786,6 +786,9 @@ final class PythonAnywhereClient {
         guard let http = resp as? HTTPURLResponse else { return }
         if http.statusCode == 401 { throw SiteAPIError.unauthorized }
         if (200..<300).contains(http.statusCode) { return }
+        if http.statusCode >= 500 {
+            throw SiteAPIError.message("Stats is taking a timeout. Please try again in a moment. If you were saving a game, check your games before adding it again.")
+        }
         if http.statusCode == 404 {
             throw SiteAPIError.message("The live site doesn’t have this API yet. Push the website repo to PythonAnywhere, then try again.")
         }
@@ -793,7 +796,7 @@ final class PythonAnywhereClient {
             let msg = (obj["error"] as? String) ?? (obj["message"] as? String) ?? ""
             throw SiteAPIError.http(http.statusCode, msg)
         }
-        throw SiteAPIError.http(http.statusCode, String(data: data, encoding: .utf8) ?? "")
+        throw SiteAPIError.http(http.statusCode, "That request couldn't be completed. Please try again.")
     }
 }
 
