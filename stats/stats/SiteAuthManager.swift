@@ -25,6 +25,11 @@ final class SiteAuthManager: ObservableObject {
 
     var isLoggedIn: Bool { token != nil && !(token?.isEmpty ?? true) }
     var accountDisplayName: String { displayName ?? username?.capitalized ?? "" }
+    var needsAccountName: Bool {
+        guard let username, username.hasPrefix("apple_") || username.hasPrefix("google_") else { return false }
+        let name = displayName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return name.isEmpty || name == "Apple account" || name == "Google account" || name == username
+    }
 
     private init() {
         token = KeychainStore.get(tokenKey)
@@ -137,6 +142,16 @@ final class SiteAuthManager: ObservableObject {
 
     func statsSourcesChanged() {
         statsViewRevision += 1
+    }
+
+    @MainActor
+    func setDisplayName(_ name: String) async throws {
+        let accountToken = token
+        let savedName = try await PythonAnywhereClient.shared.setDisplayName(name)
+        guard token == accountToken, isLoggedIn else { return }
+        displayName = savedName
+        UserDefaults.standard.set(savedName, forKey: displayNameKey)
+        if welcomeMessage != nil { welcomeMessage = "Logged in as \(savedName)" }
     }
 
     func deleteAccount() async throws {

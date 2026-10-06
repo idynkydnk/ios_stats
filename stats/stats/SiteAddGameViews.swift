@@ -101,6 +101,9 @@ struct SiteAddDoublesView: View {
             }
         }
         .task { await bootstrap() }
+        .task(id: auth.statsViewRevision) {
+            players = (try? await PythonAnywhereClient.shared.doublesPlayers()) ?? []
+        }
         .onChange(of: gameToEdit?.id) { _, _ in applyEdit() }
         .onAppear {
             if gameToEdit == nil {
@@ -161,7 +164,6 @@ struct SiteAddDoublesView: View {
 
     private func bootstrap() async {
         applyEdit()
-        players = (try? await PythonAnywhereClient.shared.doublesPlayers()) ?? []
         await refreshToday()
         if rematch == nil, let g = today?.games.first {
             rematch = (g.winner1 ?? "", g.winner2 ?? "", g.loser1 ?? "", g.loser2 ?? "")
@@ -387,6 +389,9 @@ struct SiteAddVollisView: View {
             }
         }
         .task { await load() }
+        .onChange(of: auth.statsViewRevision) { _, _ in
+            Task { await refreshToday() }
+        }
         .onAppear {
             if gameToEdit == nil {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { focused = .winner }
@@ -507,6 +512,7 @@ struct SiteAddOtherView: View {
     @Environment(\.gameSaveStatus) private var gameSaveStatus
     @State private var todayGames: [OtherGame] = []
     @State private var todayVollisGames: [VollisGame] = []
+    @ObservedObject private var auth = SiteAuthManager.shared
 
     private var isVollis: Bool {
         gameName.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare("Vollis") == .orderedSame
@@ -637,6 +643,16 @@ struct SiteAddOtherView: View {
         .onAppear { focused = .gameName }
         .onChange(of: gameName) { _, _ in
             if isVollis { configureVollis() }
+        }
+        .task(id: auth.statsViewRevision) {
+            let name = gameName.trimmingCharacters(in: .whitespaces)
+            players = []
+            guard !name.isEmpty else { return }
+            let ordered = isVollis
+                ? (try? await PythonAnywhereClient.shared.vollisPlayers())
+                : (try? await PythonAnywhereClient.shared.otherGamePlayers(gameName: name))
+            guard gameName.trimmingCharacters(in: .whitespaces) == name else { return }
+            players = ordered ?? []
         }
         .task {
             if let info = try? await PythonAnywhereClient.shared.otherGameTypes() {
@@ -804,7 +820,7 @@ struct SiteAddOtherView: View {
             }
         }
         if advanceFocus { focused = .winner(0) }
-        if let ordered = try? await PythonAnywhereClient.shared.otherGamePlayers(gameName: name), !ordered.isEmpty {
+        if let ordered = try? await PythonAnywhereClient.shared.otherGamePlayers(gameName: name) {
             guard gameName.trimmingCharacters(in: .whitespaces) == name else { return }
             players = ordered
         }

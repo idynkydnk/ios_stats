@@ -89,6 +89,12 @@ final class PythonAnywhereClient {
         return response.nonce
     }
 
+    func setDisplayName(_ name: String) async throws -> String {
+        struct Profile: Decodable { var displayName: String }
+        let profile: Profile = try await putJSON("/api/account/display-name", json: ["display_name": name])
+        return profile.displayName
+    }
+
     func appleLogin(idToken: String, nonce: String, fullName: String? = nil) async throws -> (MePayload, String) {
         struct Body: Encodable { var idToken: String; var nonce: String; var fullName: String? }
         let response: AuthResponse = try await post("/api/auth/apple", body: Body(idToken: idToken, nonce: nonce, fullName: fullName), authed: false)
@@ -684,8 +690,12 @@ final class PythonAnywhereClient {
         req.httpMethod = method
         req.setValue("application/json", forHTTPHeaderField: "Accept")
         req.setValue("1", forHTTPHeaderField: "X-Stats-Account-Required")
+        // Add keeps game history owned, but player suggestions use enabled sources.
+        let isPlayerSuggestion = path == "/api/doubles_players"
+            || path == "/api/vollis_players"
+            || path.hasPrefix("/api/other_game_players/")
         if method == "GET", authed, SiteAuthManager.shared.isLoggedIn,
-           SiteAuthManager.shared.browseSelectedStats, preview != false {
+           (SiteAuthManager.shared.browseSelectedStats || isPlayerSuggestion), preview != false {
             req.setValue("1", forHTTPHeaderField: "X-Stats-Combined")
         } else if method == "GET", authed, SiteAuthManager.shared.isLoggedIn {
             req.setValue("1", forHTTPHeaderField: "X-Stats-Owned")

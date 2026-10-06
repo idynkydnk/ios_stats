@@ -37,7 +37,11 @@ struct SiteAppleSignInButton: View {
                     }
                     try await SiteAuthManager.shared.loginWithApple(
                         idToken: token, nonce: nonce, fullName: KeychainStore.get(nameKey))
-                    KeychainStore.delete(nameKey)
+                    // Clear the retry copy only after the server returns a name.
+                    // Older servers can accept sign-in without saving this field.
+                    if !SiteAuthManager.shared.needsAccountName {
+                        KeychainStore.delete(nameKey)
+                    }
                 } catch {
                     if (error as? ASAuthorizationError)?.code != .canceled {
                         self.error = error.localizedDescription

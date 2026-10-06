@@ -32,6 +32,9 @@ struct SiteMoreView: View {
                         Button("Log out") { Task { await auth.logout() } }
                         NavigationLink("Stats to include") { SiteStatsSourcesView() }
                         if auth.isPrivate {
+                            NavigationLink(auth.needsAccountName ? "Add your name" : "Edit name") {
+                                SiteAccountNameView()
+                            }
                             Toggle("Show KT Stats", isOn: Binding(
                                 get: { auth.showStarterStats },
                                 set: { visible in
@@ -94,6 +97,49 @@ struct SiteMoreView: View {
     }
 }
 
+struct SiteAccountNameView: View {
+    @ObservedObject private var auth = SiteAuthManager.shared
+    @Environment(\.dismiss) private var dismiss
+    @State private var name = ""
+    @State private var saving = false
+    @State private var error: String?
+
+    private var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    var body: some View {
+        Form {
+            Section {
+                TextField("Your name", text: $name)
+                    .textContentType(.name)
+                    .textInputAutocapitalization(.words)
+                    .disabled(saving)
+            } footer: {
+                Text("This name appears in your account menu and when you share your stats.")
+            }
+            if let error { Text(error).foregroundStyle(.red) }
+            Button {
+                saving = true
+                error = nil
+                Task {
+                    defer { saving = false }
+                    do {
+                        try await auth.setDisplayName(trimmedName)
+                        dismiss()
+                    } catch { self.error = error.localizedDescription }
+                }
+            } label: {
+                HStack {
+                    Text(saving ? "Saving…" : "Save")
+                    if saving { ProgressView() }
+                }
+            }
+            .disabled(saving || trimmedName.isEmpty || trimmedName.count > 200)
+        }
+        .navigationTitle("Your name")
+        .onAppear { name = auth.needsAccountName ? "" : auth.accountDisplayName }
+    }
+}
+
 struct SiteAppearanceView: View {
     @ObservedObject private var theme = SiteTheme.shared
     @Environment(\.siteAppearance) private var appearance
@@ -140,6 +186,7 @@ struct SiteAppearanceView: View {
 
 struct SitePlayersView: View {
     @State private var players: [SitePlayer] = []
+    @State private var loading = true
     @State private var search = ""
     @State private var error: String?
     @ObservedObject private var auth = SiteAuthManager.shared
@@ -147,6 +194,11 @@ struct SitePlayersView: View {
 
     var body: some View {
         List {
+            if loading {
+                ProgressView("Loading players…")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 8)
+            }
             if auth.isLoggedIn {
                 SiteListSection("Add player") {
                     HStack {
@@ -191,6 +243,9 @@ struct SitePlayersView: View {
     }
 
     private func load() async {
+        loading = true
+        error = nil
+        defer { loading = false }
         do { players = try await PythonAnywhereClient.shared.players() }
         catch { self.error = error.localizedDescription }
     }
