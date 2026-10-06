@@ -22,11 +22,11 @@ struct SiteStatsSourcesView: View {
             }
             if payload?.isPrivate == true {
                 Section("Sharing") {
-                    Toggle("Let other users include my stats", isOn: Binding(
+                    Toggle("Let the existing group include my stats", isOn: Binding(
                         get: { payload?.shareStats ?? false },
                         set: { enabled in Task { await updateSharing(enabled) } }
                     ))
-                    Text("Kyle can include your stats as the administrator. Turning sharing off removes access for other users.")
+                    Text("New accounts can include KT Stats only. Kyle can include your stats as the administrator. Turning sharing off removes access for other users.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
