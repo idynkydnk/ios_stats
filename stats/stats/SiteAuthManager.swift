@@ -43,8 +43,8 @@ final class SiteAuthManager: ObservableObject {
         await accept(me: me, token: token)
     }
 
-    func loginWithApple(idToken: String, nonce: String) async throws {
-        let (me, token) = try await PythonAnywhereClient.shared.appleLogin(idToken: idToken, nonce: nonce)
+    func loginWithApple(idToken: String, nonce: String, fullName: String? = nil) async throws {
+        let (me, token) = try await PythonAnywhereClient.shared.appleLogin(idToken: idToken, nonce: nonce, fullName: fullName)
         await accept(me: me, token: token)
     }
 

@@ -89,9 +89,9 @@ final class PythonAnywhereClient {
         return response.nonce
     }
 
-    func appleLogin(idToken: String, nonce: String) async throws -> (MePayload, String) {
-        struct Body: Encodable { var idToken: String; var nonce: String }
-        let response: AuthResponse = try await post("/api/auth/apple", body: Body(idToken: idToken, nonce: nonce), authed: false)
+    func appleLogin(idToken: String, nonce: String, fullName: String? = nil) async throws -> (MePayload, String) {
+        struct Body: Encodable { var idToken: String; var nonce: String; var fullName: String? }
+        let response: AuthResponse = try await post("/api/auth/apple", body: Body(idToken: idToken, nonce: nonce, fullName: fullName), authed: false)
         return try await verifiedSession(response.token)
     }
 
