@@ -501,6 +501,7 @@ struct YearsPayload: Codable {
 
 struct MePayload: Codable {
     var username: String
+    var displayName: String? = nil
     var isAdmin: Bool
     var loggedIn: Bool
     var isPrivate: Bool? = nil

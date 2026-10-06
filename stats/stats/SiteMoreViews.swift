@@ -27,7 +27,7 @@ struct SiteMoreView: View {
                 if auth.isLoggedIn {
                 SiteListSection("Account") {
                     if auth.isLoggedIn {
-                        Text("Signed in as \(auth.username ?? "")")
+                        Text("Signed in as \(auth.accountDisplayName)")
                         if auth.isAdmin { Text("Admin").foregroundStyle(.orange) }
                         Button("Log out") { Task { await auth.logout() } }
                         NavigationLink("Stats to include") { SiteStatsSourcesView() }

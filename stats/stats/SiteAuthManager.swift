@@ -7,10 +7,12 @@ final class SiteAuthManager: ObservableObject {
 
     private let tokenKey = "com.kt.stats.pa.token"
     private let usernameKey = "com.kt.stats.pa.username"
+    private let displayNameKey = "com.kt.stats.pa.displayName"
     private let adminKey = "com.kt.stats.pa.isAdmin"
 
     @Published private(set) var token: String?
     @Published private(set) var username: String?
+    @Published private(set) var displayName: String?
     @Published private(set) var isAdmin: Bool = false
     @Published private(set) var isPrivate: Bool = true
     @Published private(set) var sessionReady = false
@@ -22,10 +24,12 @@ final class SiteAuthManager: ObservableObject {
     @Published private(set) var welcomeMessage: String?
 
     var isLoggedIn: Bool { token != nil && !(token?.isEmpty ?? true) }
+    var accountDisplayName: String { displayName ?? username?.capitalized ?? "" }
 
     private init() {
         token = KeychainStore.get(tokenKey)
         username = UserDefaults.standard.string(forKey: usernameKey)
+        displayName = UserDefaults.standard.string(forKey: displayNameKey)
         // Privileges and storage scope must be verified before showing data.
     }
 
@@ -50,6 +54,8 @@ final class SiteAuthManager: ObservableObject {
             KeychainStore.set(self.tokenKey, value: token)
             self.token = token
             self.username = me.username
+            self.displayName = me.displayName
+            UserDefaults.standard.set(me.displayName, forKey: self.displayNameKey)
             SiteOfflineQueue.shared.selectAccount(me.username)
             self.isAdmin = me.isAdmin
             self.isPrivate = me.isPrivate ?? true
@@ -59,7 +65,7 @@ final class SiteAuthManager: ObservableObject {
             UserDefaults.standard.set(me.username, forKey: self.usernameKey)
             UserDefaults.standard.set(me.isAdmin, forKey: self.adminKey)
             self.lastError = nil
-            self.welcomeMessage = "Logged in as \(me.username)"
+            self.welcomeMessage = "Logged in as \(self.accountDisplayName)"
         }
     }
 
@@ -75,6 +81,8 @@ final class SiteAuthManager: ObservableObject {
             }
             await MainActor.run {
                 self.username = me.username
+                self.displayName = me.displayName
+                UserDefaults.standard.set(me.displayName, forKey: self.displayNameKey)
                 SiteOfflineQueue.shared.selectAccount(me.username)
                 self.isAdmin = me.isAdmin
                 self.isPrivate = me.isPrivate ?? true
@@ -103,12 +111,14 @@ final class SiteAuthManager: ObservableObject {
         KeychainStore.delete(tokenKey)
         token = nil
         username = nil
+        displayName = nil
         isAdmin = false
         isPrivate = true
         showStarterStats = true
         isPreviewing = true
         sessionReady = true
         UserDefaults.standard.removeObject(forKey: usernameKey)
+        UserDefaults.standard.removeObject(forKey: displayNameKey)
         UserDefaults.standard.removeObject(forKey: adminKey)
         welcomeMessage = nil
     }
