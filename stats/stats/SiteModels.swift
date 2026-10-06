@@ -904,3 +904,16 @@ enum SiteAPIError: LocalizedError {
         }
     }
 }
+
+struct StatsSource: Codable, Identifiable {
+    var owner: String
+    var title: String
+    var enabled: Bool
+    var id: String { owner }
+}
+
+struct StatsSourcesPayload: Codable {
+    var sources: [StatsSource]
+    var shareStats: Bool
+    var isPrivate: Bool
+}

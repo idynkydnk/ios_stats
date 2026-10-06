@@ -5,7 +5,6 @@ import PhotosUI
 struct SiteMoreView: View {
     @Environment(\.siteAppearance) private var appearance
     var onHome: () -> Void
-    @Binding var browseStarterStats: Bool
     @ObservedObject private var auth = SiteAuthManager.shared
     @State private var confirmDeletion = false
     @State private var accountError: String?
@@ -31,14 +30,8 @@ struct SiteMoreView: View {
                         Text("Signed in as \(auth.username ?? "")")
                         if auth.isAdmin { Text("Admin").foregroundStyle(.orange) }
                         Button("Log out") { Task { await auth.logout() } }
+                        NavigationLink("Stats to include") { SiteStatsSourcesView() }
                         if auth.isPrivate {
-                            if auth.showStarterStats {
-                                Picker("Browse stats", selection: $browseStarterStats) {
-                                    Text("My stats").tag(false)
-                                    Text("KT Stats").tag(true)
-                                }
-                                .pickerStyle(.menu)
-                            }
                             Toggle("Show KT Stats", isOn: Binding(
                                 get: { auth.showStarterStats },
                                 set: { visible in

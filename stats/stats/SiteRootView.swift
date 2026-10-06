@@ -49,7 +49,6 @@ struct SiteRootView: View {
     @ObservedObject private var network = NetworkMonitor.shared
     @ObservedObject private var queue = SiteOfflineQueue.shared
     @State private var selectedTab = 0
-    @State private var browseStarterStats = SiteAuthManager.shared.isPreviewing
     @State private var section: GameSection = .doubles
     @State private var selectedOtherGame = ""
     @State private var doublesYear: String = String(Calendar.current.component(.year, from: Date()))
@@ -112,7 +111,6 @@ struct SiteRootView: View {
             recapIsError = false
             recapStatus = "Generating your recap in the background…"
             recapJobID = jobID
-            browseStarterStats = false
             selectedTab = 0
             addNavigationID = UUID()
         }
@@ -158,10 +156,13 @@ struct SiteRootView: View {
             Task { await loadYears() }
         }
         .onChange(of: selectedTab) { _, _ in updatePreview() }
-        .onChange(of: browseStarterStats) { _, _ in updatePreview() }
         .onChange(of: auth.showStarterStats) { _, visible in
-            browseStarterStats = visible
             updatePreview()
+        }
+        .onChange(of: auth.statsViewRevision) { _, _ in
+            doublesEdit = nil
+            vollisEdit = nil
+            Task { await loadYears() }
         }
         .onChange(of: auth.isPreviewing) { _, _ in
             doublesEdit = nil
@@ -220,25 +221,26 @@ struct SiteRootView: View {
     private var mainTabs: some View {
         TabView(selection: $selectedTab) {
             SiteStatsView(selectedOtherGame: $selectedOtherGame, section: $section, selectedYear: selectedYear, years: years)
-                .id("\(auth.sessionReady)-\(auth.username ?? "signed-out")-\(auth.isLoggedIn)-\(auth.isPreviewing)")
+                .id("\(auth.sessionReady)-\(auth.username ?? "signed-out")-\(auth.isLoggedIn)-\(auth.isPreviewing)-\(auth.statsViewRevision)")
                 .tabItem { Label("Stats", systemImage: "chart.bar.fill") }
                 .tag(0)
             SiteGamesView(selectedOtherGame: $selectedOtherGame, section: $section, selectedYear: selectedYear, years: years, canEdit: auth.isLoggedIn && !auth.isPreviewing, onEditDoubles: { doublesEdit = $0; addKind = .doubles; selectedTab = 2 }, onEditVollis: { vollisEdit = $0; addKind = .vollis; selectedTab = 2 })
-                .id("\(auth.sessionReady)-\(auth.username ?? "signed-out")-\(auth.isLoggedIn)-\(auth.isPreviewing)")
+                .id("\(auth.sessionReady)-\(auth.username ?? "signed-out")-\(auth.isLoggedIn)-\(auth.isPreviewing)-\(auth.statsViewRevision)")
                 .tabItem { Label("Games", systemImage: "list.bullet") }
                 .tag(1)
             SiteAddHubView(section: $addKind, doublesEdit: $doublesEdit, vollisEdit: $vollisEdit)
                 .id(addNavigationID)
                 .tabItem { Label("Add", systemImage: "plus.circle.fill") }
                 .tag(2)
-            SiteMoreView(onHome: { selectedTab = 0 }, browseStarterStats: $browseStarterStats)
+            SiteMoreView(onHome: { selectedTab = 0 })
                 .tabItem { Label("More", systemImage: "line.3.horizontal") }
                 .tag(3)
         }
     }
 
     private func updatePreview() {
-        auth.isPreviewing = !auth.isLoggedIn || (selectedTab < 2 && auth.isPrivate && auth.showStarterStats && browseStarterStats)
+        auth.isPreviewing = !auth.isLoggedIn
+        auth.browseSelectedStats = selectedTab != 2
     }
 
     private func loadYears() async {
@@ -948,13 +950,13 @@ struct SiteGamesView: View {
                                         .listRowInsets(EdgeInsets())
                                     .buttonStyle(.borderless)
                                     .swipeActions {
-                                        if canEdit && !isDeleting {
+                                        if canEdit && g.id < 4_294_967_296 && !isDeleting {
                                             Button("Edit") { onEditDoubles(g) }
                                             Button("Delete", role: .destructive) { Task { await deleteDoubles(g) } }
                                         }
                                     }
                                     .contextMenu {
-                                        if canEdit && !isDeleting {
+                                        if canEdit && g.id < 4_294_967_296 && !isDeleting {
                                             Button("Edit") { onEditDoubles(g) }
                                             Button("Delete", role: .destructive) { Task { await deleteDoubles(g) } }
                                         }
@@ -968,13 +970,13 @@ struct SiteGamesView: View {
                                         .listRowInsets(EdgeInsets())
                                     .buttonStyle(.borderless)
                                     .swipeActions {
-                                        if canEdit && !isDeleting {
+                                        if canEdit && g.id < 4_294_967_296 && !isDeleting {
                                             Button("Edit") { onEditVollis(g) }
                                             Button("Delete", role: .destructive) { Task { await deleteVollis(g) } }
                                         }
                                     }
                                     .contextMenu {
-                                        if canEdit && !isDeleting {
+                                        if canEdit && g.id < 4_294_967_296 && !isDeleting {
                                             Button("Edit") { onEditVollis(g) }
                                             Button("Delete", role: .destructive) { Task { await deleteVollis(g) } }
                                         }
@@ -999,12 +1001,12 @@ struct SiteGamesView: View {
                                         .listRowInsets(EdgeInsets())
                                     .buttonStyle(.borderless)
                                     .swipeActions {
-                                        if canEdit && !isDeleting {
+                                        if canEdit && g.id < 4_294_967_296 && !isDeleting {
                                             Button("Delete", role: .destructive) { Task { await deleteOther(g) } }
                                         }
                                     }
                                     .contextMenu {
-                                        if canEdit && !isDeleting {
+                                        if canEdit && g.id < 4_294_967_296 && !isDeleting {
                                             Button("Delete", role: .destructive) { Task { await deleteOther(g) } }
                                         }
                                     }

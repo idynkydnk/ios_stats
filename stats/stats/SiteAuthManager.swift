@@ -16,6 +16,8 @@ final class SiteAuthManager: ObservableObject {
     @Published private(set) var sessionReady = false
     @Published private(set) var showStarterStats = true
     @Published var isPreviewing = true
+    @Published var browseSelectedStats = true
+    @Published private(set) var statsViewRevision = 0
     @Published var lastError: String?
     @Published private(set) var welcomeMessage: String?
 
@@ -52,7 +54,7 @@ final class SiteAuthManager: ObservableObject {
             self.isAdmin = me.isAdmin
             self.isPrivate = me.isPrivate ?? true
             self.showStarterStats = me.showStarterStats ?? true
-            self.isPreviewing = self.isPrivate && self.showStarterStats
+            self.isPreviewing = false
             self.sessionReady = true
             UserDefaults.standard.set(me.username, forKey: self.usernameKey)
             UserDefaults.standard.set(me.isAdmin, forKey: self.adminKey)
@@ -77,7 +79,7 @@ final class SiteAuthManager: ObservableObject {
                 self.isAdmin = me.isAdmin
                 self.isPrivate = me.isPrivate ?? true
                 self.showStarterStats = me.showStarterStats ?? true
-                if !self.sessionReady { self.isPreviewing = self.isPrivate && self.showStarterStats }
+                if !self.sessionReady { self.isPreviewing = false }
                 self.sessionReady = true
                 UserDefaults.standard.set(me.username, forKey: self.usernameKey)
                 UserDefaults.standard.set(me.isAdmin, forKey: self.adminKey)
@@ -119,8 +121,12 @@ final class SiteAuthManager: ObservableObject {
         try await PythonAnywhereClient.shared.setStarterStats(visible: visible)
         await MainActor.run {
             showStarterStats = visible
-            if !visible { isPreviewing = false }
+            statsViewRevision += 1
         }
+    }
+
+    func statsSourcesChanged() {
+        statsViewRevision += 1
     }
 
     func deleteAccount() async throws {

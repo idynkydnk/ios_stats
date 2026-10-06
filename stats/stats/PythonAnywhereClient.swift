@@ -61,6 +61,18 @@ final class PythonAnywhereClient {
         return try await verifiedSession(response.token)
     }
 
+    func statsSources() async throws -> StatsSourcesPayload {
+        try await get("/api/account/stats-sources")
+    }
+
+    func setStatsSource(owner: String, enabled: Bool) async throws -> StatsSourcesPayload {
+        try await putJSON("/api/account/stats-sources", json: ["owner": owner, "enabled": enabled])
+    }
+
+    func setStatsSharing(_ enabled: Bool) async throws -> StatsSourcesPayload {
+        try await putJSON("/api/account/stats-sharing", json: ["share_stats": enabled])
+    }
+
     func deleteAccount() async throws {
         try await delete("/api/account")
     }
@@ -672,6 +684,12 @@ final class PythonAnywhereClient {
         req.httpMethod = method
         req.setValue("application/json", forHTTPHeaderField: "Accept")
         req.setValue("1", forHTTPHeaderField: "X-Stats-Account-Required")
+        if method == "GET", authed, SiteAuthManager.shared.isLoggedIn,
+           SiteAuthManager.shared.browseSelectedStats, preview != false {
+            req.setValue("1", forHTTPHeaderField: "X-Stats-Combined")
+        } else if method == "GET", authed, SiteAuthManager.shared.isLoggedIn {
+            req.setValue("1", forHTTPHeaderField: "X-Stats-Owned")
+        }
         let previewPaths = ["/api/years", "/api/doubles/", "/api/vollis/", "/api/other/", "/api/volleyball/stats"]
         if preview ?? (token == nil || SiteAuthManager.shared.isPreviewing),
            previewPaths.contains(where: { $0.hasSuffix("/") ? path.hasPrefix($0) : path == $0 }) {
