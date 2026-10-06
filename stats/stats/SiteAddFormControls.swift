@@ -97,7 +97,10 @@ private func siteLastGameLocationKey() -> String {
 }
 
 func siteLastGameLocation() -> String {
-    UserDefaults.standard.string(forKey: siteLastGameLocationKey()) ?? ""
+    if SiteAuthManager.shared.username?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "tyler" {
+        return "The Oasis"
+    }
+    return UserDefaults.standard.string(forKey: siteLastGameLocationKey()) ?? ""
 }
 
 func siteRememberGameLocation(_ location: String) {
