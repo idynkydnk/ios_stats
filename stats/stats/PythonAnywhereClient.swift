@@ -812,7 +812,18 @@ final class PythonAnywhereClient {
 
     private func throwIfNeeded(_ data: Data, _ resp: URLResponse) throws {
         guard let http = resp as? HTTPURLResponse else { return }
-        if http.statusCode == 401 { throw SiteAPIError.unauthorized }
+        if http.statusCode == 401 {
+            // Sign-in endpoints also return 401 when Google/Apple verification
+            // fails. Keep that explanation instead of asking an already
+            // signing-in user to log in again.
+            if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let message = (object["error"] as? String) ?? (object["message"] as? String),
+               !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+               message != "Authentication required" {
+                throw SiteAPIError.http(401, message)
+            }
+            throw SiteAPIError.unauthorized
+        }
         if (200..<300).contains(http.statusCode) { return }
         if http.statusCode >= 500 {
             throw SiteAPIError.message("Stats is taking a timeout. Please try again in a moment. If you were saving a game, check your games before adding it again.")
