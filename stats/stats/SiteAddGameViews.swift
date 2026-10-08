@@ -489,7 +489,7 @@ struct SiteAddOtherView: View {
     var header: AnyView? = nil
 
     enum Field: Hashable {
-        case gameName, winner(Int), loser(Int), winnerIndiv(Int), loserIndiv(Int), teamW, teamL, comment, location
+        case gameName, gameType, winner(Int), loser(Int), winnerIndiv(Int), loserIndiv(Int), teamW, teamL, comment, location
     }
 
     @State private var gameType = ""
@@ -532,25 +532,15 @@ struct SiteAddOtherView: View {
                 SiteContentCard(title: "Other game") {
                     if let error { SiteAddBanner(text: error, isError: true) }
 
-                    HStack(spacing: 8) {
-                        SiteAddTextRow(label: "Game name", text: $gameName, field: .gameName, focus: $focused, submit: .done, onSubmit: {
-                            focused = nil
-                            Task { await applyGameName(advanceFocus: false) }
-                        })
-                        Menu {
-                            ForEach(knownNames, id: \.self) { name in
-                                Button(name) {
-                                    gameName = name
-                                    Task { await applyGameName() }
-                                }
-                            }
-                        } label: {
-                            Image(systemName: "chevron.down")
-                                .frame(width: 44, height: 44)
-                                .contentShape(Rectangle())
+                    SiteAddTextRow(label: "Game name", text: $gameName, field: .gameName, focus: $focused, submit: .done, onSubmit: {
+                        focused = nil
+                        Task { await applyGameName(advanceFocus: false) }
+                    })
+                    if focused == .gameName {
+                        SiteAddSuggestionList(names: siteFilterPlayers(knownNames, query: gameName, excluding: [])) { name in
+                            gameName = name
+                            Task { await applyGameName() }
                         }
-                        .accessibilityLabel("Choose a previous game")
-                        .accessibilityHint("Shows all previous game names")
                     }
                     if loadingGameNames {
                         ProgressView("Loading game names…")
@@ -561,14 +551,14 @@ struct SiteAddOtherView: View {
                         }
                     }
 
-                    if !isVollis && !knownTypes.isEmpty {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack {
-                                ForEach(knownTypes, id: \.self) { t in
-                                    Button(t) { gameType = t }
-                                        .buttonStyle(.bordered)
-                                        .tint(gameType == t ? SiteAddAccent.orange : .secondary)
-                                }
+                    if !isVollis {
+                        SiteAddTextRow(label: "Game type", text: $gameType, field: .gameType, focus: $focused, submit: .done, onSubmit: {
+                            focused = nil
+                        })
+                        if focused == .gameType {
+                            SiteAddSuggestionList(names: siteFilterPlayers(knownTypes, query: gameType, excluding: [])) { type in
+                                gameType = type
+                                focused = .winner(0)
                             }
                         }
                     }
@@ -863,7 +853,7 @@ struct SiteAddOtherView: View {
                 resizeSlots(winnerCount: 2, loserCount: 2)
             }
         }
-        if advanceFocus { focused = .winner(0) }
+        if advanceFocus { focused = .gameType }
         if let ordered = try? await PythonAnywhereClient.shared.otherGamePlayers(gameName: name) {
             guard gameName.trimmingCharacters(in: .whitespaces) == name else { return }
             players = ordered
@@ -960,6 +950,7 @@ struct SiteAddOtherView: View {
                 gameType: gameType, scoreType: scoreType,
                 winnerCount: w.count, loserCount: l.count)
         sitePromote([gameName], in: &knownNames)
+        sitePromote([gameType], in: &knownTypes)
         siteRememberGameLocation(cleanLocation)
         saving = false
         banner = "Game saved"
