@@ -280,8 +280,7 @@ struct SiteAddDoublesView: View {
         savedGame?.status = banner ?? "Game saved"
         savedGame?.isSaving = false
         if let savedGame { gameSaveStatus(savedGame) }
-        clearForm(focusFirst: false)
-        focused = nil
+        clearForm(focusFirst: gameToEdit == nil)
         bannerIsError = false
         successTick += 1
         if gameToEdit != nil { onDone() }

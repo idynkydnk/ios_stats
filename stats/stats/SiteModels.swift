@@ -163,6 +163,21 @@ struct DoublesGame: Codable, Identifiable, Hashable {
     var enteredTimezone: String?
     var updatedBy: String?
     var location: String?
+    var updatedByDisplayName: String?
+
+    func authorDisplayName(currentUsername: String? = nil, currentDisplayName: String? = nil) -> String? {
+        let username = updatedBy?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        // Older responses and saved games may not yet include a resolved name.
+        let ownName = !username.isEmpty && username.caseInsensitiveCompare(currentUsername ?? "") == .orderedSame
+            ? currentDisplayName : nil
+        for candidate in [updatedByDisplayName, ownName, updatedBy] {
+            guard let name = candidate?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else { continue }
+            let lower = name.lowercased()
+            if lower.hasPrefix("google_") || lower.hasPrefix("apple_") { continue }
+            return name
+        }
+        return nil
+    }
 
     var date: Date {
         Self.parseDate(gameDate) ?? Date.distantPast

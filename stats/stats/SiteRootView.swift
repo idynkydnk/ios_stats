@@ -1312,6 +1312,7 @@ struct SiteTeamScorePanel<Players: View>: View {
 }
 
 struct DoublesGameRow: View {
+    @ObservedObject private var auth = SiteAuthManager.shared
     var game: DoublesGame
     var year: String? = nil
     var section: GameSection = .doubles
@@ -1325,7 +1326,7 @@ struct DoublesGameRow: View {
                 playerPair(game.loser1, game.loser2, color: .red)
             }
             if !game.comment.isEmpty { Text(game.comment).font(.caption).foregroundStyle(.secondary) }
-            if let by = game.updatedBy, !by.isEmpty {
+            if let by = game.authorDisplayName(currentUsername: auth.username, currentDisplayName: auth.displayName) {
                 Text("by \(by)").font(.caption2).foregroundStyle(.secondary)
             }
         }
