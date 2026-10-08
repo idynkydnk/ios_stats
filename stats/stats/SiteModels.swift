@@ -873,6 +873,7 @@ struct RecapPage: Decodable {
 }
 
 struct RecapItem: Codable, Identifiable {
+    var pinned: Bool?
     var shareId: String?
     var createdAt: String?
     var heroImageUrl: String?
@@ -890,6 +891,7 @@ struct RecapItem: Codable, Identifiable {
 }
 
 struct FlyerItem: Codable, Identifiable {
+    var pinned: Bool?
     var shareId: String?
     var createdAt: String?
     var flyerImageUrl: String?

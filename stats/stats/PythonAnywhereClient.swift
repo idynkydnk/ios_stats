@@ -590,9 +590,24 @@ final class PythonAnywhereClient {
     }
 
     func flyers() async throws -> [FlyerItem] {
-        struct Wrap: Codable { var flyers: [FlyerItem] }
-        let w: Wrap = try await get("/api/flyers")
-        return w.flyers
+        struct Wrap: Codable { var flyers: [FlyerItem]; var total: Int? }
+        var items: [FlyerItem] = []
+        var page = 1
+        while true {
+            let result: Wrap = try await get("/api/flyers", query: ["page": String(page)])
+            let existing = Set(items.map(\.id))
+            let added = result.flyers.filter { !existing.contains($0.id) }
+            items.append(contentsOf: added)
+            if added.isEmpty || items.count >= (result.total ?? items.count) { break }
+            page += 1
+        }
+        return items
+    }
+
+    func setAIFavorite(kind: String, shareId: String, pinned: Bool) async throws {
+        struct Response: Decodable { var ok: Bool }
+        let encoded = shareId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? shareId
+        let _: Response = try await postJSON("/api/ai-library/\(kind)/\(encoded)/pin", json: ["pinned": pinned])
     }
 
     func deleteFlyer(shareId: String) async throws {

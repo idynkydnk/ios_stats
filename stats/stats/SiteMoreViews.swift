@@ -1091,7 +1091,7 @@ struct SiteAIRosterView: View {
         }
         .navigationDestination(isPresented: $showStyle) {
             if case let .recap(gameType, gameIds) = kind {
-                SiteAIStyleView(gameType: gameType, gameIds: gameIds, animationPlayers: players.filter { $0.isReadyForIllustration }.map { $0.name })
+                SiteAIStyleView(gameType: gameType, gameIds: gameIds)
             }
         }
         .refreshable { await load() }
@@ -1206,12 +1206,9 @@ struct SiteAIStyleView: View {
     @Environment(\.aiSummaryQueued) private var aiSummaryQueued
     var gameType: String
     var gameIds: [String]
-    var animationPlayers: [String]
-    @State private var animationPlayer = ""
     @State private var promptStyle = "default"
     @State private var customPrompt = ""
     @State private var imageDetails = ""
-    @State private var animationDetails = ""
     @State private var generating = false
     @State private var banner: String?
     @State private var bannerIsError = false
@@ -1241,7 +1238,7 @@ struct SiteAIStyleView: View {
                     SiteParagraphField(placeholder: "Example: Keep it short and punchy, focus on upsets and funny comments…", text: $customPrompt)
                 }
 
-                Text("Illustration or animation")
+                Text("Illustration")
                     .font(.headline)
                     .padding(.top, 8)
                 Text("Include one AI-generated group illustration, or publish text only. Uses each player's saved AI character when they have one; otherwise face photos and/or signature looks. Players with none of those are left out.")
@@ -1251,19 +1248,6 @@ struct SiteAIStyleView: View {
                     .font(.subheadline.weight(.semibold))
                 SiteParagraphField(placeholder: "Example: sunset beach background, everyone celebrating at the net…", text: $imageDetails)
                 Text("Only used when you choose With illustration.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                Picker("One player to animate", selection: $animationPlayer) {
-                    Text("Choose one player…").tag("")
-                    ForEach(animationPlayers, id: \.self) { name in
-                        Text(name).tag(name)
-                    }
-                }
-                Text("What should this one player do? (optional)")
-                    .font(.subheadline.weight(.semibold))
-                SiteParagraphField(placeholder: "Example: Wave with one hand, then return to the starting pose.", text: $animationDetails)
-                Text("Only ONE person can move. Everyone else stays still. Describe a simple action for your selected player only; leave blank for a wave.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
@@ -1284,15 +1268,9 @@ struct SiteAIStyleView: View {
                     ) {
                         Task { await generate(imageMode: "image") }
                     }
-                    SiteAddActionButton(
-                        title: generating ? "Creating recap…" : "With animation · New!",
-                        filled: true,
-                        disabled: generating || !canGenerate || animationPlayer.isEmpty
-                    ) {
-                        Task { await generate(imageMode: "animation") }
-                    }
+
                 }
-                Text("Illustrations and animations can take several minutes — you can leave after you tap generate and check Recaps.")
+                Text("Illustrations can take several minutes — you can leave after you tap generate and check Recaps.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -1350,7 +1328,7 @@ struct SiteAIStyleView: View {
                 promptStyle: promptStyle,
                 customPrompt: promptStyle == "custom" ? customPrompt : "",
                 imageMode: imageMode,
-                imageDetails: imageMode == "animation" ? "Moving player: \(animationPlayer)\nAction: \(animationDetails)" : imageDetails
+                imageDetails: imageDetails
             )
             aiSummaryQueued(jobId)
         } catch {
@@ -1448,6 +1426,8 @@ struct SiteRecapsView: View {
                     ContentUnavailableView("No recaps yet", systemImage: "text.book.closed",
                                            description: Text("New game stories will appear here."))
                 }
+                Text("Older recaps are removed automatically after new ones are created. Pin favorites to protect them and their shared links.")
+                    .font(.caption).foregroundStyle(.secondary)
                 ForEach(items) { recap in
                     if let url = recap.publicURL {
                         NavigationLink {
@@ -1458,6 +1438,14 @@ struct SiteRecapsView: View {
                         .buttonStyle(.plain)
                     } else {
                         recapCard(recap)
+                    }
+                    if auth.isLoggedIn && (auth.isAdmin || recap.username?.lowercased() == auth.username?.lowercased()) {
+                        Button {
+                            Task { await pin(recap) }
+                        } label: {
+                            Label(recap.pinned == true ? "Unpin favorite" : "Pin favorite", systemImage: recap.pinned == true ? "pin.fill" : "pin")
+                        }
+                        .buttonStyle(.bordered)
                     }
                 }
                 if loading {
@@ -1550,6 +1538,20 @@ struct SiteRecapsView: View {
     }
 
     @MainActor
+    private func pin(_ recap: RecapItem) async {
+        guard let id = recap.shareId else { return }
+        do {
+            try await PythonAnywhereClient.shared.setAIFavorite(kind: "recap", shareId: id, pinned: recap.pinned != true)
+            if let index = items.firstIndex(where: { $0.id == recap.id }) {
+                items[index].pinned = recap.pinned != true
+            }
+            error = nil
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    @MainActor
     private func load(reset: Bool = true) async {
         guard !loading else { return }
         loading = true
@@ -1579,7 +1581,7 @@ struct SiteFlyersView: View {
     var body: some View {
         List {
             Section {
-                Text("Save the picture to Photos, then share it from there. Don’t send a link.")
+                Text("Save the picture to Photos, then share it from there. Older flyers are removed after new ones are created; pinned favorites and flyers for today or later are protected.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -1615,6 +1617,12 @@ struct SiteFlyersView: View {
                     if let download = downloadURL(for: flyer) {
                         SiteSaveFlyerPictureButton(imageURL: download)
                     }
+                    Button {
+                        Task { await pin(flyer) }
+                    } label: {
+                        Label(flyer.pinned == true ? "Unpin favorite" : "Pin favorite", systemImage: flyer.pinned == true ? "pin.fill" : "pin")
+                    }
+                    .buttonStyle(.borderless)
                 }
                 .padding(.vertical, 4)
             }
@@ -1649,6 +1657,20 @@ struct SiteFlyersView: View {
         if let raw = flyer.downloadUrl, let url = SitePublicLink.absolute(raw) { return url }
         if let id = flyer.shareId { return SitePublicLink.flyerDownload(id) }
         return SitePublicLink.absolute(flyer.flyerImageUrl)
+    }
+
+    @MainActor
+    private func pin(_ flyer: FlyerItem) async {
+        guard let id = flyer.shareId else { return }
+        do {
+            try await PythonAnywhereClient.shared.setAIFavorite(kind: "flyer", shareId: id, pinned: flyer.pinned != true)
+            if let index = items.firstIndex(where: { $0.id == flyer.id }) {
+                items[index].pinned = flyer.pinned != true
+            }
+            error = nil
+        } catch {
+            self.error = error.localizedDescription
+        }
     }
 
     private func load() async {
