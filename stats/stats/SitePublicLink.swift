@@ -91,10 +91,12 @@ struct SiteCopyLinkButton: View {
     @ObservedObject private var auth = SiteAuthManager.shared
     var url: URL?
     var showsTitle: Bool = false
+    // Published recaps can be shared even from a personal account.
+    var isPublicLink: Bool = false
     @State private var copied = false
 
     var body: some View {
-        if let url, !auth.isPrivate {
+        if let url, isPublicLink || !auth.isPrivate {
             Button {
                 UIPasteboard.general.string = url.absoluteString
                 copied = true
@@ -124,7 +126,7 @@ struct SiteRecapActions: View {
             } label: {
                 Text("View")
             }
-            SiteCopyLinkButton(url: url, showsTitle: true)
+            SiteCopyLinkButton(url: url, showsTitle: true, isPublicLink: true)
         }
     }
 }

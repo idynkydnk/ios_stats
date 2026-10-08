@@ -6,10 +6,11 @@ struct SiteRecapPageView: View {
     var url: URL
     @State private var loading = true
     @State private var loadError: String?
+    @State private var currentURL: URL?
 
     var body: some View {
         ZStack {
-            SiteInAppWebView(url: url, isLoading: $loading, loadError: $loadError)
+            SiteInAppWebView(url: url, isLoading: $loading, loadError: $loadError, currentURL: $currentURL)
             if loading {
                 ProgressView()
             }
@@ -19,7 +20,7 @@ struct SiteRecapPageView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                SiteCopyLinkButton(url: url, showsTitle: true)
+                SiteCopyLinkButton(url: currentURL ?? url, showsTitle: true, isPublicLink: true)
             }
         }
         .safeAreaInset(edge: .bottom) {
@@ -39,9 +40,10 @@ private struct SiteInAppWebView: UIViewRepresentable {
     var url: URL
     @Binding var isLoading: Bool
     @Binding var loadError: String?
+    @Binding var currentURL: URL?
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(isLoading: $isLoading, loadError: $loadError)
+        Coordinator(isLoading: $isLoading, loadError: $loadError, currentURL: $currentURL)
     }
 
     func makeUIView(context: Context) -> WKWebView {
@@ -79,11 +81,13 @@ private struct SiteInAppWebView: UIViewRepresentable {
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         var isLoading: Binding<Bool>
         var loadError: Binding<String?>
+        var currentURL: Binding<URL?>
         private var loadedURL: URL?
 
-        init(isLoading: Binding<Bool>, loadError: Binding<String?>) {
+        init(isLoading: Binding<Bool>, loadError: Binding<String?>, currentURL: Binding<URL?>) {
             self.isLoading = isLoading
             self.loadError = loadError
+            self.currentURL = currentURL
         }
 
         func load(_ url: URL, in webView: WKWebView) {
@@ -99,8 +103,13 @@ private struct SiteInAppWebView: UIViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            currentURL.wrappedValue = webView.url
             isLoading.wrappedValue = false
             loadError.wrappedValue = nil
+        }
+
+        func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+            currentURL.wrappedValue = webView.url
         }
 
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {

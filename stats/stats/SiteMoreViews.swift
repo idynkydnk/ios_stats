@@ -1465,7 +1465,7 @@ struct SiteRecapsView: View {
                 }
             }
             if let url = r.publicURL {
-                SiteCopyLinkButton(url: url, showsTitle: true)
+                SiteCopyLinkButton(url: url, showsTitle: true, isPublicLink: true)
                     .buttonStyle(.borderless)
             }
         }
