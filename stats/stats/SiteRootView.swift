@@ -709,14 +709,6 @@ struct SiteStatsView: View {
         NavigationStack {
             VStack(spacing: 0) {
                 SiteSearchBar(search: $search, searchPrompt: "Search players...")
-                if loading {
-                    SiteBackgroundStatusBanner(
-                        text: hasStats ? "Updating stats…" : "Loading stats for the first time…",
-                        detail: "You can keep browsing while stats load in the background.",
-                        isBusy: true)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 4)
-                }
                 ScrollView {
                     OtherGameNavigation(section: $section, selection: $selectedOtherGame, selectedYear: $selectedYear)
                     if let error { Text(error).foregroundStyle(.red).padding() }
@@ -800,7 +792,7 @@ struct SiteStatsView: View {
                 .background(appearance.background)
                 .refreshable { await load(force: true) }
             }
-            .navigationTitle("Stats")
+            .navigationTitle(loading ? (hasStats ? "Updating stats…" : "Loading stats…") : "Stats")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
