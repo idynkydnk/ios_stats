@@ -31,6 +31,13 @@ final class SiteAuthManager: ObservableObject {
     }
 
     var isLoggedIn: Bool { token != nil && !(token?.isEmpty ?? true) }
+    // Suggestions always use enabled sources, including on the Add tab.
+    // Switching tabs must not change their cache key.
+    var playerSuggestionsScope: String {
+        let parts = [token ?? "public", username ?? "", String(isPrivate), String(isAdmin),
+                     String(showStarterStats), String(statsViewRevision)]
+        return String(data: try! JSONEncoder().encode(parts), encoding: .utf8)!
+    }
     var accountDisplayName: String { displayName ?? username?.capitalized ?? "" }
     var needsAccountName: Bool {
         guard let username, username.hasPrefix("apple_") || username.hasPrefix("google_") else { return false }

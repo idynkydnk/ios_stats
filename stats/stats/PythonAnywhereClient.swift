@@ -346,8 +346,21 @@ final class PythonAnywhereClient {
         return (w.gameNames ?? [], w.gameTypes ?? [], w.entryDefaults ?? [:])
     }
 
+    @MainActor
+    var doublesPlayersCacheKey: String {
+        "\(SiteAuthManager.shared.playerSuggestionsScope)-doubles-players"
+    }
+
+    @MainActor
+    var cachedDoublesPlayers: [String] {
+        SitePlayerSuggestionCache.shared.saved(key: doublesPlayersCacheKey)
+    }
+
+    @MainActor
     func doublesPlayers() async throws -> [String] {
-        try await nameList("/api/doubles_players")
+        try await SitePlayerSuggestionCache.shared.load(key: doublesPlayersCacheKey) {
+            try await self.nameList("/api/doubles_players")
+        }
     }
 
     func vollisPlayers() async throws -> [String] {

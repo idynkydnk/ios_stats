@@ -101,8 +101,14 @@ struct SiteAddDoublesView: View {
             }
         }
         .task { await bootstrap() }
-        .task(id: auth.statsViewRevision) {
-            players = (try? await PythonAnywhereClient.shared.doublesPlayers()) ?? []
+        .task(id: auth.playerSuggestionsScope) {
+            let client = PythonAnywhereClient.shared
+            let key = client.doublesPlayersCacheKey
+            players = client.cachedDoublesPlayers
+            if let refreshed = try? await client.doublesPlayers(),
+               !Task.isCancelled, key == client.doublesPlayersCacheKey {
+                players = refreshed
+            }
         }
         .onChange(of: gameToEdit?.id) { _, _ in applyEdit() }
         .onAppear {

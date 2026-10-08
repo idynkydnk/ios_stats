@@ -152,6 +152,10 @@ struct SiteRootView: View {
             await auth.refreshMe()
             await loadYears()
         }
+        .task(id: "\(auth.sessionReady)-\(auth.playerSuggestionsScope)") {
+            guard auth.sessionReady, auth.isLoggedIn else { return }
+            _ = try? await PythonAnywhereClient.shared.doublesPlayers()
+        }
         .onChange(of: section) { _, _ in
             Task { await loadYears() }
         }
