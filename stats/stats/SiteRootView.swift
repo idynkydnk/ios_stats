@@ -72,17 +72,6 @@ struct SiteRootView: View {
     @State private var recapReadyURL: URL?
     @State private var recapToOpen: SiteRecapPresentation?
     @State private var recapIsError = false
-    @State private var dismissedNamePromptToken: String?
-
-    private var showingNamePrompt: Binding<Bool> {
-        Binding(
-            get: {
-                auth.sessionReady && auth.isLoggedIn && auth.isPrivate && auth.needsAccountName
-                    && dismissedNamePromptToken != auth.token && recapToOpen == nil
-            },
-            set: { if !$0 { dismissedNamePromptToken = auth.token } }
-        )
-    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -126,11 +115,6 @@ struct SiteRootView: View {
             addNavigationID = UUID()
         }
         .tint(theme.appearance.accent)
-        .sheet(isPresented: showingNamePrompt) {
-            NavigationStack {
-                SiteAccountNameView(completingSignIn: true)
-            }
-        }
         .sheet(item: $recapToOpen) { recap in
             NavigationStack {
                 SiteRecapPageView(title: "Recap", url: recap.url)

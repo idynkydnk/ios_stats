@@ -32,9 +32,6 @@ struct SiteMoreView: View {
                         Button("Log out") { Task { await auth.logout() } }
                         NavigationLink("Stats to include") { SiteStatsSourcesView() }
                         if auth.isPrivate {
-                            NavigationLink(auth.needsAccountName ? "Add your name" : "Edit name") {
-                                SiteAccountNameView()
-                            }
                             Toggle("Show KT Stats", isOn: Binding(
                                 get: { auth.showStarterStats },
                                 set: { visible in
@@ -62,17 +59,13 @@ struct SiteMoreView: View {
                 SiteListSection("Browse") {
                     NavigationLink("Players") { SitePlayersView() }
                     NavigationLink("AI Recaps") { SiteRecapsView() }
-                    if auth.isLoggedIn && !auth.isPrivate {
-                        NavigationLink("Flyers") { SiteFlyersView() }
-                    }
+                    NavigationLink("Flyers") { SiteFlyersView() }
                 }
                 }
                 if auth.isLoggedIn {
                     SiteListSection("Create") {
                         NavigationLink("AI Recap") { SiteAISummaryView() }
-                        if !auth.isPrivate {
-                            NavigationLink("Flyer") { SiteFlyerView() }
-                        }
+                        NavigationLink("Flyer") { SiteFlyerView() }
                     }
                 }
                 if auth.isAdmin {
@@ -94,63 +87,6 @@ struct SiteMoreView: View {
                 Text("This permanently deletes your private games, players, and stats.")
             }
         }
-    }
-}
-
-struct SiteAccountNameView: View {
-    var completingSignIn = false
-    @ObservedObject private var auth = SiteAuthManager.shared
-    @Environment(\.dismiss) private var dismiss
-    @State private var name = ""
-    @State private var saving = false
-    @State private var error: String?
-
-    private var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
-
-    var body: some View {
-        Form {
-            Section {
-                TextField("Your name", text: $name)
-                    .textContentType(.name)
-                    .textInputAutocapitalization(.words)
-                    .disabled(saving)
-            } footer: {
-                if completingSignIn {
-                    Text("Your account doesn't have a name saved yet. Add the name you'd like to see when you're signed in and when you share your stats.")
-                } else {
-                    Text("This name appears in your account menu and when you share your stats.")
-                }
-            }
-            if let error { Text(error).foregroundStyle(.red) }
-            Button {
-                saving = true
-                error = nil
-                Task {
-                    defer { saving = false }
-                    do {
-                        try await auth.setDisplayName(trimmedName)
-                        dismiss()
-                    } catch { self.error = error.localizedDescription }
-                }
-            } label: {
-                HStack {
-                    Text(saving ? "Saving…" : "Save")
-                    if saving { ProgressView() }
-                }
-            }
-            .disabled(saving || trimmedName.isEmpty || trimmedName.count > 200)
-        }
-        .navigationTitle("Your name")
-        .toolbar {
-            if completingSignIn {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Later") { dismiss() }
-                        .disabled(saving)
-                }
-            }
-        }
-        .interactiveDismissDisabled(saving)
-        .onAppear { name = auth.needsAccountName ? "" : auth.accountDisplayName }
     }
 }
 

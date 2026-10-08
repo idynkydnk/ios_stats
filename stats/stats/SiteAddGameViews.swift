@@ -499,6 +499,8 @@ struct SiteAddOtherView: View {
     @State private var comment = ""
     @State private var location = siteLastGameLocation()
     @State private var knownNames: [String] = ["Vollis"]
+    @State private var loadingGameNames = false
+    @State private var gameNamesError: String?
     @State private var knownTypes: [String] = []
     @State private var entryDefaults: [String: PythonAnywhereClient.OtherGameEntryInfo] = [:]
     @State private var players: [String] = []
@@ -525,14 +527,32 @@ struct SiteAddOtherView: View {
                 SiteContentCard(title: "Other game") {
                     if let error { SiteAddBanner(text: error, isError: true) }
 
-                    SiteAddTextRow(label: "Game name", text: $gameName, field: .gameName, focus: $focused, submit: .done, onSubmit: {
-                        focused = nil
-                        Task { await applyGameName(advanceFocus: false) }
-                    }, onFocus: {})
-                    if focused == .gameName {
-                        SiteAddSuggestionList(names: siteFilterPlayers(knownNames, query: gameName, excluding: [], limit: knownNames.count)) { name in
-                            gameName = name
-                            Task { await applyGameName() }
+                    HStack(spacing: 8) {
+                        SiteAddTextRow(label: "Game name", text: $gameName, field: .gameName, focus: $focused, submit: .done, onSubmit: {
+                            focused = nil
+                            Task { await applyGameName(advanceFocus: false) }
+                        })
+                        Menu {
+                            ForEach(knownNames, id: \.self) { name in
+                                Button(name) {
+                                    gameName = name
+                                    Task { await applyGameName() }
+                                }
+                            }
+                        } label: {
+                            Image(systemName: "chevron.down")
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .accessibilityLabel("Choose a previous game")
+                        .accessibilityHint("Shows all previous game names")
+                    }
+                    if loadingGameNames {
+                        ProgressView("Loading game names…")
+                    } else if let gameNamesError {
+                        Text(gameNamesError).font(.footnote).foregroundStyle(.secondary)
+                        Button("Retry loading game names") {
+                            Task { await loadGameNames() }
                         }
                     }
 
@@ -654,12 +674,13 @@ struct SiteAddOtherView: View {
             guard gameName.trimmingCharacters(in: .whitespaces) == name else { return }
             players = ordered ?? []
         }
+        .task(id: auth.statsViewRevision) {
+            knownNames = ["Vollis"]
+            knownTypes = []
+            entryDefaults = [:]
+            await loadGameNames()
+        }
         .task {
-            if let info = try? await PythonAnywhereClient.shared.otherGameTypes() {
-                knownNames = ["Vollis"] + info.names.filter { $0.caseInsensitiveCompare("Vollis") != .orderedSame }
-                knownTypes = info.types
-                entryDefaults = info.defaults
-            }
             let year = String(Calendar.current.component(.year, from: Date()))
             let all = (try? await PythonAnywhereClient.shared.otherGames(year: year, preview: false))?.games ?? []
             todayGames = all.filter { siteIsToday(DoublesGame.parseDate($0.gameDateOnly ?? $0.gameDate) ?? .distantPast) }
@@ -667,6 +688,24 @@ struct SiteAddOtherView: View {
     }
 
     private enum Side { case winner, loser }
+
+    private func loadGameNames() async {
+        loadingGameNames = true
+        gameNamesError = nil
+        do {
+            let info = try await PythonAnywhereClient.shared.otherGameTypes()
+            try Task.checkCancellation()
+            var names = ["Vollis"]
+            sitePromote(info.names, in: &names)
+            knownNames = names.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+            knownTypes = info.types
+            entryDefaults = info.defaults
+        } catch {
+            guard !Task.isCancelled else { return }
+            gameNamesError = "Previous game names could not load. You can still type a game name."
+        }
+        loadingGameNames = false
+    }
 
     @ViewBuilder
     private func playerSlot(side: Side, index: Int) -> some View {
