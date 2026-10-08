@@ -78,7 +78,7 @@ final class SiteAuthManager: ObservableObject {
             UserDefaults.standard.set(me.username, forKey: self.usernameKey)
             UserDefaults.standard.set(me.isAdmin, forKey: self.adminKey)
             self.lastError = nil
-            self.welcomeMessage = "Logged in as \(self.accountDisplayName)"
+            self.welcomeMessage = self.needsAccountName ? "Signed in" : "Signed in as \(self.accountDisplayName)"
         }
     }
 
@@ -157,11 +157,12 @@ final class SiteAuthManager: ObservableObject {
     @MainActor
     func setDisplayName(_ name: String) async throws {
         let accountToken = token
+        let wasMissingName = needsAccountName
         let savedName = try await PythonAnywhereClient.shared.setDisplayName(name)
         guard token == accountToken, isLoggedIn else { return }
         displayName = savedName
         UserDefaults.standard.set(savedName, forKey: displayNameKey)
-        if welcomeMessage != nil { welcomeMessage = "Logged in as \(savedName)" }
+        if wasMissingName || welcomeMessage != nil { welcomeMessage = "Signed in as \(savedName)" }
     }
 
     func deleteAccount() async throws {

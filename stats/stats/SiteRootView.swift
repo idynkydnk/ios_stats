@@ -72,6 +72,17 @@ struct SiteRootView: View {
     @State private var recapReadyURL: URL?
     @State private var recapToOpen: SiteRecapPresentation?
     @State private var recapIsError = false
+    @State private var dismissedNamePromptToken: String?
+
+    private var showingNamePrompt: Binding<Bool> {
+        Binding(
+            get: {
+                auth.sessionReady && auth.isLoggedIn && auth.isPrivate && auth.needsAccountName
+                    && dismissedNamePromptToken != auth.token && recapToOpen == nil
+            },
+            set: { if !$0 { dismissedNamePromptToken = auth.token } }
+        )
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -115,6 +126,11 @@ struct SiteRootView: View {
             addNavigationID = UUID()
         }
         .tint(theme.appearance.accent)
+        .sheet(isPresented: showingNamePrompt) {
+            NavigationStack {
+                SiteAccountNameView(completingSignIn: true)
+            }
+        }
         .sheet(item: $recapToOpen) { recap in
             NavigationStack {
                 SiteRecapPageView(title: "Recap", url: recap.url)
@@ -184,10 +200,12 @@ struct SiteRootView: View {
         .onChange(of: auth.welcomeMessage) { _, message in
             guard message != nil else { return }
             selectedTab = 0
-            Task {
-                try? await Task.sleep(nanoseconds: 2_400_000_000)
-                auth.clearWelcome()
-            }
+        }
+        .task(id: auth.welcomeMessage) {
+            guard auth.welcomeMessage != nil else { return }
+            do { try await Task.sleep(nanoseconds: 2_400_000_000) }
+            catch { return }
+            auth.clearWelcome()
         }
     }
 

@@ -27,7 +27,7 @@ struct SiteMoreView: View {
                 if auth.isLoggedIn {
                 SiteListSection("Account") {
                     if auth.isLoggedIn {
-                        Text("Signed in as \(auth.accountDisplayName)")
+                        Text(auth.needsAccountName ? "Signed in" : "Signed in as \(auth.accountDisplayName)")
                         if auth.isAdmin { Text("Admin").foregroundStyle(.orange) }
                         Button("Log out") { Task { await auth.logout() } }
                         NavigationLink("Stats to include") { SiteStatsSourcesView() }
@@ -98,6 +98,7 @@ struct SiteMoreView: View {
 }
 
 struct SiteAccountNameView: View {
+    var completingSignIn = false
     @ObservedObject private var auth = SiteAuthManager.shared
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
@@ -114,7 +115,11 @@ struct SiteAccountNameView: View {
                     .textInputAutocapitalization(.words)
                     .disabled(saving)
             } footer: {
-                Text("This name appears in your account menu and when you share your stats.")
+                if completingSignIn {
+                    Text("Your account doesn't have a name saved yet. Add the name you'd like to see when you're signed in and when you share your stats.")
+                } else {
+                    Text("This name appears in your account menu and when you share your stats.")
+                }
             }
             if let error { Text(error).foregroundStyle(.red) }
             Button {
@@ -136,6 +141,15 @@ struct SiteAccountNameView: View {
             .disabled(saving || trimmedName.isEmpty || trimmedName.count > 200)
         }
         .navigationTitle("Your name")
+        .toolbar {
+            if completingSignIn {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Later") { dismiss() }
+                        .disabled(saving)
+                }
+            }
+        }
+        .interactiveDismissDisabled(saving)
         .onAppear { name = auth.needsAccountName ? "" : auth.accountDisplayName }
     }
 }
