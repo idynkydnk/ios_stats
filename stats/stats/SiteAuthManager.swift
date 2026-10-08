@@ -70,6 +70,7 @@ final class SiteAuthManager: ObservableObject {
     private func accept(me: MePayload, token: String) async {
         await MainActor.run {
             SiteBrowseCache.shared.invalidate()
+            SiteBrowseCache.playerSuggestions.invalidate()
             SiteOfflineQueue.shared.clear()
             KeychainStore.set(self.tokenKey, value: token)
             self.token = token
@@ -127,6 +128,7 @@ final class SiteAuthManager: ObservableObject {
 
     private func clearSession() {
         SiteBrowseCache.shared.invalidate()
+        SiteBrowseCache.playerSuggestions.invalidate()
         SiteOfflineQueue.shared.clear()
         URLCache.shared.removeAllCachedResponses()
         KeychainStore.delete(tokenKey)
@@ -152,12 +154,13 @@ final class SiteAuthManager: ObservableObject {
         try await PythonAnywhereClient.shared.setStarterStats(visible: visible)
         await MainActor.run {
             showStarterStats = visible
-            statsViewRevision += 1
+            statsSourcesChanged()
         }
     }
 
     func statsSourcesChanged() {
         SiteBrowseCache.shared.invalidate()
+        SiteBrowseCache.playerSuggestions.invalidate()
         statsViewRevision += 1
     }
 

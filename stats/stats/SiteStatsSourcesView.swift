@@ -61,7 +61,6 @@ struct SiteStatsSourcesView: View {
         defer { busy = false }
         do {
             payload = try await PythonAnywhereClient.shared.setStatsSharing(enabled)
-            auth.statsSourcesChanged()
             error = nil
         } catch { self.error = error.localizedDescription }
     }

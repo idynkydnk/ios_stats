@@ -4,13 +4,17 @@ import CryptoKit
 /// Disposable, account-scoped snapshots. The server remains authoritative.
 final class SiteBrowseCache: @unchecked Sendable {
     static let shared = SiteBrowseCache()
+    static let playerSuggestions = SiteBrowseCache(directory: FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("StatsPlayers-v1", isDirectory: true))
+    static let didChange = Notification.Name("SiteBrowseCache.didChange")
     struct Entry<Value: Codable>: Codable {
         var value: Value
         var savedAt: Date
+        var refreshRequired: Bool? = nil
 
-        func isFresh(at now: Date = Date()) -> Bool {
+        func isFresh(at now: Date = Date(), maxAge: TimeInterval = 5 * 60) -> Bool {
             let age = now.timeIntervalSince(savedAt)
-            return age >= 0 && age < 60
+            return refreshRequired != true && age >= 0 && age < maxAge
         }
     }
 
@@ -64,6 +68,32 @@ final class SiteBrowseCache: @unchecked Sendable {
                 try? FileManager.default.removeItem(at: old)
             }
         } catch { /* Caching must never prevent browsing. */ }
+    }
+
+    /// Keep the last results visible, but require a fetch and reject older requests.
+    func markStale() {
+        lock.lock()
+        revision = UUID()
+        if let files = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) {
+            for file in files {
+                do {
+                    let data = try Data(contentsOf: file)
+                    var entry = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+                    entry["refreshRequired"] = true
+                    let updated = try JSONSerialization.data(withJSONObject: entry)
+                    #if os(iOS)
+                    try updated.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+                    #else
+                    try updated.write(to: file, options: .atomic)
+                    #endif
+                } catch {
+                    // A snapshot that cannot be marked stale must not remain fresh.
+                    try? FileManager.default.removeItem(at: file)
+                }
+            }
+        }
+        lock.unlock()
+        NotificationCenter.default.post(name: Self.didChange, object: self)
     }
 
     func invalidate() {

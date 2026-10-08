@@ -25,8 +25,9 @@ struct BrowseCacheTests {
         let reopened = SiteBrowseCache(directory: directory)
         let saved = reopened.load(DoublesStatsPayload.self, key: key)!
         precondition(saved.value.stats[0].rating == 24 && saved.value.todayStats[0].plusMinus == 8)
-        precondition(saved.isFresh(at: now.addingTimeInterval(59)))
-        precondition(!saved.isFresh(at: now.addingTimeInterval(60)))
+        precondition(saved.isFresh(at: now.addingTimeInterval(60)))
+        precondition(saved.isFresh(at: now.addingTimeInterval(299)))
+        precondition(!saved.isFresh(at: now.addingTimeInterval(300)))
         precondition(!saved.isFresh(at: now.addingTimeInterval(-1)))
         for otherKey in ["account-b-combined-doubles-2026-open", "public-doubles-2026-open",
                          "account-a-owned-doubles-2026-open", "account-a-combined-doubles-2025-open",
@@ -34,11 +35,30 @@ struct BrowseCacheTests {
             precondition(cache.load(DoublesStatsPayload.self, key: otherKey) == nil)
         }
         // Old snapshots are displayable during refresh, but eventually expire.
-        cache.save(stats, key: "stale", generation: generation, now: now.addingTimeInterval(-120))
+        cache.save(stats, key: "stale", generation: generation, now: now.addingTimeInterval(-360))
         precondition(cache.load(DoublesStatsPayload.self, key: "stale")?.isFresh() == false)
         cache.save(stats, key: "expired", generation: generation, now: now.addingTimeInterval(-31 * 86400))
         precondition(cache.load(DoublesStatsPayload.self, key: "expired") == nil)
-        // Changes/logout remove disk copies and reject late responses.
+        // Game changes preserve readable results across relaunch, but force a fetch.
+        let refreshNotification = DispatchSemaphore(value: 0)
+        let observer = NotificationCenter.default.addObserver(forName: SiteBrowseCache.didChange, object: cache, queue: nil) { _ in
+            refreshNotification.signal()
+        }
+        cache.markStale()
+        NotificationCenter.default.removeObserver(observer)
+        precondition(refreshNotification.wait(timeout: .now()) == .success)
+        let changed = SiteBrowseCache(directory: directory).load(DoublesStatsPayload.self, key: key)!
+        precondition(changed.value.stats[0].rating == 24 && !changed.isFresh())
+        cache.save(["Late response"], key: "late", generation: generation)
+        precondition(cache.load([String].self, key: "late") == nil)
+        cache.save(stats, key: key, generation: cache.generation)
+        precondition(cache.load(DoublesStatsPayload.self, key: key)?.isFresh() == true)
+        // Changes to a separate player cache cannot discard or stale standings.
+        let players = SiteBrowseCache(directory: directory.appendingPathComponent("players"))
+        players.save(["New player"], key: "names", generation: players.generation)
+        players.invalidate()
+        precondition(cache.load(DoublesStatsPayload.self, key: key)?.isFresh() == true)
+        // Logout/source changes remove disk copies and reject late responses.
         cache.invalidate()
         cache.save(stats, key: key, generation: generation)
         precondition(cache.load(DoublesStatsPayload.self, key: key) == nil)
@@ -52,6 +72,25 @@ struct BrowseCacheTests {
         for index in 0..<55 { cache.save([index], key: "item-\(index)", generation: cache.generation) }
         let count = try FileManager.default.contentsOfDirectory(atPath: directory.path).count
         precondition(count <= 48)
-        print("Browse cache: persistence, model round trip, freshness, scope isolation, invalidation, late responses, corruption, and size bounds passed.")
+        for kind in ["doubles", "vollis", "other"] {
+            for (method, suffix) in [("POST", ""), ("PUT", "/42"), ("DELETE", "/42")] {
+                precondition(SiteStatsRefreshPolicy.affectsStats(method: method, path: "/api/\(kind)/games\(suffix)"))
+            }
+            precondition(!SiteStatsRefreshPolicy.affectsStats(method: "GET", path: "/api/\(kind)/games"))
+        }
+        for path in ["/api/rename_player", "/api/admin/undo/42", "/api/admin/clear_cache"] {
+            precondition(SiteStatsRefreshPolicy.affectsStats(method: "POST", path: path))
+        }
+        for path in ["/api/ai/summary", "/api/ai/roster", "/api/flyers/42", "/api/update_player_info",
+                     "/api/add_player", "/api/account/display-name", "/api/auth/apple/challenge",
+                     "/api/admin/backup", "/api/admin/test_email", "/api/admin/users/reset_password",
+                     "/api/doubles/games/search"] {
+            for method in ["POST", "PUT", "DELETE"] {
+                precondition(!SiteStatsRefreshPolicy.affectsStats(method: method, path: path))
+            }
+        }
+        precondition(SiteStatsRefreshPolicy.affectsPlayerSuggestions(method: "POST", path: "/api/add_player"))
+        precondition(!SiteStatsRefreshPolicy.affectsPlayerSuggestions(method: "POST", path: "/api/ai/roster"))
+        print("Browse cache: five-minute freshness, preserved stale results, separate player cache, mutation policy, persistence, scope isolation, late responses, corruption, and size bounds passed.")
     }
 }

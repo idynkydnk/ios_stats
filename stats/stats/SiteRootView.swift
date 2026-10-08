@@ -226,11 +226,11 @@ struct SiteRootView: View {
 
     private var mainTabs: some View {
         TabView(selection: $selectedTab) {
-            SiteStatsView(selectedOtherGame: $selectedOtherGame, section: $section, selectedYear: selectedYear, years: years)
+            SiteStatsView(selectedOtherGame: $selectedOtherGame, section: $section, selectedYear: selectedYear, years: years, isActive: selectedTab == 0)
                 .id("\(auth.sessionReady)-\(auth.username ?? "signed-out")-\(auth.isLoggedIn)-\(auth.isPreviewing)-\(auth.statsViewRevision)")
                 .tabItem { Label("Stats", systemImage: "chart.bar.fill") }
                 .tag(0)
-            SiteGamesView(selectedOtherGame: $selectedOtherGame, section: $section, selectedYear: selectedYear, years: years, canEdit: auth.isLoggedIn && !auth.isPreviewing, onEditDoubles: { doublesEdit = $0; addKind = .doubles; selectedTab = 2 }, onEditVollis: { vollisEdit = $0; addKind = .vollis; selectedTab = 2 })
+            SiteGamesView(selectedOtherGame: $selectedOtherGame, section: $section, selectedYear: selectedYear, years: years, isActive: selectedTab == 1, canEdit: auth.isLoggedIn && !auth.isPreviewing, onEditDoubles: { doublesEdit = $0; addKind = .doubles; selectedTab = 2 }, onEditVollis: { vollisEdit = $0; addKind = .vollis; selectedTab = 2 })
                 .id("\(auth.sessionReady)-\(auth.username ?? "signed-out")-\(auth.isLoggedIn)-\(auth.isPreviewing)-\(auth.statsViewRevision)")
                 .tabItem { Label("Games", systemImage: "list.bullet") }
                 .tag(1)
@@ -679,6 +679,8 @@ struct SiteStatsView: View {
     @Binding var section: GameSection
     @Binding var selectedYear: String
     var years: [String]
+    var isActive: Bool
+    @State private var dataRevision = UUID()
     @AppStorage("stats.doublesDivision") private var division = "open"
     @State private var doubles: DoublesStatsPayload?
     @State private var vollis: VollisStatsPayload?
@@ -802,7 +804,14 @@ struct SiteStatsView: View {
                     SiteCopyLinkButton(url: SitePublicLink.stats(section: section, year: selectedYear, gameName: selectedOtherGame))
                 }
             }
-            .task(id: "\(section.rawValue)-\(selectedYear)-\(division)") { await load() }
+            .task(id: "\(cacheKey)-\(isActive)-\(dataRevision)") {
+                guard isActive else { return }
+                await load()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: SiteBrowseCache.didChange, object: SiteBrowseCache.shared)
+                .receive(on: RunLoop.main)) { _ in
+                dataRevision = UUID()
+            }
         }
     }
 
@@ -826,7 +835,7 @@ struct SiteStatsView: View {
         let cache = SiteBrowseCache.shared
         let generation = cache.generation
         let cached = cache.load(Snapshot.self, key: key)
-        if let cached {
+        if let cached, displayedCacheKey != key {
             doubles = cached.value.doubles
             vollis = cached.value.vollis
             other = cached.value.other
@@ -895,6 +904,9 @@ struct SiteGamesView: View {
     @Binding var section: GameSection
     @Binding var selectedYear: String
     var years: [String]
+    var isActive: Bool
+    @ObservedObject private var auth = SiteAuthManager.shared
+    @State private var dataRevision = UUID()
     var canEdit: Bool
     var onEditDoubles: (DoublesGame) -> Void
     var onEditVollis: (VollisGame) -> Void
@@ -1049,10 +1061,14 @@ struct SiteGamesView: View {
             }
             .sensoryFeedback(.success, trigger: successTick)
             .refreshable { await load(force: true) }
-            .task(id: "\(section.rawValue)-\(selectedYear)-\(division)") {
-                banner = nil
+            .task(id: "\(auth.browseCacheScope)-\(section.rawValue)-\(selectedYear)-\(division)-\(isActive)-\(dataRevision)") {
+                guard isActive else { return }
                 error = nil
                 await load()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: SiteBrowseCache.didChange, object: SiteBrowseCache.shared)
+                .receive(on: RunLoop.main)) { _ in
+                dataRevision = UUID()
             }
         }
     }
@@ -1092,7 +1108,8 @@ struct SiteGamesView: View {
         let cache = SiteBrowseCache.shared
         let generation = cache.generation
         let cached = cache.load(Snapshot.self, key: key)
-        if let cached {
+        if displayedCacheKey != key { banner = nil }
+        if let cached, displayedCacheKey != key {
             doubles = cached.value.doubles
             vollis = cached.value.vollis
             other = cached.value.other
@@ -1154,7 +1171,6 @@ struct SiteGamesView: View {
             try await PythonAnywhereClient.shared.deleteDoubles(id: g.id)
             doubles.removeAll { $0.id == g.id }
             showDeletedBanner()
-            await load()
         } catch {
             banner = nil
             self.error = error.localizedDescription
@@ -1171,7 +1187,6 @@ struct SiteGamesView: View {
             try await PythonAnywhereClient.shared.deleteVollis(id: g.id)
             vollis.removeAll { $0.id == g.id }
             showDeletedBanner()
-            await load()
         } catch {
             banner = nil
             self.error = error.localizedDescription
@@ -1188,7 +1203,6 @@ struct SiteGamesView: View {
             try await PythonAnywhereClient.shared.deleteOther(id: g.id)
             other.removeAll { $0.id == g.id }
             showDeletedBanner()
-            await load()
         } catch {
             banner = nil
             self.error = error.localizedDescription

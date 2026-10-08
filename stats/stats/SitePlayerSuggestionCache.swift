@@ -3,7 +3,7 @@ import Foundation
 /// Share preloading and form requests, while keeping saved names available during refresh.
 @MainActor
 final class SitePlayerSuggestionCache {
-    static let shared = SitePlayerSuggestionCache(cache: .shared)
+    static let shared = SitePlayerSuggestionCache(cache: .playerSuggestions)
 
     private let cache: SiteBrowseCache
     private var pending: [String: (id: UUID, generation: UUID, task: Task<[String], Error>)] = [:]
@@ -17,7 +17,7 @@ final class SitePlayerSuggestionCache {
     }
 
     func load(key: String, fetch: @escaping @MainActor () async throws -> [String]) async throws -> [String] {
-        if let saved = cache.load([String].self, key: key), saved.isFresh() {
+        if let saved = cache.load([String].self, key: key), saved.isFresh(maxAge: 60) {
             return saved.value
         }
         let generation = cache.generation
