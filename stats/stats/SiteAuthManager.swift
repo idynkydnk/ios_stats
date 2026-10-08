@@ -23,6 +23,13 @@ final class SiteAuthManager: ObservableObject {
     @Published var lastError: String?
     @Published private(set) var welcomeMessage: String?
 
+    // Include the session and every browsing scope; raw credentials never go to disk.
+    var browseCacheScope: String {
+        let parts = [token ?? "public", username ?? "", String(isPrivate), String(isAdmin),
+                     String(isPreviewing), String(browseSelectedStats), String(showStarterStats)]
+        return String(data: try! JSONEncoder().encode(parts), encoding: .utf8)!
+    }
+
     var isLoggedIn: Bool { token != nil && !(token?.isEmpty ?? true) }
     var accountDisplayName: String { displayName ?? username?.capitalized ?? "" }
     var needsAccountName: Bool {
@@ -55,6 +62,7 @@ final class SiteAuthManager: ObservableObject {
 
     private func accept(me: MePayload, token: String) async {
         await MainActor.run {
+            SiteBrowseCache.shared.invalidate()
             SiteOfflineQueue.shared.clear()
             KeychainStore.set(self.tokenKey, value: token)
             self.token = token
@@ -111,6 +119,7 @@ final class SiteAuthManager: ObservableObject {
     }
 
     private func clearSession() {
+        SiteBrowseCache.shared.invalidate()
         SiteOfflineQueue.shared.clear()
         URLCache.shared.removeAllCachedResponses()
         KeychainStore.delete(tokenKey)
@@ -141,6 +150,7 @@ final class SiteAuthManager: ObservableObject {
     }
 
     func statsSourcesChanged() {
+        SiteBrowseCache.shared.invalidate()
         statsViewRevision += 1
     }
 

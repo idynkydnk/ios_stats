@@ -751,6 +751,7 @@ final class PythonAnywhereClient {
         try await SiteGameSaveRequest.send(req, confirmationRequest: confirmation, fields: fields) {
             try await self.session.data(for: $0)
         }
+        SiteBrowseCache.shared.invalidate()
     }
 
     private func postJSON<T: Decodable>(_ path: String, json: Any) async throws -> T {
@@ -771,6 +772,7 @@ final class PythonAnywhereClient {
         let req = request(path, method: "DELETE", authed: true)
         let (data, resp) = try await session.data(for: req)
         try throwIfNeeded(data, resp)
+        SiteBrowseCache.shared.invalidate()
     }
 
     private func upload<T: Decodable>(_ path: String, imageData: Data, filename: String) async throws -> T {
@@ -803,6 +805,7 @@ final class PythonAnywhereClient {
             throw SiteAPIError.message("Loading took too long. Pull down to try again.")
         }
         try throwIfNeeded(data, resp)
+        if req.httpMethod != "GET" { SiteBrowseCache.shared.invalidate() }
         do {
             return try decoder.decode(T.self, from: data)
         } catch {
@@ -865,6 +868,7 @@ final class SiteOfflineQueue: ObservableObject {
         guard let owner = SiteAuthManager.shared.username else { return }
         let data = body.flatMap { try? JSONSerialization.data(withJSONObject: $0) }
         let item = OfflineMutation(id: UUID().uuidString, method: method, path: path, body: data, ownerUsername: owner)
+        SiteBrowseCache.shared.invalidate()
         storedItems.append(item)
         items.append(item)
         save()

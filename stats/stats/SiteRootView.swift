@@ -682,17 +682,15 @@ struct SiteStatsView: View {
     @State private var loading = false
     @ObservedObject private var auth = SiteAuthManager.shared
     @State private var loadID = UUID()
+    @State private var displayedCacheKey: String?
 
-    // Only public results are shared between view instances. Private results
-    // remain in the current view and are discarded when the account changes.
-    private struct Snapshot {
+    private struct Snapshot: Codable {
         var doubles: DoublesStatsPayload?
         var vollis: VollisStatsPayload?
         var other: OtherStatsPayload?
     }
-    @MainActor private static var publicSnapshots: [String: Snapshot] = [:]
 
-    private var cacheKey: String { "\(section.rawValue)-\(selectedYear)-\(division)" }
+    private var cacheKey: String { "\(auth.browseCacheScope)-stats-\(section.rawValue)-\(selectedYear)-\(division)" }
     private var hasStats: Bool {
         switch section {
         case .doubles: return doubles != nil
@@ -794,7 +792,7 @@ struct SiteStatsView: View {
                 }
                 .id("\(section.rawValue)-\(selectedYear)-\(search)")
                 .background(appearance.background)
-                .refreshable { await load() }
+                .refreshable { await load(force: true) }
             }
             .navigationTitle("Stats")
             .navigationBarTitleDisplayMode(.inline)
@@ -821,17 +819,28 @@ struct SiteStatsView: View {
     }
 
     @MainActor
-    private func load() async {
+    private func load(force: Bool = false) async {
         guard auth.sessionReady else { return }
         let requestID = UUID()
         loadID = requestID
         let key = cacheKey
-        let publicStats = !auth.isLoggedIn || auth.isPreviewing
-        if publicStats, let cached = Self.publicSnapshots[key] {
-            doubles = cached.doubles
-            vollis = cached.vollis
-            other = cached.other
+        let scope = auth.browseCacheScope
+        let cache = SiteBrowseCache.shared
+        let generation = cache.generation
+        let cached = cache.load(Snapshot.self, key: key)
+        if let cached {
+            doubles = cached.value.doubles
+            vollis = cached.value.vollis
+            other = cached.value.other
+        } else if displayedCacheKey != key {
+            doubles = nil
+            vollis = nil
+            other = nil
         }
+        displayedCacheKey = key
+        loading = false
+        error = nil
+        if !force, cached?.isFresh() == true { return }
         loading = true
         defer { if loadID == requestID { loading = false } }
         error = nil
@@ -841,7 +850,7 @@ struct SiteStatsView: View {
             case .doubles:
                 let payload = try await PythonAnywhereClient.shared.doublesStats(year: year)
                 try Task.checkCancellation()
-                guard loadID == requestID else { return }
+                guard loadID == requestID, auth.browseCacheScope == scope, cache.generation == generation else { return }
                 doubles = payload
                 if payload.showingPreviousYear { selectedYear = payload.displayYear }
             case .vollis:
@@ -855,7 +864,7 @@ struct SiteStatsView: View {
                     }
                 }
                 try Task.checkCancellation()
-                guard loadID == requestID else { return }
+                guard loadID == requestID, auth.browseCacheScope == scope, cache.generation == generation else { return }
                 vollis = payload
                 if payload.showingPreviousYear { selectedYear = payload.displayYear }
             case .other:
@@ -869,17 +878,14 @@ struct SiteStatsView: View {
                 payload.gameCards.removeAll { $0.isConsolidated == true }
                 payload.gameCards.append(contentsOf: volleyball.gameCards)
                 try Task.checkCancellation()
-                guard loadID == requestID else { return }
+                guard loadID == requestID, auth.browseCacheScope == scope, cache.generation == generation else { return }
                 other = payload
                 if payload.showingPreviousYear { selectedYear = payload.displayYear }
             }
-            if publicStats {
-                if Self.publicSnapshots.count >= 24 { Self.publicSnapshots.removeAll() }
-                Self.publicSnapshots[key] = Snapshot(doubles: doubles, vollis: vollis, other: other)
-            }
+            cache.save(Snapshot(doubles: doubles, vollis: vollis, other: other), key: key, generation: generation)
         } catch {
             guard !Task.isCancelled, loadID == requestID else { return }
-            self.error = error.localizedDescription
+            self.error = hasStats ? "Showing saved stats. " + error.localizedDescription : error.localizedDescription
         }
     }
 }
@@ -906,6 +912,13 @@ struct SiteGamesView: View {
     @State private var isDeleting = false
     @State private var successTick = 0
     @State private var openedPlayer: SitePlayerRoute?
+    @State private var loadID = UUID()
+    @State private var displayedCacheKey: String?
+    private struct Snapshot: Codable {
+        var doubles: [DoublesGame]
+        var vollis: [VollisGame]
+        var other: [OtherGame]
+    }
     @ObservedObject private var network = NetworkMonitor.shared
     @ObservedObject private var queue = SiteOfflineQueue.shared
 
@@ -1037,7 +1050,7 @@ struct SiteGamesView: View {
                 }
             }
             .sensoryFeedback(.success, trigger: successTick)
-            .refreshable { await load() }
+            .refreshable { await load(force: true) }
             .task(id: "\(section.rawValue)-\(selectedYear)-\(division)") {
                 banner = nil
                 error = nil
@@ -1069,28 +1082,53 @@ struct SiteGamesView: View {
         return other.filter { (selectedOtherGame.isEmpty || $0.gameName == selectedOtherGame) && (q.isEmpty || "\($0.gameName ?? "") \($0.displayWinners) \($0.displayLosers)".lowercased().contains(q)) }
     }
 
-    private func load() async {
-        guard SiteAuthManager.shared.sessionReady else { return }
+    @MainActor
+    private func load(force: Bool = false) async {
+        let auth = SiteAuthManager.shared
+        guard auth.sessionReady else { return }
+        let requestID = UUID()
+        loadID = requestID
+        let scope = auth.browseCacheScope
         let year = selectedYear == "All" ? "All years" : selectedYear
+        let key = "\(scope)-games-\(section.rawValue)-\(year)-\(division)"
+        let cache = SiteBrowseCache.shared
+        let generation = cache.generation
+        let cached = cache.load(Snapshot.self, key: key)
+        if let cached {
+            doubles = cached.value.doubles
+            vollis = cached.value.vollis
+            other = cached.value.other
+        } else if displayedCacheKey != key {
+            doubles = []
+            vollis = []
+            other = []
+        }
+        displayedCacheKey = key
+        error = nil
+        if !force, cached?.isFresh() == true { return }
         do {
             switch section {
             case .doubles:
                 let p = try await PythonAnywhereClient.shared.doublesGames(year: year)
                 try Task.checkCancellation()
+                guard loadID == requestID, auth.browseCacheScope == scope, cache.generation == generation else { return }
                 doubles = p.games
             case .vollis:
                 let p = try await PythonAnywhereClient.shared.vollisGames(year: year)
                 try Task.checkCancellation()
+                guard loadID == requestID, auth.browseCacheScope == scope, cache.generation == generation else { return }
                 vollis = p.games
             case .other:
                 let p = try await PythonAnywhereClient.shared.otherGames(year: year)
                 try Task.checkCancellation()
+                guard loadID == requestID, auth.browseCacheScope == scope, cache.generation == generation else { return }
                 other = p.games
             }
+            cache.save(Snapshot(doubles: doubles, vollis: vollis, other: other), key: key, generation: generation)
             error = nil
         } catch {
-            guard !Task.isCancelled else { return }
-            self.error = error.localizedDescription
+            guard !Task.isCancelled, loadID == requestID else { return }
+            self.error = (cached == nil ? "" : "Showing saved games. ") + error.localizedDescription
         }
     }
 
