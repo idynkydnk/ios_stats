@@ -329,21 +329,75 @@ final class PythonAnywhereClient {
         return []
     }
 
-    struct OtherGameEntryInfo: Decodable {
+    struct OtherGameEntryInfo: Codable {
         var gameType: String?
         var scoreType: String?
         var winnerCount: Int?
         var loserCount: Int?
     }
 
-    func otherGameTypes() async throws -> (names: [String], types: [String], defaults: [String: OtherGameEntryInfo]) {
+    struct OtherGameCatalog: Codable {
+        var names: [String]
+        var types: [String]
+        var defaults: [String: OtherGameEntryInfo]
+
+        var suggestedNames: [String] {
+            var result = ["Vollis"]
+            sitePromote(names, in: &result)
+            return result
+        }
+    }
+
+    @MainActor private var pendingOtherCatalog: (key: String, generation: UUID, id: UUID, task: Task<OtherGameCatalog, Error>)?
+
+    @MainActor
+    var otherCatalogCacheKey: String {
+        "\(SiteAuthManager.shared.playerSuggestionsScope)-other-entry-catalog"
+    }
+
+    @MainActor
+    var cachedOtherGameCatalog: OtherGameCatalog? {
+        SiteBrowseCache.playerSuggestions.load(OtherGameCatalog.self, key: otherCatalogCacheKey)?.value
+    }
+
+    @MainActor
+    func rememberOtherGameCatalog(_ catalog: OtherGameCatalog) {
+        let cache = SiteBrowseCache.playerSuggestions
+        cache.save(catalog, key: otherCatalogCacheKey, generation: cache.generation)
+    }
+
+    @MainActor
+    func otherGameTypes() async throws -> OtherGameCatalog {
+        let key = otherCatalogCacheKey
+        let cache = SiteBrowseCache.playerSuggestions
+        if let saved = cache.load(OtherGameCatalog.self, key: key), saved.isFresh(maxAge: 60) {
+            return saved.value
+        }
+        let generation = cache.generation
+        let request: (key: String, generation: UUID, id: UUID, task: Task<OtherGameCatalog, Error>)
+        if let pending = pendingOtherCatalog, pending.key == key, pending.generation == generation {
+            request = pending
+        } else {
+            request = (key, generation, UUID(), Task { try await self.fetchOtherGameCatalog() })
+            pendingOtherCatalog = request
+        }
+        defer {
+            if pendingOtherCatalog?.id == request.id { pendingOtherCatalog = nil }
+        }
+        let catalog = try await request.task.value
+        guard cache.generation == generation, otherCatalogCacheKey == key else { throw CancellationError() }
+        cache.save(catalog, key: key, generation: generation)
+        return catalog
+    }
+
+    private func fetchOtherGameCatalog() async throws -> OtherGameCatalog {
         struct Wrap: Decodable {
             var gameNames: [String]?
             var gameTypes: [String]?
             var entryDefaults: [String: OtherGameEntryInfo]?
         }
         let w: Wrap = try await get("/api/other/game-types", preview: false)
-        return (w.gameNames ?? [], w.gameTypes ?? [], w.entryDefaults ?? [:])
+        return OtherGameCatalog(names: w.gameNames ?? [], types: w.gameTypes ?? [], defaults: w.entryDefaults ?? [:])
     }
 
     @MainActor

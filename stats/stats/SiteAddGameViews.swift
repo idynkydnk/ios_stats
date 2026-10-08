@@ -503,7 +503,7 @@ struct SiteAddOtherView: View {
     @State private var teamLoserScore: Int?
     @State private var comment = ""
     @State private var location = siteLastGameLocation()
-    @State private var knownNames: [String] = ["Vollis"]
+    @State private var knownNames: [String] = PythonAnywhereClient.shared.cachedOtherGameCatalog?.suggestedNames ?? []
     @State private var loadingGameNames = false
     @State private var gameNamesError: String?
     @State private var knownTypes: [String] = []
@@ -536,6 +536,11 @@ struct SiteAddOtherView: View {
                         focused = nil
                         Task { await applyGameName(advanceFocus: false) }
                     })
+                    .task {
+                        // Apply focus once the field has joined the view hierarchy.
+                        await Task.yield()
+                        focused = .gameName
+                    }
                     if focused == .gameName {
                         SiteAddSuggestionList(names: siteFilterPlayers(knownNames, query: gameName, excluding: [])) { name in
                             gameName = name
@@ -655,7 +660,6 @@ struct SiteAddOtherView: View {
                 .accessibilityLabel("Hide keyboard")
             }
         }
-        .onAppear { focused = .gameName }
         .onChange(of: gameName) { _, _ in
             if isVollis { configureVollis() }
         }
@@ -669,10 +673,11 @@ struct SiteAddOtherView: View {
             guard gameName.trimmingCharacters(in: .whitespaces) == name else { return }
             players = ordered ?? []
         }
-        .task(id: auth.statsViewRevision) {
-            knownNames = ["Vollis"]
-            knownTypes = []
-            entryDefaults = [:]
+        .task(id: auth.playerSuggestionsScope) {
+            let saved = PythonAnywhereClient.shared.cachedOtherGameCatalog
+            knownNames = saved?.suggestedNames ?? []
+            knownTypes = saved?.types ?? []
+            entryDefaults = saved?.defaults ?? [:]
             await loadGameNames()
         }
         .task {
@@ -690,9 +695,7 @@ struct SiteAddOtherView: View {
         do {
             let info = try await PythonAnywhereClient.shared.otherGameTypes()
             try Task.checkCancellation()
-            var names = ["Vollis"]
-            sitePromote(info.names, in: &names)
-            knownNames = names.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+            knownNames = info.suggestedNames
             knownTypes = info.types
             entryDefaults = info.defaults
         } catch {
@@ -951,6 +954,8 @@ struct SiteAddOtherView: View {
                 winnerCount: w.count, loserCount: l.count)
         sitePromote([gameName], in: &knownNames)
         sitePromote([gameType], in: &knownTypes)
+        PythonAnywhereClient.shared.rememberOtherGameCatalog(.init(
+            names: knownNames, types: knownTypes, defaults: entryDefaults))
         siteRememberGameLocation(cleanLocation)
         saving = false
         banner = "Game saved"
