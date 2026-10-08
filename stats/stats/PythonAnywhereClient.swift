@@ -582,6 +582,17 @@ final class PythonAnywhereClient {
         return (r.jobId, r.aiImageUrl)
     }
 
+    func subscribeToRecapEmails(email: String) async throws -> String {
+        struct Body: Encodable { var email: String }
+        struct Response: Decodable { var message: String }
+        var req = request("/api/ai/recaps/subscribe", method: "POST", authed: false)
+        req.setValue(nil, forHTTPHeaderField: "X-Stats-Account-Required")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try encoder.encode(Body(email: email))
+        let response: Response = try await decode(req)
+        return response.message
+    }
+
     func recaps(page: Int = 1) async throws -> RecapPage {
         var req = request("/api/ai/recaps", method: "GET", query: ["page": String(page)])
         // Published recaps are also available without an account.
@@ -613,6 +624,30 @@ final class PythonAnywhereClient {
     func deleteFlyer(shareId: String) async throws {
         let encoded = shareId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? shareId
         try await delete("/api/flyers/\(encoded)")
+    }
+
+    func aiItemDetails(kind: String, shareId: String) async throws -> AIItemEditPayload {
+        try await get("/api/ai-library/\(kind)/\(shareId)")
+    }
+
+    func saveAIItem(kind: String, shareId: String, fields: [String: String]) async throws {
+        struct Response: Decodable { var message: String }
+        let _: Response = try await putJSON("/api/ai-library/\(kind)/\(shareId)", json: fields)
+    }
+
+    func deleteAIItem(kind: String, shareId: String) async throws {
+        try await delete("/api/ai-library/\(kind)/\(shareId)")
+    }
+
+    func remakeAIItem(kind: String, shareId: String, summary: Bool, prompt: String) async throws -> String {
+        struct Response: Decodable { var message: String }
+        let action = summary ? "remake-summary" : "remake-image"
+        var req = request("/\(kind)/\(shareId)/\(action)/", method: "POST")
+        req.timeoutInterval = 300
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: [summary ? "custom_prompt" : "scene_prompt": prompt])
+        let response: Response = try await decode(req)
+        return response.message
     }
 
     func createFlyer(_ fields: [String: Any]) async throws -> Int {

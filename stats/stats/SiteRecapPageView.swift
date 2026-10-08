@@ -3,13 +3,17 @@ import WebKit
 
 struct SiteRecapPageView: View {
     @Environment(\.siteAppearance) private var appearance
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var auth = SiteAuthManager.shared
     @ScaledMetric(relativeTo: .body) private var readingSize = 17.0
     var title: String
     var url: URL
+    var onChanged: () -> Void = {}
     @State private var loading = true
     @State private var loadError: String?
     @State private var currentURL: URL?
     @State private var reloadID = UUID()
+    @State private var editableShareId: String?
 
     var body: some View {
         ZStack {
@@ -27,9 +31,27 @@ struct SiteRecapPageView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(appearance.background, for: .navigationBar)
         .toolbar {
+            if let id = editableShareId {
+                ToolbarItem(placement: .primaryAction) {
+                    SiteAIItemControls(kind: "recap", shareId: id,
+                        onChanged: { reloadID = UUID(); onChanged() },
+                        onDeleted: { onChanged(); dismiss() })
+                }
+            }
             ToolbarItem(placement: .primaryAction) {
                 SiteCopyLinkButton(url: currentURL ?? url, showsTitle: true, isPublicLink: true)
                     .labelStyle(.titleAndIcon)
+            }
+        }
+        .task(id: currentURL ?? url) {
+            editableShareId = nil
+            let page = currentURL ?? url
+            let parts = page.pathComponents.filter { $0 != "/" }
+            guard auth.isLoggedIn, page.host == PythonAnywhereClient.shared.baseURL.host,
+                  parts.count == 2, parts[0] == "recap" else { return }
+            if (try? await PythonAnywhereClient.shared.aiItemDetails(kind: "recap", shareId: parts[1])) != nil,
+               !Task.isCancelled {
+                editableShareId = parts[1]
             }
         }
         .safeAreaInset(edge: .bottom) {

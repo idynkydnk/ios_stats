@@ -1376,6 +1376,90 @@ func siteWaitForAIShare(jobId: Int, recap: Bool) async -> SiteAIShareResult {
     return SiteAIShareResult()
 }
 
+struct SiteRecapSubscriptionView: View {
+    @Environment(\.siteAppearance) private var appearance
+    @State private var email = ""
+    @State private var submitting = false
+    @State private var confirmation: String?
+    @State private var error: String?
+    @FocusState private var emailFocused: Bool
+
+    var body: some View {
+        List {
+            if let confirmation {
+                SiteListSection("You're subscribed") {
+                    Label(confirmation, systemImage: "checkmark.circle.fill")
+                        .foregroundStyle(appearance.accent)
+                    Text(email).textSelection(.enabled)
+                    Button("Subscribe another email") {
+                        email = ""
+                        self.confirmation = nil
+                        emailFocused = true
+                    }
+                }
+            } else {
+                SiteListSection("Get recaps by email") {
+                    Text("Subscribe to AI recap emails from across the site. No account needed.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Email address").font(.subheadline.weight(.semibold))
+                        TextField("you@example.com", text: $email)
+                            .keyboardType(.emailAddress)
+                            .textContentType(.emailAddress)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .focused($emailFocused)
+                            .submitLabel(.done)
+                            .onSubmit { Task { await subscribe() } }
+                            .accessibilityLabel("Email address")
+                            .disabled(submitting)
+                    }
+                    if let error {
+                        Label(error, systemImage: "exclamationmark.circle")
+                            .foregroundStyle(.red)
+                    }
+                    Button {
+                        Task { await subscribe() }
+                    } label: {
+                        HStack {
+                            if submitting { ProgressView() }
+                            Text(submitting ? "Subscribing…" : "Subscribe")
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .disabled(submitting || email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                } footer: {
+                    Text("You can unsubscribe from any recap email.")
+                }
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .background(appearance.background)
+        .tint(appearance.accent)
+        .navigationTitle("Recap emails")
+        .navigationBarTitleDisplayMode(.inline)
+        .scrollDismissesKeyboard(.interactively)
+        .onChange(of: email) { _, _ in error = nil }
+    }
+
+    @MainActor
+    private func subscribe() async {
+        let address = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !submitting, confirmation == nil, !address.isEmpty else { return }
+        submitting = true
+        error = nil
+        emailFocused = false
+        defer { submitting = false }
+        do {
+            confirmation = try await PythonAnywhereClient.shared.subscribeToRecapEmails(email: address)
+            email = address
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+}
+
 struct SiteRecapsView: View {
     @Environment(\.siteAppearance) private var appearance
     @ObservedObject private var auth = SiteAuthManager.shared
@@ -1395,25 +1479,23 @@ struct SiteRecapsView: View {
                         .foregroundStyle(.secondary)
                     Spacer()
                 }
-                if let url = SitePublicLink.absolute("/ai-recaps/#recap-subscription-heading") {
-                    NavigationLink {
-                        SiteRecapPageView(title: "Subscribe to AI Recaps", url: url)
-                    } label: {
-                        HStack(spacing: 12) {
-                            Image(systemName: "envelope")
-                                .foregroundStyle(appearance.accent)
-                            Text("Get recaps by email")
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.secondary)
-                        }
-                        .font(.subheadline)
-                        .padding(16)
-                        .background(appearance.panel, in: RoundedRectangle(cornerRadius: appearance.style.radius(14)))
+                NavigationLink {
+                    SiteRecapSubscriptionView()
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "envelope")
+                            .foregroundStyle(appearance.accent)
+                        Text("Get recaps by email")
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
                     }
-                    .buttonStyle(.plain)
+                    .font(.subheadline)
+                    .padding(16)
+                    .background(appearance.panel, in: RoundedRectangle(cornerRadius: appearance.style.radius(14)))
                 }
+                .buttonStyle(.plain)
                 if let error {
                     VStack(spacing: 10) {
                         Text(error).font(.subheadline).foregroundStyle(.secondary)
@@ -1431,7 +1513,7 @@ struct SiteRecapsView: View {
                 ForEach(items) { recap in
                     if let url = recap.publicURL {
                         NavigationLink {
-                            SiteRecapPageView(title: "AI Recap", url: url)
+                            SiteRecapPageView(title: "AI Recap", url: url, onChanged: { Task { await load() } })
                         } label: {
                             recapCard(recap)
                         }
@@ -1440,6 +1522,11 @@ struct SiteRecapsView: View {
                         recapCard(recap)
                     }
                     if auth.isLoggedIn && (auth.isAdmin || recap.username?.lowercased() == auth.username?.lowercased()) {
+                        if let id = recap.shareId {
+                            SiteAIItemControls(kind: "recap", shareId: id,
+                                onChanged: { Task { await load() } },
+                                onDeleted: { items.removeAll { $0.shareId == id }; total = max(0, total - 1) })
+                        }
                         Button {
                             Task { await pin(recap) }
                         } label: {
@@ -1575,6 +1662,7 @@ struct SiteRecapsView: View {
 }
 
 struct SiteFlyersView: View {
+    @ObservedObject private var auth = SiteAuthManager.shared
     @State private var items: [FlyerItem] = []
     @State private var error: String?
 
@@ -1592,7 +1680,7 @@ struct SiteFlyersView: View {
                 Text("No flyers yet. Pull down to refresh, or create one from Create Flyer.")
                     .foregroundStyle(.secondary)
             }
-            SiteLimitedRows(items, onDelete: deleteFlyers) { flyer in
+            SiteLimitedRows(items) { flyer in
                 VStack(alignment: .leading, spacing: 8) {
                     Text(flyer.title ?? "Flyer").font(.headline)
                     if let user = flyer.username, !user.isEmpty {
@@ -1617,12 +1705,19 @@ struct SiteFlyersView: View {
                     if let download = downloadURL(for: flyer) {
                         SiteSaveFlyerPictureButton(imageURL: download)
                     }
+                    if auth.isLoggedIn && (auth.isAdmin || flyer.username?.lowercased() == auth.username?.lowercased()) {
+                        if let id = flyer.shareId {
+                            SiteAIItemControls(kind: "flyer", shareId: id,
+                                onChanged: { Task { await load() } },
+                                onDeleted: { items.removeAll { $0.shareId == id } })
+                        }
                     Button {
                         Task { await pin(flyer) }
                     } label: {
                         Label(flyer.pinned == true ? "Unpin favorite" : "Pin favorite", systemImage: flyer.pinned == true ? "pin.fill" : "pin")
                     }
                     .buttonStyle(.borderless)
+                    }
                 }
                 .padding(.vertical, 4)
             }
@@ -1682,19 +1777,6 @@ struct SiteFlyersView: View {
         }
     }
 
-    private func deleteFlyers(at offsets: IndexSet) {
-        Task {
-            for index in offsets {
-                guard let id = items[index].shareId, !id.isEmpty else { continue }
-                do {
-                    try await PythonAnywhereClient.shared.deleteFlyer(shareId: id)
-                } catch {
-                    await MainActor.run { self.error = error.localizedDescription }
-                }
-            }
-            await load()
-        }
-    }
 }
 
 struct SiteFlyerView: View {
