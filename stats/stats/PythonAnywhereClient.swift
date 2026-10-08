@@ -515,10 +515,11 @@ final class PythonAnywhereClient {
         return (r.jobId, r.aiImageUrl)
     }
 
-    func recaps() async throws -> [RecapItem] {
-        struct Wrap: Codable { var recaps: [RecapItem] }
-        let w: Wrap = try await get("/api/ai/recaps")
-        return w.recaps
+    func recaps(page: Int = 1) async throws -> RecapPage {
+        var req = request("/api/ai/recaps", method: "GET", query: ["page": String(page)])
+        // Published recaps are also available without an account.
+        if token == nil { req.setValue(nil, forHTTPHeaderField: "X-Stats-Account-Required") }
+        return try await decode(req)
     }
 
     func flyers() async throws -> [FlyerItem] {

@@ -851,6 +851,12 @@ private enum AdminJSON {
     }
 }
 
+struct RecapPage: Decodable {
+    var recaps: [RecapItem]
+    var page: Int
+    var total: Int
+}
+
 struct RecapItem: Codable, Identifiable {
     var shareId: String?
     var createdAt: String?

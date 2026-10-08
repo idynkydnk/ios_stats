@@ -1399,41 +1399,82 @@ func siteWaitForAIShare(jobId: Int, recap: Bool) async -> SiteAIShareResult {
 }
 
 struct SiteRecapsView: View {
+    @Environment(\.siteAppearance) private var appearance
     @ObservedObject private var auth = SiteAuthManager.shared
     @State private var items: [RecapItem] = []
     @State private var error: String?
+    @State private var loading = false
+    @State private var loaded = false
+    @State private var page = 0
+    @State private var total = 0
 
     var body: some View {
-        Group {
-            if !auth.isLoggedIn, let url = SitePublicLink.absolute("/ai-recaps/") {
-                SiteRecapPageView(title: "AI Recaps", url: url)
-            } else {
-                recapList
-            }
-        }
-    }
-
-    private var recapList: some View {
-        List {
-            if let url = SitePublicLink.absolute("/ai-recaps/") {
-                NavigationLink {
-                    SiteRecapPageView(title: "Subscribe to AI Recaps", url: url)
-                } label: {
-                    Label("Subscribe by email", systemImage: "envelope")
+        ScrollView {
+            LazyVStack(spacing: 18) {
+                HStack {
+                    Text("The stories behind the games")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+                if let url = SitePublicLink.absolute("/ai-recaps/#recap-subscription-heading") {
+                    NavigationLink {
+                        SiteRecapPageView(title: "Subscribe to AI Recaps", url: url)
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "envelope")
+                                .foregroundStyle(appearance.accent)
+                            Text("Get recaps by email")
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                        .font(.subheadline)
+                        .padding(16)
+                        .background(appearance.panel, in: RoundedRectangle(cornerRadius: appearance.style.radius(14)))
+                    }
+                    .buttonStyle(.plain)
+                }
+                if let error {
+                    VStack(spacing: 10) {
+                        Text(error).font(.subheadline).foregroundStyle(.secondary)
+                        Button("Try again") { Task { await load(reset: page == 0) } }
+                            .disabled(loading)
+                    }
+                    .padding()
+                }
+                if items.isEmpty, loaded, !loading, error == nil {
+                    ContentUnavailableView("No recaps yet", systemImage: "text.book.closed",
+                                           description: Text("New game stories will appear here."))
+                }
+                ForEach(items) { recap in
+                    if let url = recap.publicURL {
+                        NavigationLink {
+                            SiteRecapPageView(title: "AI Recap", url: url)
+                        } label: {
+                            recapCard(recap)
+                        }
+                        .buttonStyle(.plain)
+                    } else {
+                        recapCard(recap)
+                    }
+                }
+                if loading {
+                    ProgressView("Loading recaps…").padding()
+                } else if items.count < total, error == nil {
+                    Button("Load older recaps") { Task { await load(reset: false) } }
+                        .buttonStyle(.bordered)
+                        .padding(.bottom)
                 }
             }
-            if let error {
-                Text(error).foregroundStyle(.red)
-            }
-            if items.isEmpty, error == nil {
-                Text("No recaps yet. Pull down to refresh.")
-                    .foregroundStyle(.secondary)
-            }
-            SiteLimitedRows(items) { r in
-                recapRow(r)
-            }
+            .frame(maxWidth: 680)
+            .padding(16)
+            .frame(maxWidth: .infinity)
         }
+        .background(appearance.background)
         .navigationTitle("AI Recaps")
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if auth.isLoggedIn {
                 ToolbarItem(placement: .primaryAction) {
@@ -1446,55 +1487,84 @@ struct SiteRecapsView: View {
                 }
             }
         }
-        .task { await load() }
+        .task { if !loaded { await load() } }
         .refreshable { await load() }
     }
 
-    @ViewBuilder
-    private func recapRow(_ r: RecapItem) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Group {
-                if let url = r.publicURL {
-                    NavigationLink {
-                        SiteRecapPageView(title: r.title, url: url)
-                    } label: {
-                        recapPreview(r)
+    private func recapCard(_ recap: RecapItem) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if let imageURL = SitePublicLink.absolute(recap.heroImageUrl) {
+                AsyncImage(url: imageURL) { phase in
+                    if let image = phase.image {
+                        image.resizable().scaledToFill()
+                    } else {
+                        Rectangle()
+                            .fill(appearance.accent.opacity(0.08))
+                            .overlay {
+                                Image(systemName: "photo")
+                                    .font(.largeTitle)
+                                    .foregroundStyle(appearance.accent.opacity(0.5))
+                            }
                     }
-                } else {
-                    recapPreview(r)
                 }
+                .frame(height: 190)
+                .frame(maxWidth: .infinity)
+                .clipped()
+                .accessibilityHidden(true)
             }
-            if let url = r.publicURL {
-                SiteCopyLinkButton(url: url, showsTitle: true, isPublicLink: true)
-                    .buttonStyle(.borderless)
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Label(recap.gameType?.capitalized ?? "Game recap", systemImage: "sparkles")
+                        .foregroundStyle(appearance.accent)
+                    Spacer()
+                    if let created = recap.createdAt, !created.isEmpty {
+                        Text(AdminTime.relative(created)).foregroundStyle(.secondary)
+                    }
+                }
+                .font(.caption.weight(.medium))
+                Text(recap.title)
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack {
+                    if let author = recap.username, !author.isEmpty {
+                        Text(author).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Text("Read recap")
+                    Image(systemName: "arrow.right")
+                }
+                .font(.caption.weight(.medium))
+                .foregroundStyle(appearance.accent)
             }
+            .padding(18)
         }
-        .padding(.vertical, 4)
+        .background(appearance.panel)
+        .clipShape(RoundedRectangle(cornerRadius: appearance.style.radius(18)))
+        .overlay {
+            RoundedRectangle(cornerRadius: appearance.style.radius(18))
+                .strokeBorder(appearance.accent.opacity(0.10), lineWidth: 1)
+        }
+        .contentShape(Rectangle())
     }
 
-    @ViewBuilder
-    private func recapPreview(_ r: RecapItem) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(r.title).font(.headline)
-            HStack(spacing: 6) {
-                if let user = r.username, !user.isEmpty {
-                    Text(user)
-                }
-                if let created = r.createdAt, !created.isEmpty {
-                    Text(AdminTime.relative(created))
-                }
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            if let img = r.heroImageUrl, let u = SitePublicLink.absolute(img) ?? URL(string: img) {
-                AsyncImage(url: u) { i in i.resizable().scaledToFit() } placeholder: { ProgressView() }
-            }
-        }
-    }
-
-    private func load() async {
+    @MainActor
+    private func load(reset: Bool = true) async {
+        guard !loading else { return }
+        loading = true
+        defer { loading = false }
         do {
-            items = try await PythonAnywhereClient.shared.recaps()
+            let result = try await PythonAnywhereClient.shared.recaps(page: reset ? 1 : page + 1)
+            if reset {
+                items = result.recaps
+            } else {
+                let existing = Set(items.map(\.id))
+                items.append(contentsOf: result.recaps.filter { !existing.contains($0.id) })
+            }
+            page = result.page
+            total = result.recaps.isEmpty ? items.count : result.total
+            loaded = true
             error = nil
         } catch {
             self.error = error.localizedDescription
