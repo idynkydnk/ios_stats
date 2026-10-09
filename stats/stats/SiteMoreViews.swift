@@ -171,7 +171,7 @@ struct SitePlayersView: View {
                     SiteEditPlayerView(player: p)
                 } label: {
                     HStack {
-                        SitePlayerAvatar(name: p.name, size: 36)
+                        SitePlayerAvatar(name: p.name, size: 36, photoUrl: p.photoUrl)
                         VStack(alignment: .leading) {
                             Text(p.name)
                             Text("\(p.games ?? 0) games").font(.caption).foregroundStyle(.secondary)
@@ -215,6 +215,9 @@ struct SiteEditPlayerView: View {
     @State private var banner: String?
     @State private var saving = false
     @State private var traitsBusy = false
+    @State private var photoBusy = false
+    @State private var photoUrl: String?
+    @State private var photoRevision = UUID()
     @State private var picker: PhotosPickerItem?
     @State private var characterPicker: PhotosPickerItem?
     @State private var aiImageUrl: String?
@@ -230,6 +233,7 @@ struct SiteEditPlayerView: View {
         _height = State(initialValue: player.height ?? "")
         _dob = State(initialValue: player.dateOfBirth ?? "")
         _traits = State(initialValue: player.aiImageTraits ?? [])
+        _photoUrl = State(initialValue: player.photoUrl)
         _aiImageUrl = State(initialValue: player.aiImageUrl)
     }
 
@@ -250,13 +254,20 @@ struct SiteEditPlayerView: View {
             if let banner { SiteAddBanner(text: banner, isError: false) }
             HStack {
                 Spacer()
-                SitePlayerAvatar(name: canonicalName, size: 96)
+                SitePlayerAvatar(name: canonicalName, size: 96, photoUrl: photoUrl)
+                    .id(photoRevision)
                 Spacer()
             }
             .listRowBackground(Color.clear)
 
             if auth.isLoggedIn {
-                PhotosPicker("Upload face photo", selection: $picker, matching: .images)
+                PhotosPicker(selection: $picker, matching: .images) {
+                    HStack {
+                        if photoBusy { ProgressView() }
+                        Text(photoBusy ? "Uploading face photo…" : "Upload face photo")
+                    }
+                }
+                .disabled(photoBusy || saving)
                 SiteListSection("AI character") {
                     if let url = SitePublicLink.absolute(aiImageUrl) {
                         AsyncImage(url: url) { phase in
@@ -370,7 +381,7 @@ struct SiteEditPlayerView: View {
                     TextField("Height", text: $height)
                     TextField("Date of birth", text: $dob)
                     Button("Save") { Task { await save() } }
-                        .disabled(saving || name.trimmingCharacters(in: .whitespaces).isEmpty)
+                        .disabled(saving || photoBusy || name.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             } else {
                 if let url = SitePublicLink.absolute(aiImageUrl) {
@@ -407,32 +418,59 @@ struct SiteEditPlayerView: View {
         .task { await refreshFromServer() }
         .refreshable { await refreshFromServer() }
         .onChange(of: picker) { _, item in
-            Task {
-                guard auth.isLoggedIn, let item, let data = try? await item.loadTransferable(type: Data.self) else { return }
-                do {
-                    try await PythonAnywhereClient.shared.uploadPlayerPhoto(name: canonicalName, imageData: data, filename: "photo.jpg")
-                    banner = "Photo updated"
-                } catch { self.error = error.localizedDescription }
-            }
+            guard let item else { return }
+            Task { await uploadPhoto(item, isCharacter: false) }
         }
         .onChange(of: characterPicker) { _, item in
-            Task {
-                guard auth.isLoggedIn, let item, let data = try? await item.loadTransferable(type: Data.self) else { return }
-                aiBusy = true
-                error = nil
-                banner = nil
-                do {
-                    let url = try await PythonAnywhereClient.shared.uploadPlayerAIImage(
-                        name: canonicalName, imageData: data, filename: "character.jpg"
-                    )
-                    aiImageUrl = url
-                    banner = "AI character uploaded"
-                    await refreshAIVersions()
-                } catch {
-                    self.error = error.localizedDescription
-                }
+            guard let item else { return }
+            Task { await uploadPhoto(item, isCharacter: true) }
+        }
+    }
+
+    @MainActor
+    private func uploadPhoto(_ item: PhotosPickerItem, isCharacter: Bool) async {
+        guard auth.isLoggedIn else { return }
+        if isCharacter {
+            guard !aiBusy else { return }
+            aiBusy = true
+        } else {
+            guard !photoBusy else { return }
+            photoBusy = true
+        }
+        let playerName = canonicalName
+        error = nil
+        banner = nil
+        defer {
+            if isCharacter {
+                characterPicker = nil
                 aiBusy = false
+            } else {
+                picker = nil
+                photoBusy = false
             }
+        }
+        do {
+            guard let original = try await item.loadTransferable(type: Data.self) else {
+                throw SitePhotoUpload.Failure.unreadable
+            }
+            let data = try await Task.detached(priority: .userInitiated) {
+                try SitePhotoUpload.jpeg(from: original)
+            }.value
+            if isCharacter {
+                aiImageUrl = try await PythonAnywhereClient.shared.uploadPlayerAIImage(
+                    name: playerName, imageData: data, filename: "character.jpg"
+                )
+                banner = "AI character uploaded"
+                await refreshAIVersions()
+            } else {
+                photoUrl = try await PythonAnywhereClient.shared.uploadPlayerPhoto(
+                    name: playerName, imageData: data, filename: "photo.jpg"
+                )
+                photoRevision = UUID()
+                banner = "Face photo updated"
+            }
+        } catch {
+            self.error = error.localizedDescription
         }
     }
 
@@ -451,6 +489,7 @@ struct SiteEditPlayerView: View {
         height = player.height ?? ""
         dob = player.dateOfBirth ?? ""
         traits = player.aiImageTraits ?? []
+        photoUrl = player.photoUrl
         aiImageUrl = player.aiImageUrl
     }
 
@@ -1020,7 +1059,7 @@ struct SiteAIRosterView: View {
                     editingName = player.name
                 } label: {
                     HStack(alignment: .top, spacing: 12) {
-                        SitePlayerAvatar(name: player.name, size: 52)
+                        SitePlayerAvatar(name: player.name, size: 52, photoUrl: player.photoUrl)
                         if let url = SitePublicLink.absolute(player.aiImageUrl) {
                             AsyncImage(url: url) { phase in
                                 if case .success(let img) = phase {

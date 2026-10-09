@@ -374,9 +374,22 @@ struct SitePlayerAvatar: View {
     @ObservedObject private var auth = SiteAuthManager.shared
     var name: String
     var size: CGFloat = 72
+    var photoUrl: String?
+    @State private var photoRevision = UUID()
+
+    private var imageURL: URL? {
+        // Personal photos must use the URL returned for that account, never a
+        // public lookup that might resolve a different player with the same name.
+        let url = auth.isPrivate && !auth.isPreviewing
+            ? SitePublicLink.absolute(photoUrl)
+            : SitePublicLink.faceThumb(name: name, size: Int(size * 3))
+        guard let url, var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        components.queryItems = (components.queryItems ?? []) + [URLQueryItem(name: "v", value: photoRevision.uuidString)]
+        return components.url
+    }
 
     var body: some View {
-        AsyncImage(url: auth.isPrivate && !auth.isPreviewing ? nil : SitePublicLink.faceThumb(name: name, size: Int(size * 3))) { phase in
+        AsyncImage(url: imageURL) { phase in
             switch phase {
             case .success(let img):
                 img.resizable().scaledToFill()
@@ -387,5 +400,6 @@ struct SitePlayerAvatar: View {
         }
         .frame(width: size, height: size)
         .clipShape(Circle())
+        .onAppear { photoRevision = UUID() }
     }
 }

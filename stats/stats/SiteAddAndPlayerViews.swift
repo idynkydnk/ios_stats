@@ -198,7 +198,7 @@ struct SitePlayerDetailView: View {
 
     private func playerIdentityLabel(_ p: DoublesPlayerPayload) -> some View {
         HStack {
-            SitePlayerAvatar(name: p.name, size: 72)
+            SitePlayerAvatar(name: p.name, size: 72, photoUrl: p.photoUrl)
             VStack(alignment: .leading) {
                 Text(p.name).font(.title2.bold())
                 if let nick = p.nickname, !nick.isEmpty { Text(nick).foregroundStyle(.secondary) }

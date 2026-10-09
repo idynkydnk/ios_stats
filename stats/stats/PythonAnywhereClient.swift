@@ -260,11 +260,14 @@ final class PythonAnywhereClient {
         if r.success == false { throw SiteAPIError.message(r.error ?? "Rename failed") }
     }
 
-    func uploadPlayerPhoto(name: String, imageData: Data, filename: String) async throws {
-        struct Msg: Decodable { var success: Bool?; var error: String? }
+    func uploadPlayerPhoto(name: String, imageData: Data, filename: String) async throws -> String {
+        struct Msg: Decodable { var success: Bool; var photoUrl: String?; var error: String? }
         let encoded = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? name
         let r: Msg = try await upload("/api/player_photo/\(encoded)/", imageData: imageData, filename: filename)
-        if r.success == false { throw SiteAPIError.message(r.error ?? "Upload failed") }
+        guard r.success, let photoUrl = r.photoUrl, !photoUrl.isEmpty else {
+            throw SiteAPIError.message(r.error ?? "Could not confirm the photo was saved. Please try again.")
+        }
+        return photoUrl
     }
 
     func uploadPlayerAIImage(name: String, imageData: Data, filename: String) async throws -> String {
