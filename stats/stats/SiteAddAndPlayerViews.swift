@@ -61,16 +61,35 @@ struct SitePlayerDetailView: View {
     @Environment(\.siteAppearance) private var appearance
 
     var name: String
-    var year: String
+    @State private var year: String
     var section: GameSection
+    @State private var years: [String] = ["All years"]
     @State private var payload: DoublesPlayerPayload?
+    @State private var loadedYear: String?
+    @State private var loadID = UUID()
     @State private var error: String?
     @ObservedObject private var auth = SiteAuthManager.shared
 
+    init(name: String, year: String, section: GameSection) {
+        self.name = name
+        self.section = section
+        _year = State(initialValue: year == "All" ? "All years" : year)
+    }
+
     var body: some View {
         ScrollView {
+            HStack {
+                Text("Year").font(.subheadline.weight(.semibold))
+                Spacer()
+                SiteYearMenu(selectedYear: $year, years: years)
+            }
+            .padding(.horizontal)
+            .padding(.top, 8)
             if let error { Text(error).foregroundStyle(.red).padding() }
-            if let p = payload {
+            if error == nil && (payload == nil || loadedYear != year) {
+                ProgressView("Loading player…").padding()
+            }
+            if let p = payload, loadedYear == year {
                 VStack(spacing: 14) {
                     HStack {
                         playerIdentity(p)
@@ -88,15 +107,20 @@ struct SitePlayerDetailView: View {
                         }.padding(.horizontal)
                     }
                     if let form = p.recentForm, !form.isEmpty {
-                        HStack {
+                        VStack(alignment: .leading, spacing: 8) {
                             Text("Last \(form.count)")
-                            ForEach(Array(form.enumerated()), id: \.offset) { _, r in
-                                Text(r)
-                                    .font(.caption.bold())
-                                    .padding(6)
-                                    .background(r == "W" ? Color.green : Color.red)
-                                    .foregroundStyle(.black)
-                                    .clipShape(Circle())
+                                .fixedSize(horizontal: true, vertical: false)
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 6) {
+                                    ForEach(Array(form.enumerated()), id: \.offset) { _, r in
+                                        Text(r)
+                                            .font(.caption.bold())
+                                            .padding(6)
+                                            .background(r == "W" ? Color.green : Color.red)
+                                            .foregroundStyle(.black)
+                                            .clipShape(Circle())
+                                    }
+                                }
                             }
                         }.padding()
                     }
@@ -151,10 +175,10 @@ struct SitePlayerDetailView: View {
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
-                SiteCopyLinkButton(url: SitePublicLink.player(section: section, year: payload?.year ?? year, name: payload?.name ?? name))
+                SiteCopyLinkButton(url: SitePublicLink.player(section: section, year: year, name: payload?.name ?? name))
             }
         }
-        .task { await load() }
+        .task(id: year) { await load() }
         .refreshable { await load() }
     }
 
@@ -216,17 +240,30 @@ struct SitePlayerDetailView: View {
         .frame(maxWidth: .infinity)
     }
 
+    @MainActor
     private func load() async {
+        let requestedYear = year
+        let requestID = UUID()
+        loadID = requestID
+        error = nil
         do {
+            let result: DoublesPlayerPayload
             switch section {
             case .doubles:
-                payload = try await PythonAnywhereClient.shared.doublesPlayer(name: name, year: year)
+                result = try await PythonAnywhereClient.shared.doublesPlayer(name: name, year: requestedYear)
             case .vollis:
-                payload = try await PythonAnywhereClient.shared.vollisPlayer(name: name, year: year)
+                result = try await PythonAnywhereClient.shared.vollisPlayer(name: name, year: requestedYear)
             case .other:
-                payload = try await PythonAnywhereClient.shared.otherPlayer(name: name, year: year)
+                result = try await PythonAnywhereClient.shared.otherPlayer(name: name, year: requestedYear)
             }
-        } catch { self.error = error.localizedDescription }
+            guard !Task.isCancelled, loadID == requestID, year == requestedYear else { return }
+            payload = result
+            loadedYear = requestedYear
+            years = ["All years"] + result.allYears.filter { $0 != "All years" && $0 != "All" }
+        } catch {
+            guard !Task.isCancelled, loadID == requestID, year == requestedYear else { return }
+            self.error = error.localizedDescription
+        }
     }
 }
 
