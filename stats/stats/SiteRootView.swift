@@ -558,11 +558,8 @@ struct SiteExpandableSection<Content: View>: View {
 
 struct RankingTable: View {
     @Environment(\.siteAppearance) private var appearance
-    @ScaledMetric(relativeTo: .subheadline) private var recordDigitWidth: CGFloat = 10
+    @Environment(\.dynamicTypeSize) private var textSize
     @ScaledMetric(relativeTo: .subheadline) private var ratingWidth: CGFloat = 62
-    @ScaledMetric(relativeTo: .subheadline) private var percentWidth: CGFloat = 48
-    @ScaledMetric(relativeTo: .subheadline) private var marginWidth: CGFloat = 40
-    @ScaledMetric(relativeTo: .subheadline) private var nameWidth: CGFloat = 80
 
     var title: String?
     var subtitle: String? = nil
@@ -577,64 +574,20 @@ struct RankingTable: View {
         sortLikeToday ? RankingRow.sortedForToday(rows) : rows
     }
 
-    // Keep each column wide enough for the full table, including hidden rows.
-    private var winsColumnWidth: CGFloat {
-        recordColumnWidth(rows.map(\.wins))
-    }
-
-    private var lossesColumnWidth: CGFloat {
-        recordColumnWidth(rows.map(\.losses))
-    }
-
-    private func recordColumnWidth(_ counts: [Int]) -> CGFloat {
-        let digits = counts.map { String($0).count }.max() ?? 1
-        return max(24, CGFloat(digits) * recordDigitWidth + 2)
-    }
-
-    private var minimumTableWidth: CGFloat {
-        22 + nameWidth + winsColumnWidth + lossesColumnWidth + percentWidth + 46
-            + (showRating ? ratingWidth : 0) + (showPlusMinus ? marginWidth : 0)
+    private var metricColumns: [GridItem] {
+        if textSize <= .large {
+            // Use the full row beneath the name, even on a 320-point screen.
+            let count = 3 + (showRating ? 1 : 0) + (showPlusMinus ? 1 : 0)
+            return Array(repeating: GridItem(.flexible(minimum: 0), spacing: 4, alignment: .leading), count: count)
+        }
+        return [GridItem(.adaptive(minimum: ratingWidth), alignment: .leading)]
     }
 
     var body: some View {
         SiteExpandableSection(title: title ?? "Standings", count: displayedRows.count, subtitle: subtitle) {
-            ViewThatFits(in: .horizontal) {
-                standings.frame(minWidth: minimumTableWidth)
-                stackedStandings
-            }
-            .background(appearance.panel)
+            stackedStandings.background(appearance.panel)
         }
         .padding(.horizontal, 12).padding(.bottom, 16)
-    }
-
-    private var standings: some View {
-        VStack(spacing: 0) {
-            headerRow.padding(.vertical, 13)
-            SiteLimitedRows(Array(displayedRows.enumerated()), id: \.element.id) { idx, row in
-                NavigationLink {
-                    SitePlayerDetailView(name: row.name, year: year, section: section)
-                } label: {
-                    HStack(spacing: 4) {
-                        Text("\(idx + 1)").frame(width: 22, alignment: .leading).foregroundStyle(.secondary)
-                        Text(row.name)
-                            .fontWeight(.semibold)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        statCells(row)
-                    }
-                    .font(.subheadline).monospacedDigit()
-                    .foregroundStyle(.primary)
-                    .padding(.horizontal, 10).padding(.vertical, 12)
-                    .frame(minHeight: 50)
-                    .background(Color.primary.opacity(idx.isMultiple(of: 2) ? 0 : 0.025))
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
-            if displayedRows.isEmpty {
-                Text("No players to show").font(.subheadline).foregroundStyle(.secondary).padding(24)
-            }
-        }
     }
 
     // Narrow screens and larger text use more height instead of hiding stats
@@ -649,9 +602,9 @@ struct RankingTable: View {
                         HStack(alignment: .firstTextBaseline, spacing: 8) {
                             Text("\(idx + 1)").foregroundStyle(.secondary)
                             Text(row.name).fontWeight(.semibold)
+                                .accessibilityIdentifier("ranking-\(row.id)-name")
                         }
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: ratingWidth), alignment: .leading)],
-                                  alignment: .leading, spacing: 10) {
+                        LazyVGrid(columns: metricColumns, alignment: .leading, spacing: 10) {
                             if showRating {
                                 stackedStat("Rating", id: "ranking-\(row.id)-rating", value: row.rating.map { String(format: "%.2f", $0) } ?? "—", accented: true)
                             }
@@ -673,6 +626,9 @@ struct RankingTable: View {
                 }
                 .buttonStyle(.plain)
             }
+            if displayedRows.isEmpty {
+                Text("No players to show").font(.subheadline).foregroundStyle(.secondary).padding(24)
+            }
         }
     }
 
@@ -683,61 +639,6 @@ struct RankingTable: View {
                 .accessibilityIdentifier(id)
         }
         .fixedSize(horizontal: false, vertical: true)
-    }
-
-    @ViewBuilder
-    private func statCells(_ row: RankingRow) -> some View {
-        if showRating {
-            Text(row.rating.map { String(format: "%.2f", $0) } ?? "—")
-                .fontWeight(.semibold)
-                .foregroundStyle(appearance.accent)
-                .accessibilityIdentifier("ranking-\(row.id)-rating")
-                .accessibilityLabel(row.rating.map { String(format: "Rating %.2f", $0) } ?? "Unrated")
-                .frame(width: ratingWidth, alignment: .trailing)
-        }
-        HStack(spacing: 2) {
-            Text("\(row.wins)")
-                .accessibilityIdentifier("ranking-\(row.id)-wins")
-                .lineLimit(1)
-                .frame(width: winsColumnWidth, alignment: .trailing)
-                .foregroundStyle(.primary)
-            Text("\(row.losses)")
-                .accessibilityIdentifier("ranking-\(row.id)-losses")
-                .lineLimit(1)
-                .frame(width: lossesColumnWidth, alignment: .trailing)
-                .foregroundStyle(.primary)
-        }
-        Text(row.winPctDisplay).frame(width: percentWidth, alignment: .trailing)
-            .accessibilityIdentifier("ranking-\(row.id)-winpct")
-        if showPlusMinus {
-            let pm = row.plusMinus ?? 0
-            Text(pm > 0 ? "+\(pm)" : "\(pm)")
-                .accessibilityIdentifier("ranking-\(row.id)-plusminus")
-                .foregroundStyle(.secondary)
-                .frame(width: marginWidth, alignment: .trailing)
-        }
-    }
-
-    private var headerRow: some View {
-        HStack(spacing: 4) {
-            Text("#").frame(width: 22, alignment: .leading)
-            Text("Player").frame(maxWidth: .infinity, alignment: .leading)
-            statHeaders
-        }
-        .font(.subheadline.weight(.medium))
-        .foregroundStyle(.secondary)
-        .padding(.horizontal, 10)
-    }
-
-    @ViewBuilder
-    private var statHeaders: some View {
-        if showRating { Text("Rating").frame(width: ratingWidth, alignment: .trailing) }
-        HStack(spacing: 2) {
-            Text("W").frame(width: winsColumnWidth, alignment: .trailing)
-            Text("L").frame(width: lossesColumnWidth, alignment: .trailing)
-        }
-        Text("Win%").frame(width: percentWidth, alignment: .trailing)
-        if showPlusMinus { Text("+/-").frame(width: marginWidth, alignment: .trailing) }
     }
 
 }
