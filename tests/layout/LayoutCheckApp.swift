@@ -20,7 +20,7 @@ struct LayoutCheckApp: App {
                 ScrollView {
                     RankingTable(title: "Today's Stats", rows: [
                         RankingRow(name: "Alexandra Montgomery", wins: 12, losses: 3, winPct: 0.8, rating: 81.35, plusMinus: 137),
-                        RankingRow(name: "Christopher Longlastname", wins: 1234, losses: 1000, winPct: 1, rating: 100, plusMinus: -1234)
+                        RankingRow(name: "Christopher Longlastname", wins: env["QA_RECORDS"] == "large" ? 1234 : 4, losses: env["QA_RECORDS"] == "large" ? 1000 : 7, winPct: 1, rating: 100, plusMinus: env["QA_RECORDS"] == "large" ? -1234 : -13)
                     ], showRating: true, showPlusMinus: true, year: "2026", section: .doubles)
                 }
                 .frame(width: CGFloat(Double(env["QA_WIDTH"] ?? "375") ?? 375))
