@@ -562,7 +562,7 @@ struct RankingTable: View {
     @ScaledMetric(relativeTo: .subheadline) private var ratingWidth: CGFloat = 62
     @ScaledMetric(relativeTo: .subheadline) private var percentWidth: CGFloat = 48
     @ScaledMetric(relativeTo: .subheadline) private var marginWidth: CGFloat = 40
-    @ScaledMetric(relativeTo: .subheadline) private var nameWidth: CGFloat = 132
+    @ScaledMetric(relativeTo: .subheadline) private var nameWidth: CGFloat = 80
 
     var title: String?
     var subtitle: String? = nil
@@ -598,40 +598,90 @@ struct RankingTable: View {
 
     var body: some View {
         SiteExpandableSection(title: title ?? "Standings", count: displayedRows.count, subtitle: subtitle) {
-            ScrollView(.horizontal, showsIndicators: true) {
-                VStack(spacing: 0) {
-                    headerRow.padding(.vertical, 13)
-                    SiteLimitedRows(Array(displayedRows.enumerated()), id: \.element.id) { idx, row in
-                        NavigationLink {
-                            SitePlayerDetailView(name: row.name, year: year, section: section)
-                        } label: {
-                            HStack(spacing: 4) {
-                                Text("\(idx + 1)").frame(width: 22, alignment: .leading).foregroundStyle(.secondary)
-                                Text(row.name)
-                                    .fontWeight(.semibold)
-                                    .lineLimit(2)
-                                    .fixedSize(horizontal: false, vertical: true)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                statCells(row)
-                            }
-                            .font(.subheadline).monospacedDigit()
-                            .foregroundStyle(.primary)
-                            .padding(.horizontal, 10).padding(.vertical, 12)
-                            .frame(minHeight: 50)
-                            .background(Color.primary.opacity(idx.isMultiple(of: 2) ? 0 : 0.025))
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    if displayedRows.isEmpty {
-                        Text("No players to show").font(.subheadline).foregroundStyle(.secondary).padding(24)
-                    }
-                }
-                .containerRelativeFrame(.horizontal) { width, _ in max(width, minimumTableWidth) }
+            ViewThatFits(in: .horizontal) {
+                standings.frame(minWidth: minimumTableWidth)
+                stackedStandings
             }
             .background(appearance.panel)
         }
         .padding(.horizontal, 12).padding(.bottom, 16)
+    }
+
+    private var standings: some View {
+        VStack(spacing: 0) {
+            headerRow.padding(.vertical, 13)
+            SiteLimitedRows(Array(displayedRows.enumerated()), id: \.element.id) { idx, row in
+                NavigationLink {
+                    SitePlayerDetailView(name: row.name, year: year, section: section)
+                } label: {
+                    HStack(spacing: 4) {
+                        Text("\(idx + 1)").frame(width: 22, alignment: .leading).foregroundStyle(.secondary)
+                        Text(row.name)
+                            .fontWeight(.semibold)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        statCells(row)
+                    }
+                    .font(.subheadline).monospacedDigit()
+                    .foregroundStyle(.primary)
+                    .padding(.horizontal, 10).padding(.vertical, 12)
+                    .frame(minHeight: 50)
+                    .background(Color.primary.opacity(idx.isMultiple(of: 2) ? 0 : 0.025))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            if displayedRows.isEmpty {
+                Text("No players to show").font(.subheadline).foregroundStyle(.secondary).padding(24)
+            }
+        }
+    }
+
+    // Narrow screens and larger text use more height instead of hiding stats
+    // beyond the edge of the screen. Labels stay beside their player's values.
+    private var stackedStandings: some View {
+        VStack(spacing: 0) {
+            SiteLimitedRows(Array(displayedRows.enumerated()), id: \.element.id) { idx, row in
+                NavigationLink {
+                    SitePlayerDetailView(name: row.name, year: year, section: section)
+                } label: {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text("\(idx + 1)").foregroundStyle(.secondary)
+                            Text(row.name).fontWeight(.semibold)
+                        }
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: ratingWidth), alignment: .leading)],
+                                  alignment: .leading, spacing: 10) {
+                            if showRating {
+                                stackedStat("Rating", value: row.rating.map { String(format: "%.2f", $0) } ?? "—", accented: true)
+                            }
+                            stackedStat("W", value: "\(row.wins)")
+                            stackedStat("L", value: "\(row.losses)")
+                            stackedStat("Win%", value: row.winPctDisplay)
+                            if showPlusMinus {
+                                let pm = row.plusMinus ?? 0
+                                stackedStat("+/-", value: pm > 0 ? "+\(pm)" : "\(pm)")
+                            }
+                        }
+                    }
+                    .font(.subheadline).monospacedDigit()
+                    .foregroundStyle(.primary)
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.primary.opacity(idx.isMultiple(of: 2) ? 0 : 0.025))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func stackedStat(_ label: String, value: String, accented: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(label).font(.caption).foregroundStyle(.secondary)
+            Text(value).fontWeight(.semibold).foregroundStyle(accented ? appearance.accent : .primary)
+        }
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     @ViewBuilder
