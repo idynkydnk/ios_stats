@@ -22,7 +22,7 @@ final class RankingLayoutUITests: XCTestCase {
                     ("Alexandra Montgomery", ["81.35", "12", "3", "80%", "+137"]),
                     ("Christopher Longlastname", largeRecords ? ["100.00", "1234", "1000", "100%", "-1234"] : ["100.00", "4", "7", "100%", "-13"])
                 ] {
-                    let nameBottom: CGFloat? = size == "large" ? app.descendants(matching: .any).matching(identifier: "ranking-\(name)-name").firstMatch.frame.maxY : nil
+                    let nameBottom: CGFloat? = size == "large" ? app.staticTexts.matching(identifier: "ranking-\(name)-name").firstMatch.frame.maxY : nil
                     var rowY: CGFloat?
                     var previousRight: CGFloat?
                     for (metric, value) in zip(["rating", "wins", "losses", "winpct", "plusminus"], values) {
