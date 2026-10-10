@@ -577,8 +577,14 @@ struct RankingTable: View {
     private var metricColumns: [GridItem] {
         if textSize <= .large {
             // Use the full row beneath the name, even on a 320-point screen.
-            let count = 3 + (showRating ? 1 : 0) + (showPlusMinus ? 1 : 0)
-            return Array(repeating: GridItem(.flexible(minimum: 0), spacing: 4, alignment: .leading), count: count)
+            // Rating needs room for 100.00; W/L can share the remaining width.
+            var columns: [GridItem] = []
+            if showRating { columns.append(GridItem(.fixed(62), spacing: 4, alignment: .leading)) }
+            columns += [GridItem(.flexible(minimum: 0), spacing: 4, alignment: .leading),
+                        GridItem(.flexible(minimum: 0), spacing: 4, alignment: .leading),
+                        GridItem(.fixed(48), spacing: 4, alignment: .leading)]
+            if showPlusMinus { columns.append(GridItem(.fixed(50), spacing: 4, alignment: .leading)) }
+            return columns
         }
         return [GridItem(.adaptive(minimum: ratingWidth), alignment: .leading)]
     }
@@ -590,8 +596,8 @@ struct RankingTable: View {
         .padding(.horizontal, 12).padding(.bottom, 16)
     }
 
-    // Narrow screens and larger text use more height instead of hiding stats
-    // beyond the edge of the screen. Labels stay beside their player's values.
+    // Names sit above their stats. Larger text adds rows as needed, keeping
+    // every label and value inside the screen.
     private var stackedStandings: some View {
         VStack(spacing: 0) {
             SiteLimitedRows(Array(displayedRows.enumerated()), id: \.element.id) { idx, row in
