@@ -367,8 +367,8 @@ struct SiteCardSurface: ViewModifier {
     func body(content: Content) -> some View {
         content
             .background(appearance.panel)
-            .clipShape(RoundedRectangle(cornerRadius: appearance.style.radius(24), style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: appearance.style.radius(24), style: .continuous)
+            .clipShape(RoundedRectangle(cornerRadius: appearance.style.radius(16), style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: appearance.style.radius(16), style: .continuous)
                 .strokeBorder(appearance.style == .sharp ? appearance.accent.opacity(0.5) : Color.primary.opacity(0.06)))
             .shadow(color: .black.opacity(appearance.style == .soft ? 0.12 : 0), radius: 10, y: 4)
     }
@@ -379,7 +379,7 @@ struct SiteCardHeading: View {
 
     var body: some View {
         Text(title)
-            .font(.headline.weight(.bold))
+            .font(.headline.weight(.semibold))
             .foregroundStyle(.primary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(18)
@@ -451,18 +451,17 @@ struct SiteSectionBubble: View {
         } label: {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(title).font(.headline.weight(.bold))
+                    Text(title).font(.headline.weight(.semibold))
                     if let subtitle {
-                        Text(subtitle).font(.caption).foregroundStyle(.secondary)
+                        Text(subtitle).font(.subheadline).foregroundStyle(.secondary)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 Text(count.formatted())
                     .font(.subheadline.weight(.bold)).monospacedDigit()
-                    .foregroundStyle(Color.accentColor)
-                    .padding(.horizontal, 12).padding(.vertical, 7)
-                    .background(Color.accentColor.opacity(expanded ? 0.12 : 0.22), in: Capsule())
-                    .scaleEffect(reduceMotion ? 1 : (expanded ? 1 : 1.1))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 10).padding(.vertical, 6)
+                    .background(Color.primary.opacity(0.04), in: Capsule())
                 Image(systemName: "chevron.down")
                     .font(.caption.weight(.bold))
                     .foregroundStyle(.secondary)
@@ -471,7 +470,7 @@ struct SiteSectionBubble: View {
             .foregroundStyle(.primary)
             .padding(18)
             .frame(minHeight: 64)
-            .contentShape(RoundedRectangle(cornerRadius: appearance.style.radius(24)))
+            .contentShape(RoundedRectangle(cornerRadius: appearance.style.radius(16)))
         }
         .buttonStyle(SiteSpringButtonStyle())
         .accessibilityValue(expanded ? "Expanded" : "Collapsed")
@@ -560,6 +559,10 @@ struct SiteExpandableSection<Content: View>: View {
 struct RankingTable: View {
     @Environment(\.siteAppearance) private var appearance
     @ScaledMetric(relativeTo: .subheadline) private var recordDigitWidth: CGFloat = 10
+    @ScaledMetric(relativeTo: .subheadline) private var ratingWidth: CGFloat = 62
+    @ScaledMetric(relativeTo: .subheadline) private var percentWidth: CGFloat = 48
+    @ScaledMetric(relativeTo: .subheadline) private var marginWidth: CGFloat = 40
+    @ScaledMetric(relativeTo: .subheadline) private var nameWidth: CGFloat = 132
 
     var title: String?
     var subtitle: String? = nil
@@ -588,9 +591,14 @@ struct RankingTable: View {
         return max(24, CGFloat(digits) * recordDigitWidth + 2)
     }
 
+    private var minimumTableWidth: CGFloat {
+        22 + nameWidth + winsColumnWidth + lossesColumnWidth + percentWidth + 46
+            + (showRating ? ratingWidth : 0) + (showPlusMinus ? marginWidth : 0)
+    }
+
     var body: some View {
         SiteExpandableSection(title: title ?? "Standings", count: displayedRows.count, subtitle: subtitle) {
-            ScrollView(.horizontal, showsIndicators: false) {
+            ScrollView(.horizontal, showsIndicators: true) {
                 VStack(spacing: 0) {
                     headerRow.padding(.vertical, 13)
                     SiteLimitedRows(Array(displayedRows.enumerated()), id: \.element.id) { idx, row in
@@ -601,8 +609,8 @@ struct RankingTable: View {
                                 Text("\(idx + 1)").frame(width: 22, alignment: .leading).foregroundStyle(.secondary)
                                 Text(row.name)
                                     .fontWeight(.semibold)
-                                    .lineLimit(1)
-                                    .truncationMode(.tail)
+                                    .lineLimit(2)
+                                    .fixedSize(horizontal: false, vertical: true)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                 statCells(row)
                             }
@@ -610,7 +618,7 @@ struct RankingTable: View {
                             .foregroundStyle(.primary)
                             .padding(.horizontal, 10).padding(.vertical, 12)
                             .frame(minHeight: 50)
-                            .background(Color.primary.opacity(idx.isMultiple(of: 2) ? 0.025 : 0.055))
+                            .background(Color.primary.opacity(idx.isMultiple(of: 2) ? 0 : 0.025))
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
@@ -619,36 +627,38 @@ struct RankingTable: View {
                         Text("No players to show").font(.subheadline).foregroundStyle(.secondary).padding(24)
                     }
                 }
-                .containerRelativeFrame(.horizontal)
+                .containerRelativeFrame(.horizontal) { width, _ in max(width, minimumTableWidth) }
             }
             .background(appearance.panel)
         }
-        .padding(.horizontal, 8).padding(.bottom, 20)
+        .padding(.horizontal, 12).padding(.bottom, 16)
     }
 
     @ViewBuilder
     private func statCells(_ row: RankingRow) -> some View {
         if showRating {
             Text(row.rating.map { String(format: "%.2f", $0) } ?? "—")
+                .fontWeight(.semibold)
+                .foregroundStyle(appearance.accent)
                 .accessibilityLabel(row.rating.map { String(format: "Rating %.2f", $0) } ?? "Unrated")
-                .frame(width: 64, alignment: .trailing)
+                .frame(width: ratingWidth, alignment: .trailing)
         }
         HStack(spacing: 2) {
             Text("\(row.wins)")
                 .lineLimit(1)
                 .frame(width: winsColumnWidth, alignment: .trailing)
-                .foregroundStyle(.green)
+                .foregroundStyle(.primary)
             Text("\(row.losses)")
                 .lineLimit(1)
                 .frame(width: lossesColumnWidth, alignment: .trailing)
-                .foregroundStyle(.red)
+                .foregroundStyle(.primary)
         }
-        Text(row.winPctDisplay).frame(width: 44, alignment: .trailing)
+        Text(row.winPctDisplay).frame(width: percentWidth, alignment: .trailing)
         if showPlusMinus {
             let pm = row.plusMinus ?? 0
             Text(pm > 0 ? "+\(pm)" : "\(pm)")
-                .foregroundStyle(pm > 0 ? Color.green : pm < 0 ? Color.red : .secondary)
-                .frame(width: 36, alignment: .trailing)
+                .foregroundStyle(.secondary)
+                .frame(width: marginWidth, alignment: .trailing)
         }
     }
 
@@ -658,20 +668,20 @@ struct RankingTable: View {
             Text("Player").frame(maxWidth: .infinity, alignment: .leading)
             statHeaders
         }
-        .font(.caption.weight(.semibold))
+        .font(.subheadline.weight(.medium))
         .foregroundStyle(.secondary)
         .padding(.horizontal, 10)
     }
 
     @ViewBuilder
     private var statHeaders: some View {
-        if showRating { Text("Rating").frame(width: 64, alignment: .trailing) }
+        if showRating { Text("Rating").frame(width: ratingWidth, alignment: .trailing) }
         HStack(spacing: 2) {
             Text("W").frame(width: winsColumnWidth, alignment: .trailing)
             Text("L").frame(width: lossesColumnWidth, alignment: .trailing)
         }
-        Text("Win%").frame(width: 44, alignment: .trailing)
-        if showPlusMinus { Text("+/-").frame(width: 36, alignment: .trailing) }
+        Text("Win%").frame(width: percentWidth, alignment: .trailing)
+        if showPlusMinus { Text("+/-").frame(width: marginWidth, alignment: .trailing) }
     }
 
 }

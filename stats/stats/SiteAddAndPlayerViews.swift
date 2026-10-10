@@ -59,13 +59,18 @@ struct SiteAddHubView: View {
 
 struct SitePlayerDetailView: View {
     @Environment(\.siteAppearance) private var appearance
+    @AppStorage("stats.doublesDivision") private var division = "open"
+    @ScaledMetric(relativeTo: .subheadline) private var statMinimumWidth: CGFloat = 72
 
     var name: String
     @State private var year: String
     var section: GameSection
     @State private var years: [String] = ["All years"]
     @State private var payload: DoublesPlayerPayload?
-    @State private var loadedYear: String?
+    @State private var displayedCacheKey: String?
+    @State private var dataRevision = UUID()
+    @State private var loading = false
+    @State private var loadingMore = false
     @State private var loadID = UUID()
     @State private var error: String?
     @ObservedObject private var auth = SiteAuthManager.shared
@@ -74,6 +79,11 @@ struct SitePlayerDetailView: View {
         self.name = name
         self.section = section
         _year = State(initialValue: year == "All" ? "All years" : year)
+    }
+
+    private var cacheKey: String {
+        SiteBrowseCache.playerKey(scope: auth.browseCacheScope, section: section.rawValue, year: year, name: name,
+                                 division: section == .doubles ? division : "", revision: auth.statsViewRevision)
     }
 
     var body: some View {
@@ -86,10 +96,10 @@ struct SitePlayerDetailView: View {
             .padding(.horizontal)
             .padding(.top, 8)
             if let error { Text(error).foregroundStyle(.red).padding() }
-            if error == nil && (payload == nil || loadedYear != year) {
+            if error == nil && (payload == nil || displayedCacheKey != cacheKey) {
                 ProgressView("Loading player…").padding()
             }
-            if let p = payload, loadedYear == year {
+            if let p = payload, displayedCacheKey == cacheKey {
                 VStack(spacing: 14) {
                     HStack {
                         playerIdentity(p)
@@ -97,9 +107,9 @@ struct SitePlayerDetailView: View {
                     }.padding()
                     Divider().padding(.horizontal, 18)
                     if let s = p.stats {
-                        HStack {
-                            stat("W", "\(s.wins)", .green)
-                            stat("L", "\(s.losses)", .red)
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: statMinimumWidth), spacing: 12)], spacing: 16) {
+                            stat("Wins", "\(s.wins)", nil)
+                            stat("Losses", "\(s.losses)", nil)
                             stat("Win%", s.winPctDisplay, nil)
                             if let st = p.currentStreak {
                                 stat("Streak", "\(st.length)\(st.type)", st.type == "W" ? .green : .red)
@@ -154,9 +164,24 @@ struct SitePlayerDetailView: View {
                     .padding(.horizontal)
                 }
                 if section == .doubles {
-                    SiteExpandableSection(title: "Games", count: (p.games ?? []).count) {
-                        SiteLimitedRows(p.games ?? []) { g in
-                            DoublesGameRow(game: g, year: year, section: section)
+                    SiteExpandableSection(title: "Games", count: p.gamesTotal ?? (p.games ?? []).count) {
+                        if p.gamesTotal != nil {
+                            LazyVStack(spacing: 0) {
+                                ForEach(p.games ?? []) { g in
+                                    DoublesGameRow(game: g, year: year, section: section)
+                                }
+                            }
+                            if p.gamesNextOffset != nil {
+                                Button(loadingMore ? "Loading games…" : "Show older games") {
+                                    Task { await loadMoreGames() }
+                                }
+                                .disabled(loading || loadingMore)
+                                .frame(maxWidth: .infinity, minHeight: 48)
+                            }
+                        } else {
+                            SiteLimitedRows(p.games ?? []) { g in
+                                DoublesGameRow(game: g, year: year, section: section)
+                            }
                         }
                     }
                     .padding(.horizontal)
@@ -178,8 +203,12 @@ struct SitePlayerDetailView: View {
                 SiteCopyLinkButton(url: SitePublicLink.player(section: section, year: year, name: payload?.name ?? name))
             }
         }
-        .task(id: year) { await load() }
-        .refreshable { await load() }
+        .task(id: "\(cacheKey)-\(dataRevision)-\(auth.sessionReady)") { await load() }
+        .refreshable { await load(force: true) }
+        .onReceive(NotificationCenter.default.publisher(for: SiteBrowseCache.didChange, object: SiteBrowseCache.playerDetails)
+            .receive(on: RunLoop.main)) { _ in
+            dataRevision = UUID()
+        }
     }
 
     @ViewBuilder
@@ -235,17 +264,31 @@ struct SitePlayerDetailView: View {
     private func stat(_ label: String, _ value: String, _ color: Color?) -> some View {
         VStack {
             Text(value).font(.title3.bold()).foregroundStyle(color ?? Color.primary)
-            Text(label).font(.caption).foregroundStyle(.secondary)
+            Text(label).font(.subheadline).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
     }
 
     @MainActor
-    private func load() async {
+    private func load(force: Bool = false) async {
+        guard auth.sessionReady else { return }
         let requestedYear = year
         let requestID = UUID()
         loadID = requestID
+        let key = cacheKey
+        let cache = SiteBrowseCache.playerDetails
+        let generation = cache.generation
+        let cached = cache.load(DoublesPlayerPayload.self, key: key)
+        if displayedCacheKey != key || payload == nil {
+            payload = cached?.value
+            displayedCacheKey = key
+            years = ["All years"] + (payload?.allYears ?? []).filter { $0 != "All years" && $0 != "All" }
+        }
         error = nil
+        loading = false
+        if !force, cached?.isFresh() == true { return }
+        loading = true
+        defer { if loadID == requestID { loading = false } }
         do {
             let result: DoublesPlayerPayload
             switch section {
@@ -256,13 +299,36 @@ struct SitePlayerDetailView: View {
             case .other:
                 result = try await PythonAnywhereClient.shared.otherPlayer(name: name, year: requestedYear)
             }
-            guard !Task.isCancelled, loadID == requestID, year == requestedYear else { return }
+            guard !Task.isCancelled, loadID == requestID, cacheKey == key, cache.generation == generation else { return }
             payload = result
-            loadedYear = requestedYear
             years = ["All years"] + result.allYears.filter { $0 != "All years" && $0 != "All" }
+            cache.save(result, key: key, generation: generation)
         } catch {
-            guard !Task.isCancelled, loadID == requestID, year == requestedYear else { return }
-            self.error = error.localizedDescription
+            guard !Task.isCancelled, loadID == requestID, cacheKey == key else { return }
+            self.error = payload == nil ? error.localizedDescription : "Showing saved results. " + error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func loadMoreGames() async {
+        guard !loadingMore, !loading, let offset = payload?.gamesNextOffset else { return }
+        let key = cacheKey
+        let requestID = loadID
+        let generation = SiteBrowseCache.playerDetails.generation
+        loadingMore = true
+        defer { loadingMore = false }
+        do {
+            let next = try await PythonAnywhereClient.shared.doublesPlayer(name: name, year: year, gameOffset: offset)
+            guard !Task.isCancelled, cacheKey == key, loadID == requestID,
+                  SiteBrowseCache.playerDetails.generation == generation else { return }
+            let existingIDs = Set((payload?.games ?? []).map(\.id))
+            payload?.games = (payload?.games ?? []) + (next.games ?? []).filter { !existingIDs.contains($0.id) }
+            payload?.gamesTotal = next.gamesTotal
+            payload?.gamesNextOffset = next.gamesNextOffset
+            error = nil
+        } catch {
+            guard !Task.isCancelled, cacheKey == key, loadID == requestID else { return }
+            self.error = "Could not load older games. " + error.localizedDescription
         }
     }
 }

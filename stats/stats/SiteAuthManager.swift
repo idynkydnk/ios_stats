@@ -71,6 +71,7 @@ final class SiteAuthManager: ObservableObject {
         await MainActor.run {
             SiteBrowseCache.shared.invalidate()
             SiteBrowseCache.playerSuggestions.invalidate()
+            SiteBrowseCache.playerDetails.invalidate()
             SiteOfflineQueue.shared.clear()
             KeychainStore.set(self.tokenKey, value: token)
             self.token = token
@@ -129,6 +130,7 @@ final class SiteAuthManager: ObservableObject {
     private func clearSession() {
         SiteBrowseCache.shared.invalidate()
         SiteBrowseCache.playerSuggestions.invalidate()
+        SiteBrowseCache.playerDetails.invalidate()
         SiteOfflineQueue.shared.clear()
         URLCache.shared.removeAllCachedResponses()
         KeychainStore.delete(tokenKey)
@@ -161,6 +163,7 @@ final class SiteAuthManager: ObservableObject {
     func statsSourcesChanged() {
         SiteBrowseCache.shared.invalidate()
         SiteBrowseCache.playerSuggestions.invalidate()
+        SiteBrowseCache.playerDetails.invalidate()
         statsViewRevision += 1
     }
 

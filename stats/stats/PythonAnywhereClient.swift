@@ -134,9 +134,9 @@ final class PythonAnywhereClient {
         try await delete("/api/doubles/games/\(id)")
     }
 
-    func doublesPlayer(name: String, year: String) async throws -> DoublesPlayerPayload {
+    func doublesPlayer(name: String, year: String, gameOffset: Int = 0) async throws -> DoublesPlayerPayload {
         let encoded = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? name
-        return try await get("/api/doubles/players/\(encoded)", query: ["year": year])
+        return try await get("/api/doubles/players/\(encoded)", query: ["year": year, "game_limit": "30", "game_offset": String(gameOffset)])
     }
 
     func vollisStats(year: String) async throws -> VollisStatsPayload {
@@ -939,6 +939,9 @@ final class PythonAnywhereClient {
         let path = request.url?.path ?? ""
         if SiteStatsRefreshPolicy.affectsPlayerSuggestions(method: method, path: path) {
             SiteBrowseCache.playerSuggestions.invalidate()
+        }
+        if SiteStatsRefreshPolicy.affectsPlayerDetails(method: method, path: path) {
+            SiteBrowseCache.playerDetails.markStale()
         }
         if SiteStatsRefreshPolicy.affectsStats(method: method, path: path) {
             SiteBrowseCache.shared.markStale()

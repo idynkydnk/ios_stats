@@ -13,6 +13,12 @@ enum SiteStatsRefreshPolicy {
             || (parts.count == 4 && parts.prefix(3) == ["api", "admin", "undo"] && Int(parts[3]) != nil)
     }
 
+    static func affectsPlayerDetails(method: String, path: String) -> Bool {
+        affectsStats(method: method, path: path)
+            || (method == "POST" && (path == "/api/update_player_info"
+                || path.hasPrefix("/api/player_photo/")))
+    }
+
     static func affectsPlayerSuggestions(method: String, path: String) -> Bool {
         affectsStats(method: method, path: path)
             || (method == "POST" && ["/api/add_player", "/api/update_player_info"].contains(path))

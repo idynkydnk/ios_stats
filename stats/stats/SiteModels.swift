@@ -257,6 +257,8 @@ struct DoublesPlayerPayload: Codable {
     var partners: [MatchupRow]?
     var opponents: [MatchupRow]?
     var games: [DoublesGame]?
+    var gamesTotal: Int?
+    var gamesNextOffset: Int?
     var photoUrl: String?
     var nickname: String?
     var height: String?
@@ -266,6 +268,7 @@ struct DoublesPlayerPayload: Codable {
     enum CodingKeys: String, CodingKey {
         case name, year, allYears, stats, rating, rank, totalRanked
         case currentStreak, recentForm, partnerMinGames, partners, opponents
+        case gamesTotal, gamesNextOffset
         case games, photoUrl, nickname, height, dateOfBirth, email
     }
 
@@ -283,6 +286,8 @@ struct DoublesPlayerPayload: Codable {
         partnerMinGames = try c.decodeIfPresent(Int.self, forKey: .partnerMinGames)
         partners = try? c.decode([MatchupRow].self, forKey: .partners)
         opponents = try? c.decode([MatchupRow].self, forKey: .opponents)
+        gamesTotal = try c.decodeIfPresent(Int.self, forKey: .gamesTotal)
+        gamesNextOffset = try c.decodeIfPresent(Int.self, forKey: .gamesNextOffset)
         games = try? c.decode([DoublesGame].self, forKey: .games)
         photoUrl = try c.decodeIfPresent(String.self, forKey: .photoUrl)
         nickname = try c.decodeIfPresent(String.self, forKey: .nickname)

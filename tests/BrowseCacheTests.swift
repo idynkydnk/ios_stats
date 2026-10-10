@@ -64,6 +64,37 @@ struct BrowseCacheTests {
         precondition(cache.load(DoublesStatsPayload.self, key: key) == nil)
         cache.save(stats, key: key, generation: cache.generation)
         precondition(cache.load(DoublesStatsPayload.self, key: key) != nil)
+        // Paged player snapshots preserve totals/cursors and every browsing scope.
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let player = try decoder.decode(DoublesPlayerPayload.self, from: Data("""
+            {"name":"Player","year":"2026","all_years":["2026"],"games":[],
+             "games_total":65,"games_next_offset":30,"rating":24,"nickname":"P"}
+            """.utf8))
+        let playerKey = SiteBrowseCache.playerKey(scope: "account-a", section: "doubles", year: "2026", name: "Player", division: "open", revision: 1)
+        cache.save(player, key: playerKey, generation: cache.generation)
+        let restored = cache.load(DoublesPlayerPayload.self, key: playerKey)!.value
+        precondition(restored.gamesTotal == 65 && restored.gamesNextOffset == 30 && restored.nickname == "P")
+        for (scope, section, year, name, division, revision) in [
+            ("account-b", "doubles", "2026", "Player", "open", 1),
+            ("account-a", "doubles", "2025", "Player", "open", 1),
+            ("account-a", "vollis", "2026", "Player", "open", 1),
+            ("account-a", "doubles", "2026", "Another player", "open", 1),
+            ("account-a", "doubles", "2026", "Player", "women", 1),
+            ("account-a", "doubles", "2026", "Player", "open", 2)
+        ] {
+            let different = SiteBrowseCache.playerKey(scope: scope, section: section, year: year, name: name, division: division, revision: revision)
+            precondition(different != playerKey && cache.load(DoublesPlayerPayload.self, key: different) == nil)
+        }
+        let oldServer = try decoder.decode(DoublesPlayerPayload.self, from: Data("{\"name\":\"Player\",\"games\":[]}".utf8))
+        precondition(oldServer.gamesTotal == nil && oldServer.gamesNextOffset == nil)
+        for path in ["/api/update_player_info", "/api/player_photo/Player/", "/api/rename_player", "/api/doubles/games"] {
+            precondition(SiteStatsRefreshPolicy.affectsPlayerDetails(method: "POST", path: path))
+            precondition(!SiteStatsRefreshPolicy.affectsPlayerDetails(method: "GET", path: path))
+        }
+        precondition(!SiteStatsRefreshPolicy.affectsPlayerDetails(method: "POST", path: "/api/ai/summary"))
+        cache.invalidate()
+        cache.save(stats, key: key, generation: cache.generation)
         // Corrupt data falls back to the server without crashing.
         let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
         precondition(!files[0].lastPathComponent.contains("account-a"))

@@ -6,6 +6,15 @@ final class SiteBrowseCache: @unchecked Sendable {
     static let shared = SiteBrowseCache()
     static let playerSuggestions = SiteBrowseCache(directory: FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         .appendingPathComponent("StatsPlayers-v1", isDirectory: true))
+    static let playerDetails = SiteBrowseCache(directory: FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("StatsPlayerDetails-v1", isDirectory: true))
+
+    static func playerKey(scope: String, section: String, year: String, name: String, division: String, revision: Int) -> String {
+        // Length-delimited JSON prevents names from colliding with scope fields.
+        let fields = [scope, section, year, name, division, String(revision)]
+        return (try? JSONEncoder().encode(fields).base64EncodedString()) ?? ""
+    }
+
     static let didChange = Notification.Name("SiteBrowseCache.didChange")
     struct Entry<Value: Codable>: Codable {
         var value: Value
