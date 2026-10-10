@@ -1,0 +1,36 @@
+name: RankingLayoutCheck
+options:
+  bundleIdPrefix: com.kt.stats.layoutcheck
+settings:
+  base:
+    IPHONEOS_DEPLOYMENT_TARGET: '17.0'
+    SWIFT_VERSION: '5.0'
+    SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
+    CODE_SIGNING_ALLOWED: NO
+    GENERATE_INFOPLIST_FILE: YES
+    TARGETED_DEVICE_FAMILY: '1'
+targets:
+  LayoutCheck:
+    type: application
+    platform: iOS
+    sources:
+      - path: ../../stats/stats
+        excludes: [statsApp.swift, 'STATS WEB SITE', '*.db', '*.plist', '*.entitlements']
+      - path: LayoutCheckApp.swift
+    settings:
+      INFOPLIST_KEY_UILaunchScreen_Generation: YES
+      INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+  RankingLayoutUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [RankingLayoutUITests.swift]
+    dependencies:
+      - target: LayoutCheck
+schemes:
+  RankingLayoutCheck:
+    build:
+      targets:
+        LayoutCheck: all
+        RankingLayoutUITests: [test]
+    test:
+      targets: [RankingLayoutUITests]

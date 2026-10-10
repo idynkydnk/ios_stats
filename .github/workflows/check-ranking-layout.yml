@@ -1,0 +1,42 @@
+name: Check iPhone standings layout
+on:
+  push:
+    branches: [codex/iphone-layout-check]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  simulator:
+    runs-on: macos-15
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare cloud simulator tests
+        run: |
+          brew install xcodegen
+          xcodegen generate --spec tests/layout/project.yml
+          xcrun simctl list devices available --json > /tmp/devices.json
+          python3 - <<'PY'
+          import json, os
+          groups = json.load(open('/tmp/devices.json'))['devices']
+          phones = [d for group in groups.values() for d in group if d['isAvailable'] and d['name'].startswith('iPhone')]
+          device = next((d for d in phones if '16' in d['name'] and 'Pro' not in d['name'] and 'Plus' not in d['name']), phones[0])
+          with open(os.environ['GITHUB_ENV'], 'a') as f: f.write('QA_DEVICE_ID=' + device['udid'] + '\n')
+          print('Cloud simulator:', device['name'])
+          PY
+      - name: Test actual standings at small widths and larger text sizes
+        run: |
+          set -o pipefail
+          xcodebuild test -project tests/layout/RankingLayoutCheck.xcodeproj -scheme RankingLayoutCheck -destination "platform=iOS Simulator,id=$QA_DEVICE_ID" -resultBundlePath output/RankingLayout.xcresult CODE_SIGNING_ALLOWED=NO | tee /tmp/layout-build.log
+      - name: Export screenshots
+        if: always()
+        run: |
+          mkdir -p output/screenshots
+          xcrun xcresulttool export attachments --path output/RankingLayout.xcresult --output-path output/screenshots || true
+          cp /tmp/layout-build.log output/ || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: iphone-layout-results
+          path: output/
+          retention-days: 7

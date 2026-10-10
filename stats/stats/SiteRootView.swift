@@ -653,14 +653,14 @@ struct RankingTable: View {
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: ratingWidth), alignment: .leading)],
                                   alignment: .leading, spacing: 10) {
                             if showRating {
-                                stackedStat("Rating", value: row.rating.map { String(format: "%.2f", $0) } ?? "—", accented: true)
+                                stackedStat("Rating", id: "ranking-\(row.id)-rating", value: row.rating.map { String(format: "%.2f", $0) } ?? "—", accented: true)
                             }
-                            stackedStat("W", value: "\(row.wins)")
-                            stackedStat("L", value: "\(row.losses)")
-                            stackedStat("Win%", value: row.winPctDisplay)
+                            stackedStat("W", id: "ranking-\(row.id)-wins", value: "\(row.wins)")
+                            stackedStat("L", id: "ranking-\(row.id)-losses", value: "\(row.losses)")
+                            stackedStat("Win%", id: "ranking-\(row.id)-winpct", value: row.winPctDisplay)
                             if showPlusMinus {
                                 let pm = row.plusMinus ?? 0
-                                stackedStat("+/-", value: pm > 0 ? "+\(pm)" : "\(pm)")
+                                stackedStat("+/-", id: "ranking-\(row.id)-plusminus", value: pm > 0 ? "+\(pm)" : "\(pm)")
                             }
                         }
                     }
@@ -676,10 +676,11 @@ struct RankingTable: View {
         }
     }
 
-    private func stackedStat(_ label: String, value: String, accented: Bool = false) -> some View {
+    private func stackedStat(_ label: String, id: String, value: String, accented: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(label).font(.caption).foregroundStyle(.secondary)
             Text(value).fontWeight(.semibold).foregroundStyle(accented ? appearance.accent : .primary)
+                .accessibilityIdentifier(id)
         }
         .fixedSize(horizontal: false, vertical: true)
     }
@@ -690,23 +691,28 @@ struct RankingTable: View {
             Text(row.rating.map { String(format: "%.2f", $0) } ?? "—")
                 .fontWeight(.semibold)
                 .foregroundStyle(appearance.accent)
+                .accessibilityIdentifier("ranking-\(row.id)-rating")
                 .accessibilityLabel(row.rating.map { String(format: "Rating %.2f", $0) } ?? "Unrated")
                 .frame(width: ratingWidth, alignment: .trailing)
         }
         HStack(spacing: 2) {
             Text("\(row.wins)")
+                .accessibilityIdentifier("ranking-\(row.id)-wins")
                 .lineLimit(1)
                 .frame(width: winsColumnWidth, alignment: .trailing)
                 .foregroundStyle(.primary)
             Text("\(row.losses)")
+                .accessibilityIdentifier("ranking-\(row.id)-losses")
                 .lineLimit(1)
                 .frame(width: lossesColumnWidth, alignment: .trailing)
                 .foregroundStyle(.primary)
         }
         Text(row.winPctDisplay).frame(width: percentWidth, alignment: .trailing)
+            .accessibilityIdentifier("ranking-\(row.id)-winpct")
         if showPlusMinus {
             let pm = row.plusMinus ?? 0
             Text(pm > 0 ? "+\(pm)" : "\(pm)")
+                .accessibilityIdentifier("ranking-\(row.id)-plusminus")
                 .foregroundStyle(.secondary)
                 .frame(width: marginWidth, alignment: .trailing)
         }
