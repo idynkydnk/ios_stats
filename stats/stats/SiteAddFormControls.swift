@@ -73,12 +73,19 @@ func sitePromote(_ names: [String], in list: inout [String]) {
     list = front + rest
 }
 
-func siteFilterPlayers(_ all: [String], query: String, excluding: [String], limit: Int = 12) -> [String] {
+func siteFilterPlayers(_ all: [String], query: String, excluding: [String], limit: Int = 8) -> [String] {
     let taken = Set(excluding.map { $0.trimmingCharacters(in: .whitespaces).lowercased() }.filter { !$0.isEmpty })
     let available = all.filter { !taken.contains($0.lowercased()) }
     let q = query.trimmingCharacters(in: .whitespaces).lowercased()
     if q.isEmpty { return Array(available.prefix(limit)) }
-    return Array(available.filter { $0.lowercased().contains(q) }.prefix(limit))
+    var starts: [String] = []
+    var contains: [String] = []
+    for player in available {
+        let name = player.lowercased()
+        if name.hasPrefix(q) { starts.append(player) }
+        else if name.contains(q) { contains.append(player) }
+    }
+    return Array((starts + contains).prefix(limit))
 }
 
 func siteLoserScores(winner: Int?) -> [Int] {
