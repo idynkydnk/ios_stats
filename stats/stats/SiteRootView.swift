@@ -43,6 +43,30 @@ extension EnvironmentValues {
     }
 }
 
+private struct SiteBrowseReadyKey: EnvironmentKey { static let defaultValue = false }
+private struct SiteBrowseActiveKey: EnvironmentKey { static let defaultValue = true }
+private struct SiteBrowseScopeKey: EnvironmentKey { static let defaultValue = "" }
+private struct SiteBrowseFinishedKey: EnvironmentKey { static let defaultValue: (String) -> Void = { _ in } }
+
+extension EnvironmentValues {
+    var browseReady: Bool {
+        get { self[SiteBrowseReadyKey.self] }
+        set { self[SiteBrowseReadyKey.self] = newValue }
+    }
+    var browseIsActive: Bool {
+        get { self[SiteBrowseActiveKey.self] }
+        set { self[SiteBrowseActiveKey.self] = newValue }
+    }
+    var browseStartupScope: String {
+        get { self[SiteBrowseScopeKey.self] }
+        set { self[SiteBrowseScopeKey.self] = newValue }
+    }
+    var browseLoadFinished: (String) -> Void {
+        get { self[SiteBrowseFinishedKey.self] }
+        set { self[SiteBrowseFinishedKey.self] = newValue }
+    }
+}
+
 struct SiteRootView: View {
     @ObservedObject private var auth = SiteAuthManager.shared
     @ObservedObject private var theme = SiteTheme.shared
@@ -60,7 +84,19 @@ struct SiteRootView: View {
             set: { if section == .doubles { doublesYear = $0 } else { otherYear = $0 } }
         )
     }
-    @State private var years: [String] = ["All years"]
+    @State private var yearLists: YearsPayload?
+    @State private var readyScope: String?
+    @State private var navigationRevision = UUID()
+    private var startupScope: String { "\(auth.browseCacheScope)-\(auth.statsViewRevision)" }
+    private var years: [String] {
+        let result: [String]?
+        switch section {
+        case .doubles: result = yearLists?.doubles
+        case .vollis: result = yearLists?.vollis
+        case .other: result = yearLists?.other
+        }
+        return result?.isEmpty == false ? result! : ["All years", selectedYear.wrappedValue]
+    }
     @State private var doublesEdit: DoublesGame?
     @State private var vollisEdit: VollisGame?
     @State private var addKind: GameSection = .doubles
@@ -97,6 +133,12 @@ struct SiteRootView: View {
                     .padding(.vertical, 4)
             }
             mainTabs
+        }
+        .environment(\.browseStartupScope, startupScope)
+        .environment(\.browseReady, readyScope == startupScope)
+        .environment(\.browseLoadFinished) { scope in
+            guard scope == startupScope else { return }
+            readyScope = scope
         }
         .environment(\.backgroundStatus) { notice in
             reportBackgroundStatus(notice)
@@ -148,21 +190,18 @@ struct SiteRootView: View {
                 }
             }
         }
-        .task {
-            await auth.refreshMe()
+        // statsApp already verifies the session. Let the visible screen finish
+        // its first load before doing metadata or speculative form preloading.
+        .task(id: "\(startupScope)-\(readyScope == startupScope)-\(selectedTab)-\(section.rawValue)-\(navigationRevision)", priority: .utility) {
+            guard auth.sessionReady, readyScope == startupScope, selectedTab < 2 else { return }
+            do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
             await loadYears()
+            guard !Task.isCancelled, auth.isLoggedIn, selectedTab == 0 else { return }
+            if section == .doubles { _ = try? await PythonAnywhereClient.shared.doublesPlayers() }
+            else { _ = try? await PythonAnywhereClient.shared.otherGameTypes() }
         }
-        .task(id: "\(auth.sessionReady)-\(auth.playerSuggestionsScope)") {
-            guard auth.sessionReady, auth.isLoggedIn else { return }
-            _ = try? await PythonAnywhereClient.shared.doublesPlayers()
-        }
-        .task(id: "\(auth.sessionReady)-\(auth.playerSuggestionsScope)") {
-            guard auth.sessionReady, auth.isLoggedIn else { return }
-            _ = try? await PythonAnywhereClient.shared.otherGameTypes()
-        }
-        .onChange(of: section) { _, _ in
-            Task { await loadYears() }
-        }
+        .onReceive(NotificationCenter.default.publisher(for: SiteBrowseCache.didChange, object: SiteBrowseCache.navigation)
+            .receive(on: RunLoop.main)) { _ in navigationRevision = UUID() }
         .onChange(of: selectedTab) { _, _ in updatePreview() }
         .onChange(of: auth.showStarterStats) { _, visible in
             updatePreview()
@@ -170,12 +209,12 @@ struct SiteRootView: View {
         .onChange(of: auth.statsViewRevision) { _, _ in
             doublesEdit = nil
             vollisEdit = nil
-            Task { await loadYears() }
+            yearLists = nil
         }
         .onChange(of: auth.isPreviewing) { _, _ in
             doublesEdit = nil
             vollisEdit = nil
-            Task { await loadYears() }
+            yearLists = nil
             if !auth.isPreviewing && network.isConnected { Task { await queue.flush() } }
         }
         .onChange(of: network.isConnected) { _, online in
@@ -232,10 +271,12 @@ struct SiteRootView: View {
         TabView(selection: $selectedTab) {
             SiteStatsView(selectedOtherGame: $selectedOtherGame, section: $section, selectedYear: selectedYear, years: years, isActive: selectedTab == 0)
                 .id("\(auth.sessionReady)-\(auth.username ?? "signed-out")-\(auth.isLoggedIn)-\(auth.isPreviewing)-\(auth.statsViewRevision)")
+                .environment(\.browseIsActive, selectedTab == 0)
                 .tabItem { Label("Stats", systemImage: "chart.bar.fill") }
                 .tag(0)
             SiteGamesView(selectedOtherGame: $selectedOtherGame, section: $section, selectedYear: selectedYear, years: years, isActive: selectedTab == 1, canEdit: auth.isLoggedIn && !auth.isPreviewing, onEditDoubles: { doublesEdit = $0; addKind = .doubles; selectedTab = 2 }, onEditVollis: { vollisEdit = $0; addKind = .vollis; selectedTab = 2 })
                 .id("\(auth.sessionReady)-\(auth.username ?? "signed-out")-\(auth.isLoggedIn)-\(auth.isPreviewing)-\(auth.statsViewRevision)")
+                .environment(\.browseIsActive, selectedTab == 1)
                 .tabItem { Label("Games", systemImage: "list.bullet") }
                 .tag(1)
             SiteAddHubView(section: $addKind, doublesEdit: $doublesEdit, vollisEdit: $vollisEdit)
@@ -254,18 +295,14 @@ struct SiteRootView: View {
     }
 
     private func loadYears() async {
+        let scope = startupScope
         do {
-            let y = try await PythonAnywhereClient.shared.years()
-            await MainActor.run {
-                switch section {
-                case .doubles: years = y.doubles
-                case .vollis: years = y.vollis
-                case .other: years = y.other
-                }
-                if years.isEmpty { years = ["All years", selectedYear.wrappedValue] }
-            }
+            let result = try await PythonAnywhereClient.shared.years()
+            guard !Task.isCancelled, startupScope == scope else { return }
+            yearLists = result
         } catch { }
     }
+
 }
 
 struct SiteStarterStatsControl: View {
@@ -650,6 +687,8 @@ struct RankingTable: View {
 }
 
 struct SiteStatsView: View {
+    @Environment(\.browseStartupScope) private var startupScope
+    @Environment(\.browseLoadFinished) private var browseLoadFinished
     @Environment(\.siteAppearance) private var appearance
 
     @Binding var selectedOtherGame: String
@@ -783,7 +822,9 @@ struct SiteStatsView: View {
             }
             .task(id: "\(cacheKey)-\(isActive)-\(dataRevision)") {
                 guard isActive else { return }
+                let scope = startupScope
                 await load()
+                if !Task.isCancelled, auth.sessionReady { browseLoadFinished(scope) }
             }
             .onReceive(NotificationCenter.default.publisher(for: SiteBrowseCache.didChange, object: SiteBrowseCache.shared)
                 .receive(on: RunLoop.main)) { _ in
@@ -867,6 +908,8 @@ struct SiteStatsView: View {
 }
 
 struct SiteGamesView: View {
+    @Environment(\.browseStartupScope) private var startupScope
+    @Environment(\.browseLoadFinished) private var browseLoadFinished
     @Environment(\.siteAppearance) private var appearance
 
     @Binding var selectedOtherGame: String
@@ -1057,7 +1100,9 @@ struct SiteGamesView: View {
                 if !search.isEmpty {
                     do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
                 }
+                let scope = startupScope
                 await load()
+                if !Task.isCancelled, auth.sessionReady { browseLoadFinished(scope) }
             }
             .onReceive(NotificationCenter.default.publisher(for: SiteBrowseCache.didChange, object: SiteBrowseCache.shared)
                 .receive(on: RunLoop.main)) { _ in
@@ -1383,6 +1428,10 @@ struct VollisGameRow: View {
 }
 
 struct OtherGameNavigation: View {
+    @Environment(\.browseReady) private var browseReady
+    @Environment(\.browseIsActive) private var isActive
+    @ObservedObject private var auth = SiteAuthManager.shared
+    @State private var navigationRevision = UUID()
     @Environment(\.siteAppearance) private var appearance
 
     @Binding var section: GameSection
@@ -1425,7 +1474,12 @@ struct OtherGameNavigation: View {
         .padding()
         .onAppear { expanded = selectedGame.isEmpty }
         .onChange(of: selectedGame) { _, game in expanded = game.isEmpty }
-        .task { await load() }
+        .task(id: "\(auth.sessionReady)-\(auth.browseCacheScope)-\(auth.statsViewRevision)-\(browseReady)-\(isActive)-\(expanded)-\(navigationRevision)") {
+            guard auth.sessionReady, isActive, browseReady || expanded else { return }
+            await load()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: SiteBrowseCache.didChange, object: SiteBrowseCache.navigation)
+            .receive(on: RunLoop.main)) { _ in navigationRevision = UUID() }
     }
 
     private var gameChoices: some View {
@@ -1467,13 +1521,15 @@ struct OtherGameNavigation: View {
     }
 
     private func load() async {
+        let scope = auth.browseCacheScope
         do {
             let navigation = try await PythonAnywhereClient.shared.otherNavigationGroups()
+            guard !Task.isCancelled, auth.browseCacheScope == scope else { return }
             groups = navigation.groups
             defaultYears = navigation.defaultYears
             vollisDefaultYear = navigation.vollisDefaultYear
             loadError = false
-        } catch { loadError = true }
+        } catch { if !Task.isCancelled, auth.browseCacheScope == scope { loadError = true } }
     }
 
     private func divisionChoice(_ title: String, value: String) -> some View {

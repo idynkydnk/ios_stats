@@ -119,12 +119,15 @@ struct BrowseCacheTests {
         cache.invalidate()
         cache.save(stats, key: key, generation: cache.generation)
         // Corrupt data falls back to the server without crashing.
-        let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+        let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil).filter { $0.pathExtension == "json" }
         precondition(!files[0].lastPathComponent.contains("account-a"))
         try Data("bad json".utf8).write(to: files[0])
+        // A warm visit still uses decoded memory, even if disk becomes unreadable.
+        precondition(cache.load(DoublesStatsPayload.self, key: key) != nil)
+        cache.trimMemory()
         precondition(cache.load(DoublesStatsPayload.self, key: key) == nil)
         for index in 0..<55 { cache.save([index], key: "item-\(index)", generation: cache.generation) }
-        let count = try FileManager.default.contentsOfDirectory(atPath: directory.path).count
+        let count = try FileManager.default.contentsOfDirectory(atPath: directory.path).filter { $0.hasSuffix(".json") }.count
         precondition(count <= 48)
         for kind in ["doubles", "vollis", "other"] {
             for (method, suffix) in [("POST", ""), ("PUT", "/42"), ("DELETE", "/42")] {

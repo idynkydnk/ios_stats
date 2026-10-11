@@ -73,6 +73,7 @@ final class SiteAuthManager: ObservableObject {
             SiteBrowseCache.playerSuggestions.invalidate()
             SiteBrowseCache.playerDetails.invalidate()
             SiteBrowseCache.library.invalidate()
+        SiteBrowseCache.navigation.invalidate()
             SiteOfflineQueue.shared.clear()
             KeychainStore.set(self.tokenKey, value: token)
             self.token = token
@@ -133,6 +134,7 @@ final class SiteAuthManager: ObservableObject {
         SiteBrowseCache.playerSuggestions.invalidate()
         SiteBrowseCache.playerDetails.invalidate()
         SiteBrowseCache.library.invalidate()
+        SiteBrowseCache.navigation.invalidate()
         SiteOfflineQueue.shared.clear()
         URLCache.shared.removeAllCachedResponses()
         KeychainStore.delete(tokenKey)
@@ -167,6 +169,7 @@ final class SiteAuthManager: ObservableObject {
         SiteBrowseCache.playerSuggestions.invalidate()
         SiteBrowseCache.playerDetails.invalidate()
         SiteBrowseCache.library.invalidate()
+        SiteBrowseCache.navigation.invalidate()
         statsViewRevision += 1
     }
 

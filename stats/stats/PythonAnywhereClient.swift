@@ -10,6 +10,9 @@ final class PythonAnywhereClient {
     private let encoder: JSONEncoder
     private let session: URLSession
     private let browsingSession: URLSession
+    private let getRequests = SiteGETRequests()
+    private let yearsCache = SiteReadCache<YearsPayload>(cache: .navigation)
+    private let catalogCache = SiteReadCache<OtherGameCatalog>(cache: .navigation)
 
     private init() {
         let config = URLSessionConfiguration.ephemeral
@@ -110,7 +113,10 @@ final class PythonAnywhereClient {
 
     func me() async throws -> MePayload { try await get("/api/me") }
 
-    func years() async throws -> YearsPayload { try await get("/api/years") }
+    func years() async throws -> YearsPayload {
+        let req = request("/api/years", method: "GET", authed: token != nil)
+        return try await yearsCache.load(key: metadataKey(req)) { try await self.decode(req) }
+    }
 
     func doublesStats(year: String) async throws -> DoublesStatsPayload {
         try await get("/api/doubles/stats", query: ["year": year])
@@ -197,16 +203,10 @@ final class PythonAnywhereClient {
     func deleteOther(id: Int) async throws { try await delete("/api/other/games/\(id)") }
 
     func otherNavigationGroups() async throws -> (groups: [String: [String]], defaultYears: [String: String], vollisDefaultYear: String) {
-        struct Types: Decodable {
-            var gameNames: [String]
-            var typeForName: [String: String]
-            var defaultYears: [String: String]?
-            var vollisDefaultYear: String?
-        }
-        let payload: Types = try await get("/api/other/game-types")
+        let payload = try await loadOtherGameCatalog(preview: nil)
         var groups: [String: [String]] = ["Volleyball": ["No jump"]]
-        for name in payload.gameNames {
-            let category = payload.typeForName[name].flatMap { $0.isEmpty ? nil : $0 } ?? "Other games"
+        for name in payload.names {
+            let category = (payload.typeForName ?? [:])[name].flatMap { $0.isEmpty ? nil : $0 } ?? "Other games"
             if !(groups[category] ?? []).contains(name) { groups[category, default: []].append(name) }
         }
         return (groups, payload.defaultYears ?? [:], payload.vollisDefaultYear ?? "All years")
@@ -239,9 +239,22 @@ final class PythonAnywhereClient {
     func player(named name: String) async throws -> SitePlayer? {
         let needle = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !needle.isEmpty else { return nil }
-        return try await players().first {
-            $0.name.compare(needle, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
+        // A profile request downloads one player. Older servers return 404;
+        // keep the previous roster lookup only for that compatibility case.
+        let req = request("/api/player-profile", method: "GET", query: ["name": needle], authed: token != nil)
+        let (data, response) = try await transport(req, session: browsingSession)
+        if (response as? HTTPURLResponse)?.statusCode == 404 {
+            return try await players().first {
+                $0.name.compare(needle, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
+            }
         }
+        try throwIfNeeded(data, response)
+        nonisolated struct Profile: Decodable { var player: SitePlayer? }
+        return try await Task.detached(priority: .userInitiated) {
+            let decoder = JSONDecoder()
+            decoder.keyDecodingStrategy = .convertFromSnakeCase
+            return try decoder.decode(Profile.self, from: data).player
+        }.value
     }
 
     func addPlayer(fullName: String, email: String? = nil) async throws {
@@ -336,75 +349,78 @@ final class PythonAnywhereClient {
         return []
     }
 
-    struct OtherGameEntryInfo: Codable {
+    nonisolated struct OtherGameEntryInfo: Codable, Sendable {
         var gameType: String?
         var scoreType: String?
         var winnerCount: Int?
         var loserCount: Int?
     }
 
-    struct OtherGameCatalog: Codable {
+    nonisolated struct OtherGameCatalog: Codable, Sendable {
         var names: [String]
         var types: [String]
         var defaults: [String: OtherGameEntryInfo]
+        var typeForName: [String: String]? = nil
+        var defaultYears: [String: String]? = nil
+        var vollisDefaultYear: String? = nil
 
-        var suggestedNames: [String] {
+        @MainActor var suggestedNames: [String] {
             var result = ["Vollis"]
             sitePromote(names, in: &result)
             return result
         }
     }
 
-    @MainActor private var pendingOtherCatalog: (key: String, generation: UUID, id: UUID, task: Task<OtherGameCatalog, Error>)?
+    private func metadataKey(_ req: URLRequest) -> String {
+        SiteGETRequests.key(req, revision: String(SiteAuthManager.shared.statsViewRevision))
+    }
 
     @MainActor
     var otherCatalogCacheKey: String {
-        "\(SiteAuthManager.shared.playerSuggestionsScope)-other-entry-catalog"
+        metadataKey(request("/api/other/game-types", method: "GET", authed: token != nil, preview: false))
     }
 
     @MainActor
     var cachedOtherGameCatalog: OtherGameCatalog? {
-        SiteBrowseCache.playerSuggestions.load(OtherGameCatalog.self, key: otherCatalogCacheKey)?.value
+        SiteBrowseCache.navigation.load(OtherGameCatalog.self, key: otherCatalogCacheKey)?.value
     }
 
     @MainActor
     func rememberOtherGameCatalog(_ catalog: OtherGameCatalog) {
-        let cache = SiteBrowseCache.playerSuggestions
-        cache.save(catalog, key: otherCatalogCacheKey, generation: cache.generation)
+        // A just-saved entry can update form defaults immediately. Keep the
+        // navigation metadata if already present, but require a server refresh.
+        let cache = SiteBrowseCache.navigation
+        var value = catalog
+        if let previous = cachedOtherGameCatalog {
+            value.typeForName = previous.typeForName
+            value.defaultYears = previous.defaultYears
+            value.vollisDefaultYear = previous.vollisDefaultYear
+        }
+        cache.save(value, key: otherCatalogCacheKey, generation: cache.generation)
+        cache.markStale()
     }
 
     @MainActor
     func otherGameTypes() async throws -> OtherGameCatalog {
-        let key = otherCatalogCacheKey
-        let cache = SiteBrowseCache.playerSuggestions
-        if let saved = cache.load(OtherGameCatalog.self, key: key), saved.isFresh(maxAge: 60) {
-            return saved.value
-        }
-        let generation = cache.generation
-        let request: (key: String, generation: UUID, id: UUID, task: Task<OtherGameCatalog, Error>)
-        if let pending = pendingOtherCatalog, pending.key == key, pending.generation == generation {
-            request = pending
-        } else {
-            request = (key, generation, UUID(), Task { try await self.fetchOtherGameCatalog() })
-            pendingOtherCatalog = request
-        }
-        defer {
-            if pendingOtherCatalog?.id == request.id { pendingOtherCatalog = nil }
-        }
-        let catalog = try await request.task.value
-        guard cache.generation == generation, otherCatalogCacheKey == key else { throw CancellationError() }
-        cache.save(catalog, key: key, generation: generation)
-        return catalog
+        try await loadOtherGameCatalog(preview: false)
     }
 
-    private func fetchOtherGameCatalog() async throws -> OtherGameCatalog {
-        struct Wrap: Decodable {
-            var gameNames: [String]?
-            var gameTypes: [String]?
-            var entryDefaults: [String: OtherGameEntryInfo]?
+    @MainActor
+    private func loadOtherGameCatalog(preview: Bool?) async throws -> OtherGameCatalog {
+        let req = request("/api/other/game-types", method: "GET", authed: token != nil, preview: preview)
+        return try await catalogCache.load(key: metadataKey(req), maxAge: 60) {
+            struct Wrap: Decodable {
+                var gameNames: [String]?
+                var gameTypes: [String]?
+                var entryDefaults: [String: OtherGameEntryInfo]?
+                var typeForName: [String: String]?
+                var defaultYears: [String: String]?
+                var vollisDefaultYear: String?
+            }
+            let w: Wrap = try await self.decode(req)
+            return OtherGameCatalog(names: w.gameNames ?? [], types: w.gameTypes ?? [], defaults: w.entryDefaults ?? [:],
+                typeForName: w.typeForName, defaultYears: w.defaultYears, vollisDefaultYear: w.vollisDefaultYear)
         }
-        let w: Wrap = try await get("/api/other/game-types", preview: false)
-        return OtherGameCatalog(names: w.gameNames ?? [], types: w.gameTypes ?? [], defaults: w.entryDefaults ?? [:])
     }
 
     @MainActor
@@ -801,7 +817,7 @@ final class PythonAnywhereClient {
         // appendingPathComponent strips empty; keep original path
         comps = URLComponents(string: baseURL.absoluteString + (path.hasPrefix("/") ? path : "/" + path))!
         if !query.isEmpty {
-            comps.queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) }
+            comps.queryItems = query.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
         }
         return comps.url!
     }
@@ -843,7 +859,7 @@ final class PythonAnywhereClient {
 
     private func getRaw(_ path: String, query: [String: String] = [:]) async throws -> Data {
         let req = request(path, method: "GET", query: query, authed: token != nil)
-        let (data, resp) = try await session.data(for: req)
+        let (data, resp) = try await transport(req, session: session)
         try throwIfNeeded(data, resp)
         return data
     }
@@ -897,7 +913,7 @@ final class PythonAnywhereClient {
         let req = request(path, method: "DELETE", authed: true)
         let started = Date()
         defer { SitePerformance.record(SitePerformance.category(req), since: started) }
-        let (data, resp) = try await session.data(for: req)
+        let (data, resp) = try await transport(req, session: session)
         try throwIfNeeded(data, resp)
         await recordSuccessfulMutation(req)
     }
@@ -916,6 +932,16 @@ final class PythonAnywhereClient {
         return try await decode(req)
     }
 
+    private func transport(_ request: URLRequest, session: URLSession) async throws -> (Data, URLResponse) {
+        guard request.httpMethod == "GET" else { return try await session.data(for: request) }
+        // Mutations/source changes must not join requests for an older revision.
+        let revision = [SiteBrowseCache.shared.generation, SiteBrowseCache.playerDetails.generation,
+                        SiteBrowseCache.navigation.generation].map(\.uuidString).joined(separator: ":")
+        return try await getRequests.load(key: SiteGETRequests.key(request, revision: revision)) {
+            try await session.data(for: request)
+        }
+    }
+
     private func decode<T: Decodable>(_ req: URLRequest) async throws -> T {
         let started = Date()
         let category = SitePerformance.category(req)
@@ -930,7 +956,7 @@ final class PythonAnywhereClient {
         let data: Data
         let resp: URLResponse
         do {
-            (data, resp) = try await activeSession.data(for: boundedRequest)
+            (data, resp) = try await transport(boundedRequest, session: activeSession)
         } catch let error as URLError where isBrowsing && error.code == .timedOut {
             throw SiteAPIError.message("Loading took too long. Pull down to try again.")
         }
@@ -961,6 +987,7 @@ final class PythonAnywhereClient {
         await Task.detached(priority: .userInitiated) {
             if SiteStatsRefreshPolicy.affectsPlayerSuggestions(method: method, path: path) {
                 SiteBrowseCache.playerSuggestions.invalidate()
+                SiteBrowseCache.navigation.markStale()
             }
             if SiteStatsRefreshPolicy.affectsPlayerDetails(method: method, path: path) {
                 SiteBrowseCache.playerDetails.markStale(section: sport)

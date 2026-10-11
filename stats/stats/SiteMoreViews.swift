@@ -494,7 +494,12 @@ struct SiteEditPlayerView: View {
     }
 
     private func refreshFromServer() async {
-        guard let player = try? await PythonAnywhereClient.shared.player(named: canonicalName) else { return }
+        let name = canonicalName
+        let scope = auth.browseCacheScope
+        let revision = auth.statsViewRevision
+        guard let player = try? await PythonAnywhereClient.shared.player(named: name),
+              !Task.isCancelled, canonicalName == name, auth.browseCacheScope == scope,
+              auth.statsViewRevision == revision else { return }
         apply(player)
         if !auth.isPrivate { await refreshAIVersions() }
     }

@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 @main
 struct statsApp: App {
@@ -15,6 +16,11 @@ struct statsApp: App {
                 }
             }
                 .task { await auth.refreshMe() }
+                .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
+                    for cache in [SiteBrowseCache.shared, .playerDetails, .playerSuggestions, .library, .navigation] {
+                        cache.trimMemory()
+                    }
+                }
                 .environment(\.siteAppearance, theme.appearance)
                 .preferredColorScheme(theme.colorScheme)
                 .tint(theme.appearance.accent)

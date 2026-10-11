@@ -516,7 +516,7 @@ struct TodaysDoublesDashboard {
     var games: [DoublesGame]
 }
 
-struct YearsPayload: Codable {
+nonisolated struct YearsPayload: Codable, Sendable {
     var doubles: [String]
     var vollis: [String]
     var other: [String]
