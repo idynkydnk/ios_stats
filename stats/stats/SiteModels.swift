@@ -224,6 +224,8 @@ struct DoublesGame: Codable, Identifiable, Hashable {
 
 struct GamesListPayload<T: Codable>: Codable {
     var games: [T]
+    var total: Int? = nil
+    var nextOffset: Int? = nil
     var deletedIds: [Int]?
     var allYears: [String]?
 }
@@ -442,6 +444,7 @@ struct SiteGameCard: Codable, Identifiable {
 }
 
 struct OtherStatsPayload: Codable {
+    var includesVolleyball: Bool? = nil
     var year: String
     var displayYear: String
     var showingPreviousYear: Bool
@@ -871,7 +874,7 @@ private enum AdminJSON {
     }
 }
 
-struct RecapPage: Decodable {
+struct RecapPage: Codable {
     var recaps: [RecapItem]
     var page: Int
     var total: Int
@@ -881,6 +884,7 @@ struct RecapItem: Codable, Identifiable {
     var pinned: Bool?
     var shareId: String?
     var createdAt: String?
+    var thumbnailUrl: String? = nil
     var heroImageUrl: String?
     var shareUrl: String?
     var headline: String?
@@ -899,6 +903,7 @@ struct FlyerItem: Codable, Identifiable {
     var pinned: Bool?
     var shareId: String?
     var createdAt: String?
+    var thumbnailUrl: String? = nil
     var flyerImageUrl: String?
     var downloadUrl: String?
     var viewUrl: String?

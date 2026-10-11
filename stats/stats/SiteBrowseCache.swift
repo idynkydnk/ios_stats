@@ -2,7 +2,7 @@ import Foundation
 import CryptoKit
 
 /// Disposable, account-scoped snapshots. The server remains authoritative.
-final class SiteBrowseCache: @unchecked Sendable {
+nonisolated final class SiteBrowseCache: @unchecked Sendable {
     static let shared = SiteBrowseCache()
     static let playerSuggestions = SiteBrowseCache(directory: FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         .appendingPathComponent("StatsPlayers-v1", isDirectory: true))
@@ -15,11 +15,23 @@ final class SiteBrowseCache: @unchecked Sendable {
         return (try? JSONEncoder().encode(fields).base64EncodedString()) ?? ""
     }
 
+    static let library = SiteBrowseCache(directory: FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("StatsLibrary-v1", isDirectory: true))
+
+    func loadAsync<Value: Codable>(_ type: Value.Type, key: String) async -> Entry<Value>? {
+        await Task.detached(priority: .userInitiated) { self.load(type, key: key) }.value
+    }
+
+    func saveAsync<Value: Codable>(_ value: Value, key: String, generation: UUID) async {
+        await Task.detached(priority: .utility) { self.save(value, key: key, generation: generation) }.value
+    }
+
     static let didChange = Notification.Name("SiteBrowseCache.didChange")
     struct Entry<Value: Codable>: Codable {
         var value: Value
         var savedAt: Date
         var refreshRequired: Bool? = nil
+        var section: String? = nil
 
         func isFresh(at now: Date = Date(), maxAge: TimeInterval = 5 * 60) -> Bool {
             let age = now.timeIntervalSince(savedAt)
@@ -58,7 +70,7 @@ final class SiteBrowseCache: @unchecked Sendable {
         // A response started before a save, source change, or logout must not
         // repopulate invalidated data when it eventually finishes.
         guard generation == revision,
-              let data = try? JSONEncoder().encode(Entry(value: value, savedAt: now)),
+              let data = try? JSONEncoder().encode(Entry(value: value, savedAt: now, section: Self.section(for: key))),
               data.count <= 4 * 1024 * 1024 else { return }
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -80,7 +92,7 @@ final class SiteBrowseCache: @unchecked Sendable {
     }
 
     /// Keep the last results visible, but require a fetch and reject older requests.
-    func markStale() {
+    func markStale(section: String? = nil) {
         lock.lock()
         revision = UUID()
         if let files = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) {
@@ -88,6 +100,7 @@ final class SiteBrowseCache: @unchecked Sendable {
                 do {
                     let data = try Data(contentsOf: file)
                     var entry = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+                    if let section, let savedSection = entry["section"] as? String, section != savedSection { continue }
                     entry["refreshRequired"] = true
                     let updated = try JSONSerialization.data(withJSONObject: entry)
                     #if os(iOS)
@@ -110,6 +123,14 @@ final class SiteBrowseCache: @unchecked Sendable {
         defer { lock.unlock() }
         revision = UUID()
         try? FileManager.default.removeItem(at: directory)
+    }
+
+    private static func section(for key: String) -> String? {
+        if let data = Data(base64Encoded: key),
+           let fields = try? JSONDecoder().decode([String].self, from: data), fields.count >= 2 {
+            return fields[1]
+        }
+        return ["doubles", "vollis", "other"].first { key.contains("-\($0)-") }
     }
 
     private func file(_ key: String) -> URL {

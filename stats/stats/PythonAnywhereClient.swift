@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import OSLog
 
 final class PythonAnywhereClient {
     static let shared = PythonAnywhereClient()
@@ -115,10 +116,11 @@ final class PythonAnywhereClient {
         try await get("/api/doubles/stats", query: ["year": year])
     }
 
-    func doublesGames(year: String? = nil, since: String? = nil) async throws -> GamesListPayload<DoublesGame> {
+    func doublesGames(year: String? = nil, since: String? = nil, offset: Int? = nil, search: String = "") async throws -> GamesListPayload<DoublesGame> {
         var q: [String: String] = [:]
         if let year { q["year"] = year }
         if let since { q["since"] = since }
+        if let offset { q["limit"] = "50"; q["offset"] = String(offset); q["q"] = search }
         return try await get("/api/doubles/games", query: q)
     }
 
@@ -143,9 +145,10 @@ final class PythonAnywhereClient {
         try await get("/api/vollis/stats", query: ["year": year])
     }
 
-    func vollisGames(year: String? = nil, preview: Bool? = nil) async throws -> GamesListPayload<VollisGame> {
+    func vollisGames(year: String? = nil, preview: Bool? = nil, offset: Int? = nil, search: String = "") async throws -> GamesListPayload<VollisGame> {
         var q: [String: String] = [:]
         if let year { q["year"] = year }
+        if let offset { q["limit"] = "50"; q["offset"] = String(offset); q["q"] = search }
         return try await get("/api/vollis/games", query: q, preview: preview)
     }
 
@@ -171,13 +174,14 @@ final class PythonAnywhereClient {
     }
 
     func otherStats(year: String) async throws -> OtherStatsPayload {
-        try await get("/api/other/stats", query: ["year": year])
+        try await get("/api/other/stats", query: ["year": year, "include_volleyball": "1"])
     }
 
-    func otherGames(year: String? = nil, gameName: String? = nil, preview: Bool? = nil) async throws -> GamesListPayload<OtherGame> {
+    func otherGames(year: String? = nil, gameName: String? = nil, preview: Bool? = nil, offset: Int? = nil, search: String = "") async throws -> GamesListPayload<OtherGame> {
         var q: [String: String] = [:]
         if let year { q["year"] = year }
         if let gameName { q["game_name"] = gameName }
+        if let offset { q["limit"] = "50"; q["offset"] = String(offset); q["q"] = search }
         return try await get("/api/other/games", query: q, preview: preview)
     }
 
@@ -872,7 +876,7 @@ final class PythonAnywhereClient {
         try await SiteGameSaveRequest.send(req, confirmationRequest: confirmation, fields: fields) {
             try await self.session.data(for: $0)
         }
-        recordSuccessfulMutation(req)
+        await recordSuccessfulMutation(req)
     }
 
     private func postJSON<T: Decodable>(_ path: String, json: Any) async throws -> T {
@@ -891,9 +895,11 @@ final class PythonAnywhereClient {
 
     private func delete(_ path: String) async throws {
         let req = request(path, method: "DELETE", authed: true)
+        let started = Date()
+        defer { SitePerformance.record(SitePerformance.category(req), since: started) }
         let (data, resp) = try await session.data(for: req)
         try throwIfNeeded(data, resp)
-        recordSuccessfulMutation(req)
+        await recordSuccessfulMutation(req)
     }
 
     private func upload<T: Decodable>(_ path: String, imageData: Data, filename: String) async throws -> T {
@@ -911,6 +917,9 @@ final class PythonAnywhereClient {
     }
 
     private func decode<T: Decodable>(_ req: URLRequest) async throws -> T {
+        let started = Date()
+        let category = SitePerformance.category(req)
+        defer { SitePerformance.record("request-" + category, since: started) }
         let browsingPaths = ["/api/years", "/api/doubles/", "/api/vollis/", "/api/other/", "/api/volleyball/stats"]
         let isBrowsing = req.httpMethod == "GET" && browsingPaths.contains {
             $0.hasSuffix("/") ? (req.url?.path.hasPrefix($0) ?? false) : req.url?.path == $0
@@ -925,27 +934,44 @@ final class PythonAnywhereClient {
         } catch let error as URLError where isBrowsing && error.code == .timedOut {
             throw SiteAPIError.message("Loading took too long. Pull down to try again.")
         }
+        SitePerformance.record("network-" + category, since: started)
+        if let timing = (resp as? HTTPURLResponse)?.value(forHTTPHeaderField: "Server-Timing") {
+            SitePerformance.logger.info("server category=\(category, privacy: .public) timing=\(timing, privacy: .public)")
+        }
         try throwIfNeeded(data, resp)
-        recordSuccessfulMutation(req)
+        await recordSuccessfulMutation(req)
+        let decodingStarted = Date()
+        defer { SitePerformance.record("decode-" + category, since: decodingStarted) }
         do {
-            return try decoder.decode(T.self, from: data)
+            return try await Task.detached(priority: .userInitiated) {
+                let decoder = JSONDecoder()
+                decoder.keyDecodingStrategy = .convertFromSnakeCase
+                return try decoder.decode(T.self, from: data)
+            }.value
         } catch {
             throw SiteAPIError.message("Could not read server response. \(error.localizedDescription)")
         }
     }
 
-    private func recordSuccessfulMutation(_ request: URLRequest) {
+    private func recordSuccessfulMutation(_ request: URLRequest) async {
         let method = request.httpMethod ?? "GET"
         let path = request.url?.path ?? ""
-        if SiteStatsRefreshPolicy.affectsPlayerSuggestions(method: method, path: path) {
-            SiteBrowseCache.playerSuggestions.invalidate()
-        }
-        if SiteStatsRefreshPolicy.affectsPlayerDetails(method: method, path: path) {
-            SiteBrowseCache.playerDetails.markStale()
-        }
-        if SiteStatsRefreshPolicy.affectsStats(method: method, path: path) {
-            SiteBrowseCache.shared.markStale()
-        }
+        let section = path.split(separator: "/").dropFirst().first.map(String.init)
+        let sport = ["doubles", "vollis", "other"].contains(section ?? "") ? section : nil
+        await Task.detached(priority: .userInitiated) {
+            if SiteStatsRefreshPolicy.affectsPlayerSuggestions(method: method, path: path) {
+                SiteBrowseCache.playerSuggestions.invalidate()
+            }
+            if SiteStatsRefreshPolicy.affectsPlayerDetails(method: method, path: path) {
+                SiteBrowseCache.playerDetails.markStale(section: sport)
+            }
+            if SiteStatsRefreshPolicy.affectsStats(method: method, path: path) {
+                SiteBrowseCache.shared.markStale(section: sport)
+            }
+            if ["POST", "PUT", "DELETE"].contains(method) && (path.contains("/ai/") || path.contains("/ai-library/") || path.contains("/flyers")) {
+                SiteBrowseCache.library.markStale()
+            }
+        }.value
     }
 
     private func throwIfNeeded(_ data: Data, _ resp: URLResponse) throws {
@@ -1071,5 +1097,21 @@ extension PythonAnywhereClient {
     }
     func deletePublic(_ path: String) async throws {
         try await delete(path)
+    }
+}
+
+nonisolated enum SitePerformance {
+    static let logger = Logger(subsystem: "stats.performance", category: "loading")
+    static func category(_ request: URLRequest) -> String {
+        let parts = request.url?.path.split(separator: "/").map(String.init) ?? []
+        var label = Array(parts.prefix(2))
+        if parts.count >= 3, ["doubles", "vollis", "other", "volleyball"].contains(parts[1]),
+           ["stats", "games", "players"].contains(parts[2]) { label.append(parts[2]) }
+        return (request.httpMethod ?? "GET") + "-" + label.joined(separator: "/")
+    }
+
+    static func record(_ action: String, since start: Date) {
+        let milliseconds = Date().timeIntervalSince(start) * 1000
+        logger.info("action=\(action, privacy: .public) milliseconds=\(milliseconds, privacy: .public)")
     }
 }

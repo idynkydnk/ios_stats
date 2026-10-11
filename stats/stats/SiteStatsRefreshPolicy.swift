@@ -1,6 +1,6 @@
 import Foundation
 
-enum SiteStatsRefreshPolicy {
+nonisolated enum SiteStatsRefreshPolicy {
     static func affectsStats(method: String, path: String) -> Bool {
         guard ["POST", "PUT", "DELETE"].contains(method) else { return false }
         let parts = path.split(separator: "/")

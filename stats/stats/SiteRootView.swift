@@ -804,6 +804,8 @@ struct SiteStatsView: View {
 
     @MainActor
     private func load(force: Bool = false) async {
+        let loadStarted = Date()
+        defer { SitePerformance.record("standings-load", since: loadStarted) }
         guard auth.sessionReady else { return }
         let requestID = UUID()
         loadID = requestID
@@ -811,7 +813,8 @@ struct SiteStatsView: View {
         let scope = auth.browseCacheScope
         let cache = SiteBrowseCache.shared
         let generation = cache.generation
-        let cached = cache.load(Snapshot.self, key: key)
+        let cached = await cache.loadAsync(Snapshot.self, key: key)
+        guard !Task.isCancelled, loadID == requestID, cache.generation == generation else { return }
         if let cached, displayedCacheKey != key {
             doubles = cached.value.doubles
             vollis = cached.value.vollis
@@ -838,35 +841,24 @@ struct SiteStatsView: View {
                 doubles = payload
                 if payload.showingPreviousYear { selectedYear = payload.displayYear }
             case .vollis:
-                var payload = try await PythonAnywhereClient.shared.vollisStats(year: year)
-                if payload.todayStats == nil {
-                    let games = (try? await PythonAnywhereClient.shared.vollisGames(year: String(Calendar.current.component(.year, from: Date()))))?.games ?? []
-                    let todayGames = games.filter { siteIsToday($0.date) }
-                    if !todayGames.isEmpty {
-                        payload.todayStats = RankingRow.todayStats(fromVollis: todayGames)
-                        payload.todayGameCount = todayGames.count
-                    }
-                }
+                let payload = try await PythonAnywhereClient.shared.vollisStats(year: year)
                 try Task.checkCancellation()
                 guard loadID == requestID, auth.browseCacheScope == scope, cache.generation == generation else { return }
                 vollis = payload
                 if payload.showingPreviousYear { selectedYear = payload.displayYear }
             case .other:
-                async let otherRequest = PythonAnywhereClient.shared.otherStats(year: year)
-                async let volleyballRequest = PythonAnywhereClient.shared.volleyballStats(year: year)
-                var payload = try await otherRequest
-                var volleyball = try await volleyballRequest
-                if payload.displayYear != year {
-                    volleyball = try await PythonAnywhereClient.shared.volleyballStats(year: payload.displayYear)
+                var payload = try await PythonAnywhereClient.shared.otherStats(year: year)
+                if payload.includesVolleyball != true {
+                    let volleyball = try await PythonAnywhereClient.shared.volleyballStats(year: payload.displayYear)
+                    payload.gameCards.removeAll { $0.isConsolidated == true }
+                    payload.gameCards.append(contentsOf: volleyball.gameCards)
                 }
-                payload.gameCards.removeAll { $0.isConsolidated == true }
-                payload.gameCards.append(contentsOf: volleyball.gameCards)
                 try Task.checkCancellation()
                 guard loadID == requestID, auth.browseCacheScope == scope, cache.generation == generation else { return }
                 other = payload
                 if payload.showingPreviousYear { selectedYear = payload.displayYear }
             }
-            cache.save(Snapshot(doubles: doubles, vollis: vollis, other: other), key: key, generation: generation)
+            await cache.saveAsync(Snapshot(doubles: doubles, vollis: vollis, other: other), key: key, generation: generation)
         } catch {
             guard !Task.isCancelled, loadID == requestID else { return }
             self.error = hasStats ? "Showing saved stats. " + error.localizedDescription : error.localizedDescription
@@ -893,6 +885,9 @@ struct SiteGamesView: View {
     @AppStorage("stats.doublesDivision") private var division = "open"
     @State private var gamesExpanded = true
     @State private var search = ""
+    @State private var loading = false
+    @State private var nextOffset: Int?
+    @State private var totalGames: Int?
     @State private var error: String?
     @State private var banner: String?
     @State private var bannerIsError = false
@@ -905,14 +900,26 @@ struct SiteGamesView: View {
         var doubles: [DoublesGame]
         var vollis: [VollisGame]
         var other: [OtherGame]
+        var nextOffset: Int? = nil
+        var total: Int? = nil
     }
     @ObservedObject private var network = NetworkMonitor.shared
     @ObservedObject private var queue = SiteOfflineQueue.shared
+
+    private var gamesCacheKey: String {
+        let fields = [auth.browseCacheScope, section.rawValue, "games-v2", selectedYear,
+                      division, selectedOtherGame, search]
+        return (try? JSONEncoder().encode(fields).base64EncodedString()) ?? ""
+    }
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
                 SiteSearchBar(search: $search, searchPrompt: "Search")
+                if loading {
+                    ProgressView(doubles.isEmpty && vollis.isEmpty && other.isEmpty ? "Loading games…" : "Updating games…")
+                        .padding(8)
+                }
                 if isDeleting && banner == nil {
                     HStack(spacing: 10) {
                         ProgressView()
@@ -936,14 +943,14 @@ struct SiteGamesView: View {
                 List {
                     OtherGameNavigation(section: $section, selection: $selectedOtherGame, selectedYear: $selectedYear)
                     Section {
-                        SiteSectionBubble(title: "Games", count: visibleGameCount, expanded: $gamesExpanded)
+                        SiteSectionBubble(title: "Games", count: totalGames ?? visibleGameCount, expanded: $gamesExpanded)
                             .listRowInsets(EdgeInsets())
                             .listRowBackground(appearance.panel)
                             .listRowSeparator(.hidden)
                         if gamesExpanded {
                             switch section {
                             case .doubles:
-                                SiteLimitedRows(filteredDoubles) { g in
+                                ForEach(filteredDoubles) { g in
                                     DoublesGameRow(game: g, year: selectedYear, section: .doubles)
                                         .listRowSeparator(.hidden)
                                         .listRowBackground(appearance.panel)
@@ -963,7 +970,7 @@ struct SiteGamesView: View {
                                     }
                                 }
                             case .vollis:
-                                SiteLimitedRows(filteredVollis) { g in
+                                ForEach(filteredVollis) { g in
                                     VollisGameRow(game: g, year: selectedYear, section: .vollis)
                                         .listRowSeparator(.hidden)
                                         .listRowBackground(appearance.panel)
@@ -983,7 +990,7 @@ struct SiteGamesView: View {
                                     }
                                 }
                             case .other:
-                                SiteLimitedRows(filteredOther) { g in
+                                ForEach(filteredOther) { g in
                                     VStack(alignment: .leading, spacing: 7) {
                                         Text("\(g.gameName ?? "") · \(g.gameType ?? "")").font(.headline)
                                         SiteGameDateLabel(raw: g.gameDate ?? g.gameDateOnly)
@@ -1015,6 +1022,12 @@ struct SiteGamesView: View {
                         }
                     }
                 }
+                .safeAreaInset(edge: .bottom) {
+                    if nextOffset != nil {
+                        Button("Load older games") { Task { await load(older: true) } }
+                            .buttonStyle(.borderedProminent).disabled(loading).padding(8)
+                    }
+                }
                 .id("\(section.rawValue)-\(selectedYear)-\(search)")
                 .listStyle(.insetGrouped)
                 .contentMargins(.top, 0, for: .scrollContent)
@@ -1038,9 +1051,12 @@ struct SiteGamesView: View {
             }
             .sensoryFeedback(.success, trigger: successTick)
             .refreshable { await load(force: true) }
-            .task(id: "\(auth.browseCacheScope)-\(section.rawValue)-\(selectedYear)-\(division)-\(isActive)-\(dataRevision)") {
+            .task(id: "\(auth.browseCacheScope)-\(section.rawValue)-\(selectedYear)-\(division)-\(isActive)-\(dataRevision)-\(search)-\(selectedOtherGame)") {
                 guard isActive else { return }
                 error = nil
+                if !search.isEmpty {
+                    do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
+                }
                 await load()
             }
             .onReceive(NotificationCenter.default.publisher(for: SiteBrowseCache.didChange, object: SiteBrowseCache.shared)
@@ -1058,65 +1074,87 @@ struct SiteGamesView: View {
         }
     }
 
-    private var filteredDoubles: [DoublesGame] {
-        let q = search.lowercased()
-        return doubles.filter {
-            q.isEmpty || [$0.winner1, $0.winner2, $0.loser1, $0.loser2, $0.comments].compactMap { $0 }.joined(separator: " ").lowercased().contains(q)
+    // Modern servers search the full history. A legacy server returns everything
+    // without a total; retain local filtering during an app/server rollout.
+    private func legacyMatches(_ text: String) -> Bool {
+        search.split { $0.isWhitespace || $0 == "," }.allSatisfy {
+            text.localizedCaseInsensitiveContains(String($0))
         }
     }
+    private var filteredDoubles: [DoublesGame] {
+        if totalGames != nil { return doubles }
+        return doubles.filter { legacyMatches([$0.winner1, $0.winner2, $0.loser1, $0.loser2, $0.comments].compactMap { $0 }.joined(separator: " ")) }
+    }
     private var filteredVollis: [VollisGame] {
-        let q = search.lowercased()
-        return vollis.filter { q.isEmpty || "\($0.winner ?? "") \($0.loser ?? "")".lowercased().contains(q) }
+        if totalGames != nil { return vollis }
+        return vollis.filter { legacyMatches("\($0.winner ?? "") \($0.loser ?? "")") }
     }
     private var filteredOther: [OtherGame] {
-        let q = search.lowercased()
-        return other.filter { (selectedOtherGame.isEmpty || $0.gameName == selectedOtherGame) && (q.isEmpty || "\($0.gameName ?? "") \($0.displayWinners) \($0.displayLosers)".lowercased().contains(q)) }
+        if totalGames != nil { return other }
+        return other.filter { (selectedOtherGame.isEmpty || $0.gameName == selectedOtherGame) && legacyMatches("\($0.gameName ?? "") \($0.displayWinners) \($0.displayLosers)") }
     }
 
     @MainActor
-    private func load(force: Bool = false) async {
+    private func load(force: Bool = false, older: Bool = false) async {
+        let loadStarted = Date()
+        defer { SitePerformance.record("games-load", since: loadStarted) }
         let auth = SiteAuthManager.shared
         guard auth.sessionReady else { return }
+        if older && (loading || nextOffset == nil) { return }
+        let offset = older ? (nextOffset ?? 0) : 0
         let requestID = UUID()
         loadID = requestID
+        loading = true
+        defer { if loadID == requestID { loading = false } }
         let scope = auth.browseCacheScope
         let year = selectedYear == "All" ? "All years" : selectedYear
-        let key = "\(scope)-games-\(section.rawValue)-\(year)-\(division)"
+        let key = gamesCacheKey
         let cache = SiteBrowseCache.shared
         let generation = cache.generation
-        let cached = cache.load(Snapshot.self, key: key)
+        let cached = await cache.loadAsync(Snapshot.self, key: key)
+        guard !Task.isCancelled, loadID == requestID, cache.generation == generation else { return }
         if displayedCacheKey != key { banner = nil }
         if let cached, displayedCacheKey != key {
             doubles = cached.value.doubles
             vollis = cached.value.vollis
             other = cached.value.other
+            nextOffset = cached.value.nextOffset
+            totalGames = cached.value.total
         } else if displayedCacheKey != key {
             doubles = []
             vollis = []
             other = []
+            nextOffset = nil
+            totalGames = nil
         }
         displayedCacheKey = key
         error = nil
-        if !force, cached?.isFresh() == true { return }
+        if !force, !older, cached?.isFresh() == true { return }
         do {
             switch section {
             case .doubles:
-                let p = try await PythonAnywhereClient.shared.doublesGames(year: year)
+                let p = try await PythonAnywhereClient.shared.doublesGames(year: year, offset: offset, search: search)
                 try Task.checkCancellation()
-                guard loadID == requestID, auth.browseCacheScope == scope, cache.generation == generation else { return }
-                doubles = p.games
+                guard loadID == requestID, gamesCacheKey == key, auth.browseCacheScope == scope, cache.generation == generation else { return }
+                doubles = older ? doubles + p.games.filter { game in !doubles.contains { $0.id == game.id } } : p.games
+                nextOffset = p.nextOffset
+                totalGames = p.total
             case .vollis:
-                let p = try await PythonAnywhereClient.shared.vollisGames(year: year)
+                let p = try await PythonAnywhereClient.shared.vollisGames(year: year, offset: offset, search: search)
                 try Task.checkCancellation()
-                guard loadID == requestID, auth.browseCacheScope == scope, cache.generation == generation else { return }
-                vollis = p.games
+                guard loadID == requestID, gamesCacheKey == key, auth.browseCacheScope == scope, cache.generation == generation else { return }
+                vollis = older ? vollis + p.games.filter { game in !vollis.contains { $0.id == game.id } } : p.games
+                nextOffset = p.nextOffset
+                totalGames = p.total
             case .other:
-                let p = try await PythonAnywhereClient.shared.otherGames(year: year)
+                let p = try await PythonAnywhereClient.shared.otherGames(year: year, gameName: selectedOtherGame.isEmpty ? nil : selectedOtherGame, offset: offset, search: search)
                 try Task.checkCancellation()
-                guard loadID == requestID, auth.browseCacheScope == scope, cache.generation == generation else { return }
-                other = p.games
+                guard loadID == requestID, gamesCacheKey == key, auth.browseCacheScope == scope, cache.generation == generation else { return }
+                other = older ? other + p.games.filter { game in !other.contains { $0.id == game.id } } : p.games
+                nextOffset = p.nextOffset
+                totalGames = p.total
             }
-            cache.save(Snapshot(doubles: doubles, vollis: vollis, other: other), key: key, generation: generation)
+            await cache.saveAsync(Snapshot(doubles: doubles, vollis: vollis, other: other, nextOffset: nextOffset, total: totalGames), key: key, generation: generation)
             error = nil
         } catch {
             guard !Task.isCancelled, loadID == requestID else { return }

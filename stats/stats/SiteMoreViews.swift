@@ -1503,6 +1503,8 @@ struct SiteRecapsView: View {
     @Environment(\.siteAppearance) private var appearance
     @ObservedObject private var auth = SiteAuthManager.shared
     @State private var items: [RecapItem] = []
+    @State private var loadID = UUID()
+    @State private var displayedScope: String?
     @State private var error: String?
     @State private var loading = false
     @State private var loaded = false
@@ -1601,13 +1603,13 @@ struct SiteRecapsView: View {
                 }
             }
         }
-        .task { if !loaded { await load() } }
+        .task(id: "\(auth.browseCacheScope)-\(auth.sessionReady)-\(auth.isAdmin)-\(auth.statsViewRevision)") { await load(force: false) }
         .refreshable { await load() }
     }
 
     private func recapCard(_ recap: RecapItem) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            if let imageURL = SitePublicLink.absolute(recap.heroImageUrl) {
+            if let imageURL = SitePublicLink.absolute(recap.thumbnailUrl ?? recap.heroImageUrl) {
                 AsyncImage(url: imageURL) { phase in
                     if let image = phase.image {
                         image.resizable().scaledToFill()
@@ -1678,12 +1680,30 @@ struct SiteRecapsView: View {
     }
 
     @MainActor
-    private func load(reset: Bool = true) async {
-        guard !loading else { return }
+    private func load(reset: Bool = true, force: Bool = true) async {
+        let loadStarted = Date()
+        defer { SitePerformance.record("recaps-load", since: loadStarted) }
+        guard auth.sessionReady, reset || !loading else { return }
+        let scope = "\(auth.browseCacheScope)-\(auth.isAdmin)-\(auth.statsViewRevision)-recaps"
+        let requestID = UUID()
+        loadID = requestID
+        let cache = SiteBrowseCache.library
+        let generation = cache.generation
+        if displayedScope != scope { items = []; page = 0; total = 0; loaded = false }
+        displayedScope = scope
+        if reset, !force {
+            let saved = await cache.loadAsync(RecapPage.self, key: scope)
+            guard !Task.isCancelled, loadID == requestID, cache.generation == generation else { return }
+            if let saved {
+                items = saved.value.recaps; page = saved.value.page; total = saved.value.total; loaded = true
+                if saved.isFresh() { return }
+            }
+        }
         loading = true
-        defer { loading = false }
+        defer { if loadID == requestID { loading = false } }
         do {
             let result = try await PythonAnywhereClient.shared.recaps(page: reset ? 1 : page + 1)
+            guard !Task.isCancelled, loadID == requestID, cache.generation == generation else { return }
             if reset {
                 items = result.recaps
             } else {
@@ -1694,7 +1714,9 @@ struct SiteRecapsView: View {
             total = result.recaps.isEmpty ? items.count : result.total
             loaded = true
             error = nil
+            await cache.saveAsync(RecapPage(recaps: items, page: page, total: total), key: scope, generation: generation)
         } catch {
+            guard !Task.isCancelled, loadID == requestID else { return }
             self.error = error.localizedDescription
         }
     }
@@ -1703,6 +1725,10 @@ struct SiteRecapsView: View {
 struct SiteFlyersView: View {
     @ObservedObject private var auth = SiteAuthManager.shared
     @State private var items: [FlyerItem] = []
+    @State private var loadID = UUID()
+    @State private var displayedScope: String?
+    @State private var loading = false
+    @State private var loaded = false
     @State private var error: String?
 
     var body: some View {
@@ -1715,7 +1741,8 @@ struct SiteFlyersView: View {
             if let error {
                 Text(error).foregroundStyle(.red)
             }
-            if items.isEmpty, error == nil {
+            if loading { ProgressView("Loading flyers…") }
+            if items.isEmpty, loaded, !loading, error == nil {
                 Text("No flyers yet. Pull down to refresh, or create one from Create Flyer.")
                     .foregroundStyle(.secondary)
             }
@@ -1730,7 +1757,7 @@ struct SiteFlyersView: View {
                     flyerMeta(flyer)
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    if let img = flyer.flyerImageUrl, let u = SitePublicLink.absolute(img) {
+                    if let img = flyer.thumbnailUrl ?? flyer.flyerImageUrl, let u = SitePublicLink.absolute(img) {
                         AsyncImage(url: u) { phase in
                             if case .success(let image) = phase {
                                 image.resizable().scaledToFit()
@@ -1772,7 +1799,7 @@ struct SiteFlyersView: View {
                 .accessibilityLabel("Create flyer")
             }
         }
-        .task { await load() }
+        .task(id: "\(auth.browseCacheScope)-\(auth.sessionReady)-\(auth.isAdmin)-\(auth.statsViewRevision)") { await load(force: false) }
         .refreshable { await load() }
     }
 
@@ -1807,11 +1834,37 @@ struct SiteFlyersView: View {
         }
     }
 
-    private func load() async {
+    @MainActor
+    private func load(force: Bool = true) async {
+        let loadStarted = Date()
+        defer { SitePerformance.record("flyers-load", since: loadStarted) }
+        guard auth.sessionReady else { return }
+        let scope = "\(auth.browseCacheScope)-\(auth.isAdmin)-\(auth.statsViewRevision)-flyers"
+        let requestID = UUID()
+        loadID = requestID
+        let cache = SiteBrowseCache.library
+        let generation = cache.generation
+        if displayedScope != scope { items = []; loaded = false }
+        displayedScope = scope
+        loading = true
+        defer { if loadID == requestID { loading = false } }
+        if !force {
+            let saved = await cache.loadAsync([FlyerItem].self, key: scope)
+            guard !Task.isCancelled, loadID == requestID, cache.generation == generation else { return }
+            if let saved {
+                items = saved.value; loaded = true
+                if saved.isFresh() { return }
+            }
+        }
         do {
-            items = try await PythonAnywhereClient.shared.flyers()
+            let result = try await PythonAnywhereClient.shared.flyers()
+            guard !Task.isCancelled, loadID == requestID, cache.generation == generation else { return }
+            items = result
+            loaded = true
             error = nil
+            await cache.saveAsync(items, key: scope, generation: generation)
         } catch {
+            guard !Task.isCancelled, loadID == requestID else { return }
             self.error = error.localizedDescription
         }
     }

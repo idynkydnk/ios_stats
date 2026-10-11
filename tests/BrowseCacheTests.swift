@@ -10,7 +10,7 @@ enum SitePublicLink {
 
 @main
 struct BrowseCacheTests {
-    static func main() throws {
+    static func main() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let cache = SiteBrowseCache(directory: directory)
@@ -58,6 +58,22 @@ struct BrowseCacheTests {
         players.save(["New player"], key: "names", generation: players.generation)
         players.invalidate()
         precondition(cache.load(DoublesStatsPayload.self, key: key)?.isFresh() == true)
+        // A Vollis mutation must leave saved doubles standings fresh, including
+        // after reopening; matching pages remain visible but require refresh.
+        cache.save(stats, key: "account-vollis-2026-open", generation: cache.generation)
+        cache.save(stats, key: key, generation: cache.generation)
+        cache.markStale(section: "vollis")
+        precondition(cache.load(DoublesStatsPayload.self, key: key)?.isFresh() == true)
+        precondition(cache.load(DoublesStatsPayload.self, key: "account-vollis-2026-open")?.isFresh() == false)
+        let asyncKey = "account-doubles-async-open"
+        await cache.saveAsync(stats, key: asyncKey, generation: cache.generation)
+        let asyncSaved = await cache.loadAsync(DoublesStatsPayload.self, key: asyncKey)
+        precondition(asyncSaved?.value.stats.first?.wins == 3)
+        let lateGeneration = cache.generation
+        cache.invalidate()
+        await cache.saveAsync(stats, key: "async-late", generation: lateGeneration)
+        let late = await cache.loadAsync(DoublesStatsPayload.self, key: "async-late")
+        precondition(late == nil)
         // Logout/source changes remove disk copies and reject late responses.
         cache.invalidate()
         cache.save(stats, key: key, generation: generation)
@@ -86,6 +102,13 @@ struct BrowseCacheTests {
             let different = SiteBrowseCache.playerKey(scope: scope, section: section, year: year, name: name, division: division, revision: revision)
             precondition(different != playerKey && cache.load(DoublesPlayerPayload.self, key: different) == nil)
         }
+        let paged = try decoder.decode(GamesListPayload<DoublesGame>.self,
+            from: Data("{\"games\":[],\"total\":131,\"next_offset\":50}".utf8))
+        cache.save(paged, key: "paged", generation: cache.generation)
+        let pagedSaved = await cache.loadAsync(GamesListPayload<DoublesGame>.self, key: "paged")
+        precondition(pagedSaved?.value.total == 131 && pagedSaved?.value.nextOffset == 50)
+        let legacy = try decoder.decode(GamesListPayload<DoublesGame>.self, from: Data("{\"games\":[]}".utf8))
+        precondition(legacy.total == nil && legacy.nextOffset == nil)
         let oldServer = try decoder.decode(DoublesPlayerPayload.self, from: Data("{\"name\":\"Player\",\"games\":[]}".utf8))
         precondition(oldServer.gamesTotal == nil && oldServer.gamesNextOffset == nil)
         for path in ["/api/update_player_info", "/api/player_photo/Player/", "/api/rename_player", "/api/doubles/games"] {

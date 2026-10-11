@@ -271,6 +271,8 @@ struct SitePlayerDetailView: View {
 
     @MainActor
     private func load(force: Bool = false) async {
+        let loadStarted = Date()
+        defer { SitePerformance.record("player-load", since: loadStarted) }
         guard auth.sessionReady else { return }
         let requestedYear = year
         let requestID = UUID()
@@ -278,7 +280,8 @@ struct SitePlayerDetailView: View {
         let key = cacheKey
         let cache = SiteBrowseCache.playerDetails
         let generation = cache.generation
-        let cached = cache.load(DoublesPlayerPayload.self, key: key)
+        let cached = await cache.loadAsync(DoublesPlayerPayload.self, key: key)
+        guard !Task.isCancelled, loadID == requestID, cache.generation == generation else { return }
         if displayedCacheKey != key || payload == nil {
             payload = cached?.value
             displayedCacheKey = key
@@ -302,7 +305,7 @@ struct SitePlayerDetailView: View {
             guard !Task.isCancelled, loadID == requestID, cacheKey == key, cache.generation == generation else { return }
             payload = result
             years = ["All years"] + result.allYears.filter { $0 != "All years" && $0 != "All" }
-            cache.save(result, key: key, generation: generation)
+            await cache.saveAsync(result, key: key, generation: generation)
         } catch {
             guard !Task.isCancelled, loadID == requestID, cacheKey == key else { return }
             self.error = payload == nil ? error.localizedDescription : "Showing saved results. " + error.localizedDescription
