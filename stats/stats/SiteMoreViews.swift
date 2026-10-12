@@ -1250,9 +1250,7 @@ struct SiteAIStyleView: View {
     @Environment(\.aiSummaryQueued) private var aiSummaryQueued
     var gameType: String
     var gameIds: [String]
-    @State private var promptStyle = "default"
     @State private var customPrompt = ""
-    @State private var imageDetails = ""
     @State private var generating = false
     @State private var banner: String?
     @State private var bannerIsError = false
@@ -1264,23 +1262,12 @@ struct SiteAIStyleView: View {
                     SiteAddBanner(text: banner, isError: bannerIsError)
                 }
 
-                Text("Writing style")
+                Text("Recap and picture prompt (optional)")
                     .font(.headline)
-                styleCard(
-                    id: "default",
-                    title: "Standard Recap",
-                    subtitle: "Clear summary from the game data",
-                    detail: "Writes a factual recap from the scores, stats, and comments — no invented persona or gimmick voice."
-                )
-                styleCard(
-                    id: "custom",
-                    title: "Custom Prompt",
-                    subtitle: "Write your own style",
-                    detail: "Describe the tone, style, and personality you want."
-                )
-                if promptStyle == "custom" {
-                    SiteParagraphField(placeholder: "Example: Keep it short and punchy, focus on upsets and funny comments…", text: $customPrompt)
-                }
+                SiteParagraphField(placeholder: "Tell us how the games went and what stood out—close calls, funny moments, or big wins. For the picture, describe where you played, what people looked like, and the surroundings.", text: $customPrompt)
+                Text("Describe the recap and picture you want. Leave blank for a funny recap and a group picture if you choose one. Picture details apply only to the illustration.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
 
                 Text("Illustration")
                     .font(.headline)
@@ -1288,18 +1275,11 @@ struct SiteAIStyleView: View {
                 Text("Include one AI-generated group illustration, or publish text only. Uses each player's saved AI character when they have one; otherwise face photos and/or signature looks. Players with none of those are left out.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Text("Extra illustration details (optional)")
-                    .font(.subheadline.weight(.semibold))
-                SiteParagraphField(placeholder: "Example: sunset beach background, everyone celebrating at the net…", text: $imageDetails)
-                Text("Only used when you choose With illustration.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
                 HStack(spacing: 10) {
                     SiteAddActionButton(
                         title: generating ? "Writing…" : "Text only",
                         filled: false,
-                        disabled: generating || !canGenerate
+                        disabled: generating
                     ) {
                         Task { await generate(imageMode: "none") }
                     }
@@ -1308,7 +1288,7 @@ struct SiteAIStyleView: View {
                     SiteAddActionButton(
                         title: generating ? "Creating recap…" : "With illustration",
                         filled: true,
-                        disabled: generating || !canGenerate
+                        disabled: generating
                     ) {
                         Task { await generate(imageMode: "image") }
                     }
@@ -1321,44 +1301,8 @@ struct SiteAIStyleView: View {
             .padding()
             .padding(.bottom, 24)
         }
-        .navigationTitle("AI style")
+        .navigationTitle("AI recap")
         .scrollDismissesKeyboard(.interactively)
-    }
-
-    private var canGenerate: Bool {
-        if promptStyle == "custom" {
-            return !customPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        }
-        return true
-    }
-
-    private func styleCard(id: String, title: String, subtitle: String, detail: String) -> some View {
-        let selected = promptStyle == id
-        return Button {
-            promptStyle = id
-        } label: {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    Text(title).font(.subheadline.weight(.semibold))
-                    Spacer()
-                    Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                        .foregroundStyle(selected ? SiteAddAccent.orange : .secondary)
-                }
-                Text(subtitle).font(.caption).foregroundStyle(.secondary)
-                Text(detail).font(.caption).foregroundStyle(.secondary)
-            }
-            .padding()
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(selected ? SiteAddAccent.orange.opacity(0.15) : Color(.secondarySystemFill))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(selected ? SiteAddAccent.orange : Color.clear, lineWidth: 2)
-            )
-        }
-        .buttonStyle(.plain)
     }
 
     private func generate(imageMode: String) async {
@@ -1369,10 +1313,8 @@ struct SiteAIStyleView: View {
             let jobId = try await PythonAnywhereClient.shared.generateAISummary(
                 gameType: gameType,
                 gameIds: gameIds,
-                promptStyle: promptStyle,
-                customPrompt: promptStyle == "custom" ? customPrompt : "",
-                imageMode: imageMode,
-                imageDetails: imageDetails
+                customPrompt: customPrompt,
+                imageMode: imageMode
             )
             aiSummaryQueued(jobId)
         } catch {

@@ -558,7 +558,7 @@ final class PythonAnywhereClient {
     func generateAISummary(
         gameType: String,
         gameIds: [String],
-        promptStyle: String = "default",
+        promptStyle: String = "combined",
         customPrompt: String = "",
         imageMode: String = "image",
         imageDetails: String = ""
