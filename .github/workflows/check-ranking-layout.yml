@@ -1,7 +1,7 @@
-name: Check iPhone standings layout
+name: Verify iPhone recap flow
 on:
   push:
-    branches: [codex/iphone-layout-check]
+    branches: [codex/verify-recap-20261012]
   workflow_dispatch:
     inputs:
       large_records_only:
@@ -46,7 +46,7 @@ jobs:
           with open(os.environ['GITHUB_ENV'], 'a') as f: f.write('QA_DEVICE_ID=' + device['udid'] + '\n')
           print('Cloud simulator:', device['name'])
           PY
-      - name: Test actual standings at small widths and larger text sizes
+      - name: Test production recap prompt and request
         env:
           QA_LARGE_RECORDS_ONLY: ${{ inputs.large_records_only }}
         run: |
@@ -65,6 +65,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: iphone-layout-results
+          name: iphone-recap-results
           path: output/
           retention-days: 7

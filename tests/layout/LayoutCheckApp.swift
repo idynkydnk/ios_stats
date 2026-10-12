@@ -1,33 +1,56 @@
 import SwiftUI
+import Foundation
 
-// Cloud-only test entry point. The production app entry point is excluded from
-// the generated test project; every standings view below is production code.
+// This harness intercepts the real client's request before it reaches the site.
+// No recap is published and no subscriber email can be queued by these checks.
+final class RecapRequestProtocol: URLProtocol, @unchecked Sendable {
+    nonisolated override class func canInit(with request: URLRequest) -> Bool { true }
+    nonisolated override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    nonisolated override func startLoading() {
+        var body = request.httpBody ?? Data()
+        if body.isEmpty, let stream = request.httpBodyStream {
+            stream.open()
+            defer { stream.close() }
+            var buffer = [UInt8](repeating: 0, count: 4096)
+            while stream.hasBytesAvailable {
+                let count = stream.read(&buffer, maxLength: buffer.count)
+                if count <= 0 { break }
+                body.append(contentsOf: buffer.prefix(count))
+            }
+        }
+        let json = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] ?? [:]
+        let env = ProcessInfo.processInfo.environment
+        let valid = request.url?.path == "/api/ai/summary"
+            && request.httpMethod == "POST"
+            && json["prompt_style"] as? String == "combined"
+            && json["custom_prompt"] as? String == env["QA_PROMPT", default: ""]
+            && json["image_mode"] as? String == env["QA_MODE", default: "none"]
+            && json["image_details"] as? String == ""
+            && json["game_type"] as? String == "doubles"
+            && json["game_ids"] as? [String] == ["101", "102"]
+        let response = HTTPURLResponse(url: request.url!, statusCode: valid ? 200 : 400, httpVersion: nil,
+                                       headerFields: ["Content-Type": "application/json"])!
+        let result = valid ? "{\"success\":true,\"job_id\":42}" : "{\"error\":\"Recap request did not match the website contract\"}"
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(result.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    nonisolated override func stopLoading() {}
+}
+
 @main
 struct LayoutCheckApp: App {
-    private let env = ProcessInfo.processInfo.environment
-    private var size: DynamicTypeSize {
-        switch env["QA_TEXT_SIZE"] {
-        case "xxxLarge": return .xxxLarge
-        case "accessibility1": return .accessibility1
-        case "accessibility3": return .accessibility3
-        case "accessibility5": return .accessibility5
-        default: return .large
-        }
-    }
+    @State private var queued = false
+    init() { URLProtocol.registerClass(RecapRequestProtocol.self) }
     var body: some Scene {
         WindowGroup {
             NavigationStack {
-                ScrollView {
-                    RankingTable(title: "Today's Stats", rows: [
-                        RankingRow(name: "Alexandra Montgomery", wins: 12, losses: 3, winPct: 0.8, rating: 81.35, plusMinus: 137),
-                        RankingRow(name: "Christopher Longlastname", wins: env["QA_RECORDS"] == "large" ? 1234 : 4, losses: env["QA_RECORDS"] == "large" ? 1000 : 7, winPct: 1, rating: 100, plusMinus: env["QA_RECORDS"] == "large" ? -1234 : -13)
-                    ], showRating: true, showPlusMinus: true, year: "2026", section: .doubles)
+                VStack {
+                    if queued { Text("Queued test recap #42").accessibilityIdentifier("recap-queued") }
+                    SiteAIStyleView(gameType: "doubles", gameIds: ["101", "102"])
                 }
-                .frame(width: CGFloat(Double(env["QA_WIDTH"] ?? "375") ?? 375))
-                .accessibilityIdentifier("ranking-viewport")
-                .background(SiteAppearance().background)
             }
-            .dynamicTypeSize(size)
+            .environment(\.aiSummaryQueued) { id in queued = id == 42 }
             .environment(\.siteAppearance, SiteAppearance())
             .preferredColorScheme(.dark)
         }
