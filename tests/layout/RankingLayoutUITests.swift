@@ -23,9 +23,10 @@ final class RankingLayoutUITests: XCTestCase {
                 for _ in 0..<4 {
                     if button.isHittable { break }
                     // The scroll view's accessibility frame extends behind the
-                    // keyboard. Start the gesture in the visible content above it.
+                    // keyboard. Leave room for the prediction bar, which XCTest
+                    // excludes from the keyboard's reported frame.
                     let startY = app.keyboards.firstMatch.exists
-                        ? app.keyboards.firstMatch.frame.minY - 25 : app.frame.height * 0.7
+                        ? min(app.keyboards.firstMatch.frame.minY - 110, app.frame.height * 0.45) : app.frame.height * 0.7
                     let origin = app.coordinate(withNormalizedOffset: .zero)
                     origin.withOffset(CGVector(dx: app.frame.width - 25, dy: startY))
                         .press(forDuration: 0.05, thenDragTo: origin.withOffset(CGVector(dx: app.frame.width - 25, dy: 170)))
