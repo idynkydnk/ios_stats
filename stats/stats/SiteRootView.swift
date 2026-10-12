@@ -684,7 +684,7 @@ struct RankingTable: View {
                     tableCell("L", width: lossesColumnWidth)
                     if showPlusMinus { tableCell("+/-", width: plusMinusColumnWidth) }
                     tableCell("Win%", width: 50)
-                    if showPlusMinus { tableCell("Total games", width: 76) }
+                    tableCell("Games", width: 50)
                 }
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
@@ -725,15 +725,14 @@ struct RankingTable: View {
                             tableCell(row.winPctDisplay, width: 50)
                                 .accessibilityLabel("Win percentage, " + row.winPctDisplay)
                                 .accessibilityIdentifier("ranking-\(row.id)-winpct")
-                            if showPlusMinus {
-                                tableCell("\(row.wins + row.losses)", width: 76)
-                                    .accessibilityLabel("Total games, \(row.wins + row.losses)")
-                                    .accessibilityIdentifier("ranking-\(row.id)-games")
-                            }
+                            tableCell("\(row.wins + row.losses)", width: 50)
+                                .accessibilityLabel("Games, \(row.wins + row.losses)")
+                                .accessibilityIdentifier("ranking-\(row.id)-games")
                         }
-                        .font(showPlusMinus ? .footnote : .subheadline).monospacedDigit()
+                        .font(.subheadline).monospacedDigit()
                         .foregroundStyle(.primary)
-                        .padding(rowPadding)
+                        .padding(.horizontal, rowPadding)
+                        .padding(.vertical, 12)
                         .background(Color.primary.opacity(idx.isMultiple(of: 2) ? 0 : 0.025))
                         .contentShape(Rectangle())
                     }
@@ -790,9 +789,7 @@ struct RankingTable: View {
                                 stackedStat("+/-", id: "ranking-\(row.id)-plusminus", value: pm > 0 ? "+\(pm)" : "\(pm)")
                             }
                             stackedStat("Win%", id: "ranking-\(row.id)-winpct", value: row.winPctDisplay)
-                            if showPlusMinus {
-                                stackedStat("Total games", id: "ranking-\(row.id)-games", value: "\(row.wins + row.losses)")
-                            }
+                            stackedStat("Games", id: "ranking-\(row.id)-games", value: "\(row.wins + row.losses)")
                         }
                     }
                     .font(.subheadline).monospacedDigit()
