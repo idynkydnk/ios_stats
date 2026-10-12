@@ -54,6 +54,8 @@ struct SiteAIItemEditView: View {
     var shareId: String
     var onChanged: () -> Void
     @State private var item: AIItemEditPayload?
+    @State private var savedItem: AIItemEditPayload?
+    @State private var confirmingDiscard = false
     @State private var busy = false
     @State private var progress = "Saving changes…"
     @State private var error: String?
@@ -78,21 +80,18 @@ struct SiteAIItemEditView: View {
                         Text("Saving updates the event details. Remake the picture to put changed details into the flyer image.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
-                    Button("Save changes") { Task { await save() } }
                 }
                 if kind == "recap" {
                     SiteListSection("Remake summary") {
                         field("Style instructions", \.customPrompt, multiline: true)
                         Text("Leave blank to use the standard recap style. Remaking replaces the current summary.")
                             .font(.caption).foregroundStyle(.secondary)
-                        Button("Remake summary") { remakeSummary = true }
                     }
                 }
                 SiteListSection("Remake picture") {
                     field("Picture instructions", \.scenePrompt, multiline: true)
                     Text("Edit the saved instructions, or clear them to build a new prompt from the saved games or event details. Remaking replaces the current picture.")
                         .font(.caption).foregroundStyle(.secondary)
-                    Button("Remake picture") { remakeSummary = false }
                 }
             } else if !busy {
                 if error == nil { ProgressView("Loading…") }
@@ -106,9 +105,40 @@ struct SiteAIItemEditView: View {
         .navigationTitle("Edit \(kind)")
         .navigationBarTitleDisplayMode(.inline)
         .scrollDismissesKeyboard(.interactively)
-        .interactiveDismissDisabled(busy)
-        .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() }.disabled(busy) } }
-        .task { await load() }
+        .interactiveDismissDisabled(busy || hasUnsavedChanges)
+        .safeAreaInset(edge: .top) {
+            if item != nil {
+                ViewThatFits(in: .horizontal) {
+                    HStack { remakeButtons }
+                    VStack(alignment: .leading) { remakeButtons }
+                }
+                .buttonStyle(.bordered)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+                .background(appearance.background)
+                .disabled(busy)
+            }
+        }
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cancel") {
+                    if hasUnsavedChanges { confirmingDiscard = true }
+                    else { dismiss() }
+                }.disabled(busy)
+            }
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Save") { Task { await save(closeAfterSaving: true) } }
+                    .disabled(busy || item == nil)
+            }
+        }
+        .task { if item == nil { await load() } }
+        .confirmationDialog("Discard unsaved changes?", isPresented: $confirmingDiscard, titleVisibility: .visible) {
+            Button("Discard changes", role: .destructive) { dismiss() }
+            Button("Keep editing", role: .cancel) { }
+        } message: {
+            Text("Your latest text and instructions have not been saved.")
+        }
         .confirmationDialog("Remake \(remakeSummary == true ? "summary" : "picture")?", isPresented: Binding(
             get: { remakeSummary != nil }, set: { if !$0 { remakeSummary = nil } }
         ), titleVisibility: .visible) {
@@ -116,6 +146,15 @@ struct SiteAIItemEditView: View {
             Button("Save changes and remake") { Task { await save(remake: summary) } }
         } message: {
             Text("Your text and details will be saved first. The current \(remakeSummary == true ? "summary" : "picture") will then be replaced. This may take a few minutes.")
+        }
+    }
+
+    private var hasUnsavedChanges: Bool { item != savedItem }
+
+    @ViewBuilder private var remakeButtons: some View {
+        Button("Remake picture") { remakeSummary = false }
+        if kind == "recap" {
+            Button("Remake summary") { remakeSummary = true }
         }
     }
 
@@ -132,31 +171,41 @@ struct SiteAIItemEditView: View {
     @MainActor private func load() async {
         do {
             item = try await PythonAnywhereClient.shared.aiItemDetails(kind: kind, shareId: shareId)
+            savedItem = item
             error = nil
         } catch { self.error = error.localizedDescription }
     }
 
-    @MainActor private func save(remake: Bool? = nil) async {
+    @MainActor private func save(remake: Bool? = nil, closeAfterSaving: Bool = false) async {
         guard !busy, let item else { return }
         busy = true
         progress = "Saving changes…"
         error = nil
         message = nil
         defer { busy = false }
-        let fields = kind == "recap" ? ["title": item.title, "summary": item.summary] : [
+        let fields = kind == "recap" ? ["title": item.title, "summary": item.summary,
+            "custom_prompt": item.customPrompt, "scene_prompt": item.scenePrompt] : [
             "title": item.title, "event_date": item.eventDate, "event_time": item.eventTime,
-            "location": item.location, "image_details": item.imageDetails
+            "location": item.location, "image_details": item.imageDetails, "scene_prompt": item.scenePrompt
         ]
         do {
             try await PythonAnywhereClient.shared.saveAIItem(kind: kind, shareId: shareId, fields: fields)
+            savedItem = item
             onChanged()
             if let remake {
                 progress = remake ? "Remaking summary…" : "Remaking picture…"
                 message = try await PythonAnywhereClient.shared.remakeAIItem(kind: kind, shareId: shareId, summary: remake,
                     prompt: remake ? item.customPrompt : item.scenePrompt)
                 onChanged()
+                // The generated content may have changed. Never offer stale text for saving
+                // if fetching the replacement fails; the saved instructions remain on the server.
+                self.item = nil
+                savedItem = nil
                 await load()
-            } else { message = "Changes saved." }
+            } else {
+                message = "Changes saved."
+                if closeAfterSaving { dismiss() }
+            }
         } catch { self.error = error.localizedDescription }
     }
 }

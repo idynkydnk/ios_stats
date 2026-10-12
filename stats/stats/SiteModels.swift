@@ -917,7 +917,7 @@ struct FlyerItem: Codable, Identifiable {
     var id: String { shareId ?? [createdAt, title].compactMap { $0 }.joined(separator: "|") }
 }
 
-struct AIItemEditPayload: Codable {
+struct AIItemEditPayload: Codable, Equatable {
     var title: String
     var summary: String
     var customPrompt: String
