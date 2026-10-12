@@ -48,7 +48,7 @@ struct SiteAddDoublesView: View {
 
                     SiteAddScoreRow(label: "Winners' score", value: $winnerScore, field: .wScore, focus: $focused, submit: .next, onSubmit: { advance(to: .lScore) }, onFocus: {})
                     if focused == .wScore {
-                        SiteAddScoreChips(scores: winnerChips, selected: winnerScore) { s in
+                        SiteAddScoreChips(scores: siteWinnerScores(value: winnerScore, defaults: winnerChips), selected: winnerScore) { s in
                             winnerScore = s
                             if gameToEdit == nil { advance(to: .lScore) }
                         }
@@ -342,7 +342,7 @@ struct SiteAddVollisView: View {
 
                     SiteAddScoreRow(label: "Winner's score", value: $winnerScore, field: .wScore, focus: $focused, onSubmit: { focused = .lScore })
                     if focused == .wScore {
-                        SiteAddScoreChips(scores: winnerChips, selected: winnerScore) { s in
+                        SiteAddScoreChips(scores: siteWinnerScores(value: winnerScore, defaults: winnerChips), selected: winnerScore) { s in
                             winnerScore = s
                             if gameToEdit == nil { focused = .lScore }
                         }
@@ -598,7 +598,7 @@ struct SiteAddOtherView: View {
                     if scoreType == "team" {
                         SiteAddScoreRow(label: "Winner score", value: $teamWinnerScore, field: .teamW, focus: $focused, onSubmit: { focused = .teamL })
                         if focused == .teamW {
-                            SiteAddScoreChips(scores: winnerChips, selected: teamWinnerScore) { s in
+                            SiteAddScoreChips(scores: siteWinnerScores(value: teamWinnerScore, defaults: winnerChips), selected: teamWinnerScore) { s in
                                 teamWinnerScore = s
                                 focused = .teamL
                             }
@@ -731,7 +731,10 @@ struct SiteAddOtherView: View {
                 advanceAfterIndivScore(side: side, index: index)
             })
             if focused == scoreField {
-                SiteAddScoreChips(scores: indivChips, selected: scoreBind.wrappedValue) { s in
+                let scores = side == .winner
+                    ? siteWinnerScores(value: scoreBind.wrappedValue, defaults: indivChips)
+                    : indivChips
+                SiteAddScoreChips(scores: scores, selected: scoreBind.wrappedValue) { s in
                     scoreBind.wrappedValue = s
                     advanceAfterIndivScore(side: side, index: index)
                 }

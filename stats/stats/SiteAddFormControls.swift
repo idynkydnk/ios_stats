@@ -88,6 +88,14 @@ func siteFilterPlayers(_ all: [String], query: String, excluding: [String], limi
     return Array((starts + contains).prefix(limit))
 }
 
+func siteWinnerScores(value: Int?, defaults: [Int]) -> [Int] {
+    guard let value else { return defaults }
+    let prefix = String(value)
+    return Set(0...99).union(defaults)
+        .filter { String($0).hasPrefix(prefix) }
+        .sorted()
+}
+
 func siteLoserScores(winner: Int?) -> [Int] {
     let w = winner ?? 21
     let start = max(0, w - 2)

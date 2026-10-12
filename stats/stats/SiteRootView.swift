@@ -612,25 +612,105 @@ struct RankingTable: View {
     }
 
     private var metricColumns: [GridItem] {
-        if textSize <= .large {
-            // Use the full row beneath the name, even on a 320-point screen.
-            // Rating needs room for 100.00; W/L can share the remaining width.
-            var columns: [GridItem] = []
-            if showRating { columns.append(GridItem(.fixed(62), spacing: 4, alignment: .leading)) }
-            columns += [GridItem(.flexible(minimum: 0), spacing: 4, alignment: .leading),
-                        GridItem(.flexible(minimum: 0), spacing: 4, alignment: .leading),
-                        GridItem(.fixed(48), spacing: 4, alignment: .leading)]
-            if showPlusMinus { columns.append(GridItem(.fixed(50), spacing: 4, alignment: .leading)) }
-            return columns
-        }
         return [GridItem(.adaptive(minimum: ratingWidth), alignment: .leading)]
     }
 
     var body: some View {
         SiteExpandableSection(title: title ?? "Standings", count: displayedRows.count, subtitle: subtitle) {
-            stackedStandings.background(appearance.panel)
+            if textSize <= .large {
+                tableStandings
+            } else {
+                stackedStandings.background(appearance.panel)
+            }
         }
         .padding(.horizontal, 12).padding(.bottom, 16)
+    }
+
+    // Shared column widths keep the headings and every player's values aligned.
+    // Like the site, narrow screens can scroll across the complete table.
+    private var tableStandings: some View {
+        ScrollView(.horizontal) {
+            VStack(spacing: 0) {
+                HStack(spacing: 8) {
+                    tableCell("#", width: 28)
+                    tableCell("Player", width: 144, alignment: .leading)
+                    if showRating { tableCell("Rating", width: 64) }
+                    tableCell("W", width: 42)
+                    tableCell("L", width: 42)
+                    tableCell("Win%", width: 50)
+                    if showPlusMinus { tableCell("+/-", width: 56) }
+                }
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .padding(12)
+                .accessibilityAddTraits(.isHeader)
+                Divider()
+                SiteLimitedRows(Array(displayedRows.enumerated()), id: \.element.id) { idx, row in
+                    NavigationLink {
+                        SitePlayerDetailView(name: row.name, year: year, section: section)
+                    } label: {
+                        HStack(spacing: 8) {
+                            tableCell("\(idx + 1)", width: 28)
+                                .foregroundStyle(rankColor(idx))
+                            tableCell(row.name, width: 144, alignment: .leading)
+                                .fontWeight(.semibold)
+                                .accessibilityIdentifier("ranking-\(row.id)-name")
+                            if showRating {
+                                tableCell(row.rating.map { String(format: "%.2f", $0) } ?? "—", width: 64)
+                                    .foregroundStyle(appearance.accent)
+                                    .accessibilityLabel("Rating, " + (row.rating.map { String(format: "%.2f", $0) } ?? "—"))
+                                    .accessibilityIdentifier("ranking-\(row.id)-rating")
+                            }
+                            tableCell("\(row.wins)", width: 42)
+                                .foregroundStyle(.green)
+                                .accessibilityLabel("Wins, \(row.wins)")
+                                .accessibilityIdentifier("ranking-\(row.id)-wins")
+                            tableCell("\(row.losses)", width: 42)
+                                .foregroundStyle(.red)
+                                .accessibilityLabel("Losses, \(row.losses)")
+                                .accessibilityIdentifier("ranking-\(row.id)-losses")
+                            tableCell(row.winPctDisplay, width: 50)
+                                .accessibilityLabel("Win percentage, " + row.winPctDisplay)
+                                .accessibilityIdentifier("ranking-\(row.id)-winpct")
+                            if showPlusMinus {
+                                let pm = row.plusMinus ?? 0
+                                tableCell(pm > 0 ? "+\(pm)" : "\(pm)", width: 56)
+                                    .foregroundStyle(pm > 0 ? Color.green : pm < 0 ? Color.red : Color.secondary)
+                                    .accessibilityLabel("Point differential, \(pm)")
+                                    .accessibilityIdentifier("ranking-\(row.id)-plusminus")
+                            }
+                        }
+                        .font(.subheadline).monospacedDigit()
+                        .foregroundStyle(.primary)
+                        .padding(12)
+                        .background(Color.primary.opacity(idx.isMultiple(of: 2) ? 0 : 0.025))
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    Divider()
+                }
+                if displayedRows.isEmpty {
+                    Text("No players to show").font(.subheadline).foregroundStyle(.secondary).padding(24)
+                }
+            }
+        }
+        .accessibilityIdentifier("ranking-table-scroll")
+        .background(appearance.panel)
+    }
+
+    private func tableCell(_ value: String, width: CGFloat, alignment: Alignment = .center) -> some View {
+        Text(value)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(width: width, alignment: alignment)
+    }
+
+    private func rankColor(_ index: Int) -> Color {
+        switch index {
+        case 0: return Color(red: 0.83, green: 0.69, blue: 0.22)
+        case 1: return Color(red: 0.75, green: 0.75, blue: 0.75)
+        case 2: return Color(red: 0.8, green: 0.5, blue: 0.2)
+        default: return .secondary
+        }
     }
 
     // Names sit above their stats. Larger text adds rows as needed, keeping
@@ -1062,13 +1142,15 @@ struct SiteGamesView: View {
                                     }
                                 }
                             }
+                            if let nextOffset, !loading, error == nil {
+                                Color.clear.frame(height: 1)
+                                    .listRowInsets(EdgeInsets())
+                                    .listRowSeparator(.hidden)
+                                    .accessibilityHidden(true)
+                                    .id(nextOffset)
+                                    .onAppear { Task { await load(older: true) } }
+                            }
                         }
-                    }
-                }
-                .safeAreaInset(edge: .bottom) {
-                    if nextOffset != nil {
-                        Button("Load older games") { Task { await load(older: true) } }
-                            .buttonStyle(.borderedProminent).disabled(loading).padding(8)
                     }
                 }
                 .id("\(section.rawValue)-\(selectedYear)-\(search)")

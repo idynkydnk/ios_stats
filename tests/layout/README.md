@@ -17,11 +17,13 @@ Coverage:
 - Long player names, ratings through 100.00, wins, losses, 100% win rates,
   and both positive and negative point differentials.
 - Separate four-digit record cases, since these can choose a different layout.
-- At normal text size, all five values must share one row below the player name,
-  without overlap or a value wrapping onto a second line.
+- At normal text size, the player name and all five values share one table row
+  under shared headings. Horizontal scrolling reaches columns on narrow screens,
+  without overlapping values or numbers wrapping onto a second line.
 - Each of the five metrics must exist, retain its complete accessible value,
-  fit horizontally inside the viewport, and be reachable using vertical scrolling
-  alone. Screenshots also allow review of visible wrapping and truncation.
+  fit inside the viewport when scrolled into view. Larger text uses the stacked
+  layout and vertical scrolling alone. Screenshots allow review of wrapping
+  and truncation.
 
 The generated Xcode project is temporary. Results and screenshots are retained
 as workflow artifacts for seven days. This checks the native component with
@@ -39,3 +41,7 @@ Verified October 10, 2026: [compact-row cloud run](https://github.com/idynkydnk/
 passed all 18 scenarios and 180 metric checks. Normal text keeps all five
 values on one row beneath each name at all three widths, including ratings of
 100.00 and four-digit records. Larger text retains the adaptive wrapping layout.
+
+October 11, 2026: Updated the checks for website-style table rows at normal
+text size and the existing stacked layout at larger text sizes. This revision
+has not yet been run on an iOS simulator.

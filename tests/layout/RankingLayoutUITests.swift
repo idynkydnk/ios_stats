@@ -22,19 +22,27 @@ final class RankingLayoutUITests: XCTestCase {
                     ("Alexandra Montgomery", ["81.35", "12", "3", "80%", "+137"]),
                     ("Christopher Longlastname", largeRecords ? ["100.00", "1234", "1000", "100%", "-1234"] : ["100.00", "4", "7", "100%", "-13"])
                 ] {
-                    let nameBottom: CGFloat? = size == "large" ? app.staticTexts.matching(identifier: "ranking-\(name)-name").firstMatch.frame.maxY : nil
+                    let table = app.scrollViews["ranking-table-scroll"]
+                    if size == "large" {
+                        XCTAssertTrue(table.exists, "Normal text should use the website-style table")
+                        for _ in 0..<3 { table.swipeRight() }
+                    }
+                    let nameY: CGFloat? = size == "large" ? app.staticTexts.matching(identifier: "ranking-\(name)-name").firstMatch.frame.midY : nil
                     var rowY: CGFloat?
-                    var previousRight: CGFloat?
                     for (metric, value) in zip(["rating", "wins", "losses", "winpct", "plusminus"], values) {
                         let element = app.descendants(matching: .any).matching(identifier: "ranking-\(name)-\(metric)").firstMatch
                         var attempts = 0
-                        while !element.isHittable && attempts < 12 {
-                            viewport.swipeUp(velocity: .slow)
+                        while (!element.isHittable || element.frame.maxX > viewportFrame.maxX + 1) && attempts < 12 {
+                            if size == "large" {
+                                table.swipeLeft(velocity: .slow)
+                            } else {
+                                viewport.swipeUp(velocity: .slow)
+                            }
                             attempts += 1
                         }
                         if !element.exists { print(app.debugDescription) }
                         XCTAssertTrue(element.exists, "Missing \(name) \(metric), \(width)/\(size)")
-                        XCTAssertTrue(element.isHittable, "Cannot reach \(metric) by vertical scrolling, \(width)/\(size)")
+                        XCTAssertTrue(element.isHittable, "Cannot reach \(metric) by scrolling, \(width)/\(size)")
                         let frame = element.frame
                         XCTAssertGreaterThanOrEqual(frame.minX, viewportFrame.minX - 1, "Left clipping \(metric)")
                         XCTAssertLessThanOrEqual(frame.maxX, viewportFrame.maxX + 1, "Right clipping \(metric)")
@@ -42,10 +50,8 @@ final class RankingLayoutUITests: XCTestCase {
                         if size == "large" {
                             if let y = rowY { XCTAssertEqual(frame.midY, y, accuracy: 1, "Normal-text metrics must share one row") }
                             rowY = frame.midY
-                            if let right = previousRight { XCTAssertGreaterThanOrEqual(frame.minX, right, "Metrics overlap") }
-                            previousRight = frame.maxX
                             XCTAssertLessThan(frame.height, 24, "Normal-text value wrapped onto multiple lines")
-                            XCTAssertLessThan(try XCTUnwrap(nameBottom), frame.minY, "Stats must sit below the name")
+                            XCTAssertEqual(try XCTUnwrap(nameY), frame.midY, accuracy: 1, "Player and stats must share a table row")
                         }
                         if metric == "plusminus" {
                         let attachment = XCTAttachment(screenshot: app.screenshot())
