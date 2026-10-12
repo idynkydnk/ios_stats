@@ -2,12 +2,20 @@ import XCTest
 
 final class RankingLayoutUITests: XCTestCase {
     @MainActor
-    func testAllMetricsAtPhoneWidthsAndTextSizes() throws {
+    func testDefaultAndAccessibleMetrics() throws {
+        let sizes = ["large", "xxxLarge", "accessibility1", "accessibility3", "accessibility5"]
+        try checkScenarios([320, 375, 390].flatMap { width in sizes.map { (width, $0, false) } })
+    }
+
+    @MainActor
+    func testLargeRecordMetrics() throws {
+        try checkScenarios([320, 375, 390].map { ($0, "large", true) })
+    }
+
+    @MainActor
+    private func checkScenarios(_ scenarios: [(Int, String, Bool)]) throws {
         continueAfterFailure = false
         let app = XCUIApplication()
-        let sizes = ["large", "xxxLarge", "accessibility1", "accessibility3", "accessibility5"]
-        let scenarios = [320, 375, 390].flatMap { width in sizes.map { (width, $0, false) } }
-            + [320, 375, 390].map { ($0, "large", true) }
         for (width, size, largeRecords) in scenarios {
                 app.launchEnvironment = ["QA_WIDTH": "\(width)", "QA_TEXT_SIZE": size, "QA_RECORDS": largeRecords ? "large" : "daily"]
                 app.launch()
@@ -46,7 +54,8 @@ final class RankingLayoutUITests: XCTestCase {
                         let frame = element.frame
                         XCTAssertGreaterThanOrEqual(frame.minX, viewportFrame.minX - 1, "Left clipping \(metric)")
                         XCTAssertLessThanOrEqual(frame.maxX, viewportFrame.maxX + 1, "Right clipping \(metric)")
-                        XCTAssertTrue(element.label.contains(value), "Incomplete value: \(element.label), expected \(value)")
+                        let spokenValue = element.label.replacingOccurrences(of: ",", with: "")
+                        XCTAssertTrue(spokenValue.contains(value), "Incomplete value: \(element.label), expected \(value)")
                         if size == "large" {
                             if let y = rowY { XCTAssertEqual(frame.midY, y, accuracy: 1, "Normal-text metrics must share one row") }
                             rowY = frame.midY

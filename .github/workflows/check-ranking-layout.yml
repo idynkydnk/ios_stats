@@ -3,6 +3,11 @@ on:
   push:
     branches: [codex/iphone-layout-check]
   workflow_dispatch:
+    inputs:
+      large_records_only:
+        description: 'Run only the three large-record scenarios'
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
@@ -42,9 +47,15 @@ jobs:
           print('Cloud simulator:', device['name'])
           PY
       - name: Test actual standings at small widths and larger text sizes
+        env:
+          QA_LARGE_RECORDS_ONLY: ${{ inputs.large_records_only }}
         run: |
           set -o pipefail
-          xcodebuild test -project tests/layout/RankingLayoutCheck.xcodeproj -scheme RankingLayoutCheck -destination "platform=iOS Simulator,id=$QA_DEVICE_ID" -resultBundlePath output/RankingLayout.xcresult CODE_SIGNING_ALLOWED=NO | tee /tmp/layout-build.log
+          QA_TEST_FILTER=()
+          if [[ "$QA_LARGE_RECORDS_ONLY" == "true" ]]; then
+            QA_TEST_FILTER=(-only-testing:RankingLayoutUITests/RankingLayoutUITests/testLargeRecordMetrics)
+          fi
+          xcodebuild test -project tests/layout/RankingLayoutCheck.xcodeproj -scheme RankingLayoutCheck -destination "platform=iOS Simulator,id=$QA_DEVICE_ID" -resultBundlePath output/RankingLayout.xcresult "${QA_TEST_FILTER[@]}" CODE_SIGNING_ALLOWED=NO | tee /tmp/layout-build.log
       - name: Export screenshots
         if: always()
         run: |
