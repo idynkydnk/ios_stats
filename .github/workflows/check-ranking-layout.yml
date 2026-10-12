@@ -11,6 +11,23 @@ jobs:
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
+      - name: Select current Xcode
+        run: |
+          QA_XCODE=$(python3 - <<'PY'
+          import plistlib
+          from pathlib import Path
+          def version(app):
+              with (app / 'Contents/Info.plist').open('rb') as source:
+                  return tuple(int(part) for part in plistlib.load(source)['CFBundleShortVersionString'].split('.'))
+          apps = list(Path('/Applications').glob('Xcode*.app'))
+          selected = max(apps, key=version)
+          if version(selected) < (26,):
+              raise SystemExit('The app requires Xcode 26 or newer for default MainActor isolation.')
+          print(selected)
+          PY
+          )
+          sudo xcode-select --switch "$QA_XCODE/Contents/Developer"
+          xcodebuild -version
       - name: Prepare cloud simulator tests
         run: |
           brew install xcodegen
