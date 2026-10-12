@@ -122,6 +122,22 @@ final class PythonAnywhereClient {
         try await get("/api/doubles/stats", query: ["year": year])
     }
 
+    func firstGamesPage(_ selection: SiteGamesSelection) async throws -> SiteGamesSnapshot {
+        let year = selection.year == "All" ? "All years" : selection.year
+        switch selection.section {
+        case .doubles:
+            let page = try await doublesGames(year: year, offset: 0, search: selection.search)
+            return SiteGamesSnapshot(doubles: page.games, nextOffset: page.nextOffset, total: page.total)
+        case .vollis:
+            let page = try await vollisGames(year: year, offset: 0, search: selection.search)
+            return SiteGamesSnapshot(vollis: page.games, nextOffset: page.nextOffset, total: page.total)
+        case .other:
+            let page = try await otherGames(year: year, gameName: selection.otherGame.isEmpty ? nil : selection.otherGame,
+                                           offset: 0, search: selection.search)
+            return SiteGamesSnapshot(other: page.games, nextOffset: page.nextOffset, total: page.total)
+        }
+    }
+
     func doublesGames(year: String? = nil, since: String? = nil, offset: Int? = nil, search: String = "") async throws -> GamesListPayload<DoublesGame> {
         var q: [String: String] = [:]
         if let year { q["year"] = year }

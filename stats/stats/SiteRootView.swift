@@ -86,6 +86,13 @@ struct SiteRootView: View {
     }
     @State private var yearLists: YearsPayload?
     @State private var readyScope: String?
+    @State private var gamesPreloadReadyKey: String?
+    @State private var gamesPreloadRevision = UUID()
+    @AppStorage("stats.doublesDivision") private var gamesPreloadDivision = "open"
+    private var gamesPreloadSelection: SiteGamesSelection {
+        SiteGamesSelection(scope: auth.browseCacheScope, section: section, year: selectedYear.wrappedValue,
+                           division: gamesPreloadDivision, otherGame: selectedOtherGame)
+    }
     @State private var navigationRevision = UUID()
     private var startupScope: String { "\(auth.browseCacheScope)-\(auth.statsViewRevision)" }
     private var years: [String] {
@@ -139,6 +146,10 @@ struct SiteRootView: View {
         .environment(\.browseLoadFinished) { scope in
             guard scope == startupScope else { return }
             readyScope = scope
+            if selectedTab == 0 {
+                gamesPreloadReadyKey = gamesPreloadSelection.cacheKey
+                gamesPreloadRevision = UUID()
+            }
         }
         .environment(\.backgroundStatus) { notice in
             reportBackgroundStatus(notice)
@@ -191,11 +202,22 @@ struct SiteRootView: View {
             }
         }
         // statsApp already verifies the session. Let the visible screen finish
-        // its first load before doing metadata or speculative form preloading.
-        .task(id: "\(startupScope)-\(readyScope == startupScope)-\(selectedTab)-\(section.rawValue)-\(navigationRevision)", priority: .utility) {
+        // its first load before metadata, the first Games page, and form defaults.
+        .task(id: "\(startupScope)-\(readyScope == startupScope)-\(selectedTab)-\(gamesPreloadSelection.cacheKey)-\(gamesPreloadRevision)-\(navigationRevision)", priority: .utility) {
             guard auth.sessionReady, readyScope == startupScope, selectedTab < 2 else { return }
             do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
+            if selectedTab == 0, gamesPreloadReadyKey != gamesPreloadSelection.cacheKey { return }
             await loadYears()
+            guard !Task.isCancelled else { return }
+            if selectedTab == 0 {
+                let selection = gamesPreloadSelection
+                guard gamesPreloadReadyKey == selection.cacheKey else { return }
+                if network.isConnected {
+                    await SiteGamesPreload.run(selection: selection, isCurrent: {
+                        selectedTab == 0 && gamesPreloadSelection == selection && auth.sessionReady
+                    }, fetch: { try await PythonAnywhereClient.shared.firstGamesPage($0) })
+                }
+            }
             guard !Task.isCancelled, auth.isLoggedIn, selectedTab == 0 else { return }
             if section == .doubles { _ = try? await PythonAnywhereClient.shared.doublesPlayers() }
             else { _ = try? await PythonAnywhereClient.shared.otherGameTypes() }
@@ -1052,20 +1074,13 @@ struct SiteGamesView: View {
     @State private var openedPlayer: SitePlayerRoute?
     @State private var loadID = UUID()
     @State private var displayedCacheKey: String?
-    private struct Snapshot: Codable {
-        var doubles: [DoublesGame]
-        var vollis: [VollisGame]
-        var other: [OtherGame]
-        var nextOffset: Int? = nil
-        var total: Int? = nil
-    }
+    private typealias Snapshot = SiteGamesSnapshot
     @ObservedObject private var network = NetworkMonitor.shared
     @ObservedObject private var queue = SiteOfflineQueue.shared
 
     private var gamesCacheKey: String {
-        let fields = [auth.browseCacheScope, section.rawValue, "games-v2", selectedYear,
-                      division, selectedOtherGame, search]
-        return (try? JSONEncoder().encode(fields).base64EncodedString()) ?? ""
+        SiteGamesSelection(scope: auth.browseCacheScope, section: section, year: selectedYear,
+                           division: division, otherGame: selectedOtherGame, search: search).cacheKey
     }
 
     var body: some View {
