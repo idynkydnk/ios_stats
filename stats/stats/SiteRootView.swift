@@ -676,7 +676,7 @@ struct RankingTable: View {
                                 let pm = row.plusMinus ?? 0
                                 tableCell(pm > 0 ? "+\(pm)" : "\(pm)", width: 56)
                                     .foregroundStyle(pm > 0 ? Color.green : pm < 0 ? Color.red : Color.secondary)
-                                    .accessibilityLabel("Point differential, \(pm)")
+                                    .accessibilityLabel("Point differential, " + (pm > 0 ? "+\(pm)" : "\(pm)"))
                                     .accessibilityIdentifier("ranking-\(row.id)-plusminus")
                             }
                         }
