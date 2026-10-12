@@ -22,14 +22,20 @@ final class RankingLayoutUITests: XCTestCase {
                 let button = app.buttons[title]
                 for _ in 0..<4 {
                     if button.isHittable { break }
-                    app.scrollViews.firstMatch.swipeUp()
+                    // The scroll view's accessibility frame extends behind the
+                    // keyboard. Start the gesture in the visible content above it.
+                    let startY = app.keyboards.firstMatch.exists
+                        ? app.keyboards.firstMatch.frame.minY - 25 : app.frame.height * 0.7
+                    let origin = app.coordinate(withNormalizedOffset: .zero)
+                    origin.withOffset(CGVector(dx: app.frame.width - 25, dy: startY))
+                        .press(forDuration: 0.05, thenDragTo: origin.withOffset(CGVector(dx: app.frame.width - 25, dy: 170)))
                 }
                 XCTAssertTrue(button.isEnabled, "Blank prompt should use defaults")
-                XCTAssertTrue(button.isHittable)
                 let picture = XCTAttachment(screenshot: app.screenshot())
                 picture.name = "recap-\(prompt.isEmpty ? "blank" : "custom")-\(mode)"
                 picture.lifetime = .keepAlways
                 add(picture)
+                XCTAssertTrue(button.isHittable, app.debugDescription)
                 button.tap()
                 XCTAssertTrue(app.staticTexts["recap-queued"].waitForExistence(timeout: 15), app.debugDescription)
                 app.terminate()
