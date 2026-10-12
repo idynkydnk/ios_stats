@@ -43,5 +43,18 @@ values on one row beneath each name at all three widths, including ratings of
 100.00 and four-digit records. Larger text retains the adaptive wrapping layout.
 
 October 11, 2026: Updated the checks for website-style table rows at normal
-text size and the existing stacked layout at larger text sizes. This revision
-has not yet been run on an iOS simulator.
+text size and the existing stacked layout at larger text sizes.
+
+Verified October 11, 2026: All 18 scenarios were checked across two cloud runs.
+The [full run](https://github.com/idynkydnk/ios_stats/actions/runs/38189082111)
+completed the 15 ordinary-record width/text-size combinations, then stopped
+because the large-record assertion did not allow VoiceOver's thousands separator
+("1,234" versus "1234"). After correcting only that comparison, the
+[large-record rerun](https://github.com/idynkydnk/ios_stats/actions/runs/38190283500)
+passed the remaining three widths. The production layout was unchanged between
+those runs. Normal-text screenshots show aligned table rows with horizontal
+scrolling; larger text retains the stacked layout and vertical scrolling.
+
+The workflow selects a current Xcode version and matches the production app's
+concurrency settings. Its optional **large_records_only** input runs the three
+large-record scenarios; the default still runs all 18.
