@@ -35,7 +35,16 @@ jobs:
           xcodebuild -version
       - name: Prepare cloud simulator tests
         run: |
-          brew install xcodegen
+          HOMEBREW_NO_AUTO_UPDATE=1 brew install xcodegen
+          python3 - <<'PY'
+          from pathlib import Path
+          # Inject a test-only transport into the copied app build. Production
+          # view code and request serialization remain exactly as pushed.
+          p = Path("stats/stats/PythonAnywhereClient.swift")
+          source = p.read_text()
+          source = source.replace("config.httpShouldSetCookies = false", "config.protocolClasses = [RecapRequestProtocol.self]\n        config.httpShouldSetCookies = false", 1)
+          p.write_text(source)
+          PY
           xcodegen generate --spec tests/layout/project.yml
           xcrun simctl list devices available --json > /tmp/devices.json
           python3 - <<'PY'
