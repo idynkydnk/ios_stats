@@ -27,17 +27,24 @@ final class RankingLayoutUITests: XCTestCase {
                 initial.lifetime = .keepAlways
                 add(initial)
                 for (name, values) in [
-                    ("Alexandra Montgomery", ["81.35", "12", "3", "80%", "+137"]),
-                    ("Christopher Longlastname", largeRecords ? ["100.00", "1234", "1000", "100%", "-1234"] : ["100.00", "4", "7", "100%", "-13"])
+                    ("Alexandra Montgomery", ["81.35", "12", "3", "+137", "80%", "15"]),
+                    ("Christopher Longlastname", largeRecords ? ["100.00", "1234", "1000", "-1234", "100%", "2234"] : ["100.00", "4", "7", "-13", "100%", "11"])
                 ] {
                     let table = app.scrollViews["ranking-table-scroll"]
                     if size == "large" {
                         XCTAssertTrue(table.exists, "Normal text should use the website-style table")
                         for _ in 0..<3 { table.swipeRight() }
+                        // Essential daily stats must be visible before any horizontal scroll.
+                        for metric in ["rating", "wins", "losses", "plusminus"] {
+                            let element = app.staticTexts.matching(identifier: "ranking-\(name)-\(metric)").firstMatch
+                            XCTAssertTrue(element.isHittable, "\(metric) must be visible without scrolling")
+                            XCTAssertGreaterThanOrEqual(element.frame.minX, table.frame.minX - 1)
+                            XCTAssertLessThanOrEqual(element.frame.maxX, table.frame.maxX + 1, "\(metric) requires scrolling at \(width) points")
+                        }
                     }
                     let nameY: CGFloat? = size == "large" ? app.staticTexts.matching(identifier: "ranking-\(name)-name").firstMatch.frame.midY : nil
                     var rowY: CGFloat?
-                    for (metric, value) in zip(["rating", "wins", "losses", "winpct", "plusminus"], values) {
+                    for (metric, value) in zip(["rating", "wins", "losses", "plusminus", "winpct", "games"], values) {
                         let element = app.descendants(matching: .any).matching(identifier: "ranking-\(name)-\(metric)").firstMatch
                         var attempts = 0
                         while (!element.isHittable || element.frame.maxX > viewportFrame.maxX + 1) && attempts < 12 {

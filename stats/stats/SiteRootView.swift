@@ -597,6 +597,7 @@ struct RankingTable: View {
     @Environment(\.siteAppearance) private var appearance
     @Environment(\.dynamicTypeSize) private var textSize
     @ScaledMetric(relativeTo: .subheadline) private var ratingWidth: CGFloat = 62
+    @State private var tableViewportWidth: CGFloat = 296
 
     var title: String?
     var subtitle: String? = nil
@@ -627,62 +628,90 @@ struct RankingTable: View {
     }
 
     // Shared column widths keep the headings and every player's values aligned.
-    // Like the site, narrow screens can scroll across the complete table.
+    // Today's columns through +/- fit before the secondary stats scroll into view.
+    private var columnSpacing: CGFloat { showPlusMinus ? 4 : 8 }
+    private var rowPadding: CGFloat { showPlusMinus ? 6 : 12 }
+    private var rankColumnWidth: CGFloat { showPlusMinus ? 20 : 28 }
+    private var ratingColumnWidth: CGFloat { showPlusMinus ? 52 : 64 }
+    private var winsColumnWidth: CGFloat {
+        showPlusMinus ? recordWidth(rows.map(\.wins)) : 42
+    }
+    private var lossesColumnWidth: CGFloat {
+        showPlusMinus ? recordWidth(rows.map(\.losses)) : 42
+    }
+    private var plusMinusColumnWidth: CGFloat {
+        max(40, CGFloat(rows.map { String($0.plusMinus ?? 0).count + (($0.plusMinus ?? 0) > 0 ? 1 : 0) }.max() ?? 1) * 9 + 2)
+    }
+    private func recordWidth(_ values: [Int]) -> CGFloat {
+        max(24, CGFloat(values.map { String($0).count }.max() ?? 1) * 9 + 2)
+    }
+    private var playerColumnWidth: CGFloat {
+        guard showPlusMinus else { return 144 }
+        let numericWidth = winsColumnWidth + lossesColumnWidth + plusMinusColumnWidth + (showRating ? ratingColumnWidth : 0)
+        let gaps = CGFloat(showRating ? 5 : 4) * columnSpacing
+        return max(0, tableViewportWidth - 2 * rowPadding - gaps - rankColumnWidth - numericWidth)
+    }
     private var tableStandings: some View {
         ScrollView(.horizontal) {
             VStack(spacing: 0) {
-                HStack(spacing: 8) {
-                    tableCell("#", width: 28)
-                    tableCell("Player", width: 144, alignment: .leading)
-                    if showRating { tableCell("Rating", width: 64) }
-                    tableCell("W", width: 42)
-                    tableCell("L", width: 42)
+                HStack(spacing: columnSpacing) {
+                    tableCell("#", width: rankColumnWidth)
+                    tableCell("Player", width: playerColumnWidth, alignment: .leading)
+                    if showRating { tableCell("Rating", width: ratingColumnWidth) }
+                    tableCell("W", width: winsColumnWidth)
+                    tableCell("L", width: lossesColumnWidth)
+                    if showPlusMinus { tableCell("+/-", width: plusMinusColumnWidth) }
                     tableCell("Win%", width: 50)
-                    if showPlusMinus { tableCell("+/-", width: 56) }
+                    if showPlusMinus { tableCell("Total games", width: 76) }
                 }
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
-                .padding(12)
+                .padding(rowPadding)
                 .accessibilityAddTraits(.isHeader)
                 Divider()
                 SiteLimitedRows(Array(displayedRows.enumerated()), id: \.element.id) { idx, row in
                     NavigationLink {
                         SitePlayerDetailView(name: row.name, year: year, section: section)
                     } label: {
-                        HStack(spacing: 8) {
-                            tableCell("\(idx + 1)", width: 28)
+                        HStack(spacing: columnSpacing) {
+                            tableCell("\(idx + 1)", width: rankColumnWidth)
                                 .foregroundStyle(rankColor(idx))
-                            tableCell(row.name, width: 144, alignment: .leading)
+                            tableCell(row.name, width: playerColumnWidth, alignment: .leading)
                                 .fontWeight(.semibold)
                                 .accessibilityIdentifier("ranking-\(row.id)-name")
                             if showRating {
-                                tableCell(row.rating.map { String(format: "%.2f", $0) } ?? "—", width: 64)
+                                tableCell(row.rating.map { String(format: "%.2f", $0) } ?? "—", width: ratingColumnWidth)
                                     .foregroundStyle(appearance.accent)
                                     .accessibilityLabel("Rating, " + (row.rating.map { String(format: "%.2f", $0) } ?? "—"))
                                     .accessibilityIdentifier("ranking-\(row.id)-rating")
                             }
-                            tableCell("\(row.wins)", width: 42)
+                            tableCell("\(row.wins)", width: winsColumnWidth)
                                 .foregroundStyle(.green)
                                 .accessibilityLabel("Wins, \(row.wins)")
                                 .accessibilityIdentifier("ranking-\(row.id)-wins")
-                            tableCell("\(row.losses)", width: 42)
+                            tableCell("\(row.losses)", width: lossesColumnWidth)
                                 .foregroundStyle(.red)
                                 .accessibilityLabel("Losses, \(row.losses)")
                                 .accessibilityIdentifier("ranking-\(row.id)-losses")
-                            tableCell(row.winPctDisplay, width: 50)
-                                .accessibilityLabel("Win percentage, " + row.winPctDisplay)
-                                .accessibilityIdentifier("ranking-\(row.id)-winpct")
                             if showPlusMinus {
                                 let pm = row.plusMinus ?? 0
-                                tableCell(pm > 0 ? "+\(pm)" : "\(pm)", width: 56)
+                                tableCell(pm > 0 ? "+\(pm)" : "\(pm)", width: plusMinusColumnWidth)
                                     .foregroundStyle(pm > 0 ? Color.green : pm < 0 ? Color.red : Color.secondary)
                                     .accessibilityLabel("Point differential, " + (pm > 0 ? "+\(pm)" : "\(pm)"))
                                     .accessibilityIdentifier("ranking-\(row.id)-plusminus")
                             }
+                            tableCell(row.winPctDisplay, width: 50)
+                                .accessibilityLabel("Win percentage, " + row.winPctDisplay)
+                                .accessibilityIdentifier("ranking-\(row.id)-winpct")
+                            if showPlusMinus {
+                                tableCell("\(row.wins + row.losses)", width: 76)
+                                    .accessibilityLabel("Total games, \(row.wins + row.losses)")
+                                    .accessibilityIdentifier("ranking-\(row.id)-games")
+                            }
                         }
-                        .font(.subheadline).monospacedDigit()
+                        .font(showPlusMinus ? .footnote : .subheadline).monospacedDigit()
                         .foregroundStyle(.primary)
-                        .padding(12)
+                        .padding(rowPadding)
                         .background(Color.primary.opacity(idx.isMultiple(of: 2) ? 0 : 0.025))
                         .contentShape(Rectangle())
                     }
@@ -694,6 +723,7 @@ struct RankingTable: View {
                 }
             }
         }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { tableViewportWidth = $0 }
         .accessibilityIdentifier("ranking-table-scroll")
         .background(appearance.panel)
     }
@@ -733,10 +763,13 @@ struct RankingTable: View {
                             }
                             stackedStat("W", id: "ranking-\(row.id)-wins", value: "\(row.wins)")
                             stackedStat("L", id: "ranking-\(row.id)-losses", value: "\(row.losses)")
-                            stackedStat("Win%", id: "ranking-\(row.id)-winpct", value: row.winPctDisplay)
                             if showPlusMinus {
                                 let pm = row.plusMinus ?? 0
                                 stackedStat("+/-", id: "ranking-\(row.id)-plusminus", value: pm > 0 ? "+\(pm)" : "\(pm)")
+                            }
+                            stackedStat("Win%", id: "ranking-\(row.id)-winpct", value: row.winPctDisplay)
+                            if showPlusMinus {
+                                stackedStat("Total games", id: "ranking-\(row.id)-games", value: "\(row.wins + row.losses)")
                             }
                         }
                     }

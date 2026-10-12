@@ -17,10 +17,11 @@ Coverage:
 - Long player names, ratings through 100.00, wins, losses, 100% win rates,
   and both positive and negative point differentials.
 - Separate four-digit record cases, since these can choose a different layout.
-- At normal text size, the player name and all five values share one table row
-  under shared headings. Horizontal scrolling reaches columns on narrow screens,
+- At normal text size, the player name and all six values share one table row
+  under shared headings. Rating, W, L, and +/− are visible immediately.
+  Horizontal scrolling reaches win percentage and total games on narrow screens,
   without overlapping values or numbers wrapping onto a second line.
-- Each of the five metrics must exist, retain its complete accessible value,
+- Each of the six metrics must exist, retain its complete accessible value,
   fit inside the viewport when scrolled into view. Larger text uses the stacked
   layout and vertical scrolling alone. Screenshots allow review of wrapping
   and truncation.
@@ -58,3 +59,9 @@ scrolling; larger text retains the stacked layout and vertical scrolling.
 The workflow selects a current Xcode version and matches the production app's
 concurrency settings. Its optional **large_records_only** input runs the three
 large-record scenarios; the default still runs all 18.
+
+October 11, 2026: Today's stats now put point difference before win percentage,
+and add total games after win percentage. The normal-text checks require rating,
+wins, losses, and point difference inside the initial table viewport at all three
+widths, including four-digit records. Win percentage and total games can require
+horizontal scrolling. These updated UI checks still need a cloud run.
