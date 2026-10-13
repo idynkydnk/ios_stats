@@ -245,7 +245,8 @@ struct SiteAddDoublesView: View {
         if gameToEdit == nil {
             savedGame = SiteSavedGameReceipt(title: "Doubles", status: "Saving…", isSaving: true,
                 winners: "\(names[0]) & \(names[1])", losers: "\(names[2]) & \(names[3])",
-                winnerScore: ws, loserScore: ls, location: cleanLocation, comment: comments)
+                winnerScore: ws, loserScore: ls, location: cleanLocation, comment: comments,
+                onAddAnother: { focused = .w1 })
         }
         if let savedGame { gameSaveStatus(savedGame) }
         do {
@@ -280,7 +281,7 @@ struct SiteAddDoublesView: View {
         savedGame?.status = banner ?? "Game saved"
         savedGame?.isSaving = false
         if let savedGame { gameSaveStatus(savedGame) }
-        clearForm(focusFirst: gameToEdit == nil)
+        clearForm(focusFirst: false)
         bannerIsError = false
         successTick += 1
         if gameToEdit != nil { onDone() }
@@ -452,7 +453,8 @@ struct SiteAddVollisView: View {
         focused = nil
         if gameToEdit == nil {
             savedGame = SiteSavedGameReceipt(title: "Vollis", status: "Saving…", isSaving: true, winners: w, losers: l,
-                winnerScore: ws, loserScore: ls, location: cleanLocation)
+                winnerScore: ws, loserScore: ls, location: cleanLocation,
+                onAddAnother: { focused = .winner })
         }
         if let savedGame { gameSaveStatus(savedGame) }
         do {
@@ -926,7 +928,8 @@ struct SiteAddOtherView: View {
             losers: side(losers, loserIndiv),
             winnerScore: scoreType == "team" ? teamWinnerScore : nil,
             loserScore: scoreType == "team" ? teamLoserScore : nil,
-            location: cleanLocation, comment: savingVollis ? "" : comment)
+            location: cleanLocation, comment: savingVollis ? "" : comment,
+            onAddAnother: { focused = .gameName })
         if let savedGame { gameSaveStatus(savedGame) }
         do {
             if savingVollis {
@@ -993,11 +996,96 @@ struct SiteSavedGameReceipt: Identifiable {
     var loserScore: Int?
     var location: String
     var comment = ""
+    var onAddAnother: () -> Void = {}
 
-    var detail: String {
-        let wScore = winnerScore.map { " (\($0))" } ?? ""
-        let lScore = loserScore.map { " (\($0))" } ?? ""
-        return (["\(winners)\(wScore) beat \(losers)\(lScore)"] +
-                [location, comment].filter { !$0.isEmpty }).joined(separator: " · ")
+    var heading: String {
+        if isSaving { return "Saving game…" }
+        if isError { return "Save not confirmed" }
+        return status == "Saved offline — will sync" ? "Saved offline" : "Game added"
+    }
+}
+
+struct SiteSavedGamePopup: View {
+    @Environment(\.siteAppearance) private var appearance
+    @AccessibilityFocusState private var headingFocused: Bool
+    let game: SiteSavedGameReceipt
+    var onDismiss: () -> Void
+    var onAddAnother: () -> Void
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack {
+                Color.black.opacity(0.6)
+                    .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture { if !game.isSaving { onDismiss() } }
+                    .accessibilityHidden(true)
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        HStack(spacing: 12) {
+                            if game.isSaving { ProgressView() }
+                            Text(game.heading)
+                                .font(.title2.bold())
+                                .accessibilityAddTraits(.isHeader)
+                                .accessibilityFocused($headingFocused)
+                        }
+                        Text(game.title).font(.headline)
+                        side("Winners", names: game.winners, score: game.winnerScore)
+                        side("Losers", names: game.losers, score: game.loserScore)
+                        if !game.location.isEmpty {
+                            Label(game.location, systemImage: "mappin.and.ellipse")
+                                .foregroundStyle(.secondary)
+                        }
+                        if !game.comment.isEmpty {
+                            Text(game.comment).foregroundStyle(.secondary)
+                        }
+                        if !game.isSaving {
+                            Text(game.status)
+                                .foregroundStyle(game.isError ? Color.red : Color.secondary)
+                        }
+                        VStack(spacing: 8) {
+                            if !game.isError {
+                                SiteAddActionButton(title: "Add another game", filled: true,
+                                                    disabled: game.isSaving, action: onAddAnother)
+                            }
+                            SiteAddActionButton(title: game.isError ? "Back to game" : "Done",
+                                                disabled: game.isSaving, action: onDismiss)
+                        }
+                    }
+                    .padding(24)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .scrollBounceBehavior(.basedOnSize)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 420, maxHeight: max(0, geometry.size.height - 48))
+                .background(appearance.panel, in: RoundedRectangle(cornerRadius: 18))
+                .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(.primary.opacity(0.15)))
+                .padding(.horizontal, 24)
+                .accessibilityAddTraits(.isModal)
+                .accessibilityAction(.escape) { if !game.isSaving { onDismiss() } }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .onAppear { headingFocused = true }
+        .onChange(of: game.heading) { _, _ in headingFocused = true }
+    }
+
+    private func side(_ label: String, names: String, score: Int?) -> some View {
+        HStack(alignment: .top, spacing: 16) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(label).font(.subheadline.bold())
+                Text(names).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+            if let score {
+                Text(score, format: .number)
+                    .font(.title3.bold())
+                    .fixedSize()
+            }
+        }
+        .padding(12)
+        .background(appearance.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+        .accessibilityElement(children: .combine)
     }
 }

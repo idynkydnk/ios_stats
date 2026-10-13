@@ -108,6 +108,7 @@ struct SiteRootView: View {
     @State private var vollisEdit: VollisGame?
     @State private var addKind: GameSection = .doubles
     @State private var addNavigationID = UUID()
+    @State private var savedGame: SiteSavedGameReceipt?
     @State private var backgroundStatuses: [SiteBackgroundNotice] = []
     @State private var dismissedStatuses: Set<UUID> = []
     @State private var recapJobID: Int?
@@ -141,6 +142,8 @@ struct SiteRootView: View {
             }
             mainTabs
         }
+        .disabled(savedGame != nil)
+        .accessibilityHidden(savedGame != nil)
         .environment(\.browseStartupScope, startupScope)
         .environment(\.browseReady, readyScope == startupScope)
         .environment(\.browseLoadFinished) { scope in
@@ -155,9 +158,7 @@ struct SiteRootView: View {
             reportBackgroundStatus(notice)
         }
         .environment(\.gameSaveStatus) { game in
-            reportBackgroundStatus(SiteBackgroundNotice(id: game.id,
-                text: "\(game.title) · \(game.status)", detail: game.detail,
-                isBusy: game.isSaving, isError: game.isError))
+            savedGame = game
         }
         .environment(\.aiSummaryQueued) { jobID in
             recapReadyURL = nil
@@ -199,6 +200,18 @@ struct SiteRootView: View {
                         .background(Color.green.opacity(0.92))
                         .foregroundStyle(.black)
                 }
+            }
+        }
+        .overlay {
+            if let game = savedGame {
+                SiteSavedGamePopup(game: game, onDismiss: {
+                    guard !game.isSaving else { return }
+                    savedGame = nil
+                }, onAddAnother: {
+                    guard !game.isSaving, !game.isError else { return }
+                    savedGame = nil
+                    game.onAddAnother()
+                })
             }
         }
         // statsApp already verifies the session. Let the visible screen finish
@@ -249,6 +262,7 @@ struct SiteRootView: View {
             recapToOpen = nil
             backgroundStatuses = []
             dismissedStatuses = []
+            savedGame = nil
         }
         .onChange(of: auth.welcomeMessage) { _, message in
             guard message != nil else { return }
