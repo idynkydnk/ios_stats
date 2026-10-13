@@ -859,7 +859,9 @@ struct SiteAddOtherView: View {
                 resizeSlots(winnerCount: 2, loserCount: 2)
             }
         }
-        if advanceFocus { focused = .gameType }
+        if advanceFocus {
+            focused = gameType.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .gameType : .winner(0)
+        }
         if let ordered = try? await PythonAnywhereClient.shared.otherGamePlayers(gameName: name) {
             guard gameName.trimmingCharacters(in: .whitespaces) == name else { return }
             players = ordered
