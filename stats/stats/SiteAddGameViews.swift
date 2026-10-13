@@ -3,6 +3,8 @@ import SwiftUI
 struct SiteAddDoublesView: View {
     var gameToEdit: DoublesGame?
     var header: AnyView? = nil
+    var showsHistory = true
+    var onSavingChanged: (Bool) -> Void = { _ in }
     var onDone: () -> Void
 
     enum Field: Hashable {
@@ -81,7 +83,7 @@ struct SiteAddDoublesView: View {
                 }
                 .disabled(saving)
 
-                if let today, !today.stats.isEmpty || !today.games.isEmpty {
+                if showsHistory, let today, !today.stats.isEmpty || !today.games.isEmpty {
                     todayBoard(today)
                 }
             }
@@ -89,6 +91,7 @@ struct SiteAddDoublesView: View {
             .padding(.bottom, 40)
         }
         .sensoryFeedback(.success, trigger: successTick)
+        .onChange(of: saving) { _, value in onSavingChanged(value) }
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()
@@ -143,7 +146,12 @@ struct SiteAddDoublesView: View {
                     Text("No doubles played today yet.").foregroundStyle(.secondary).padding()
                 } else {
                     ForEach(dash.games) { game in
-                        DoublesGameRow(game: game, year: String(Calendar.current.component(.year, from: Date())), section: .doubles)
+                        VStack(alignment: .leading, spacing: 0) {
+                            DoublesGameRow(game: game, year: String(Calendar.current.component(.year, from: Date())), section: .doubles)
+                            SiteAddGameEditButton(game: .doubles(game), disabled: saving) {
+                                await refreshToday()
+                            }
+                        }
                     }
                 }
             }
@@ -177,6 +185,7 @@ struct SiteAddDoublesView: View {
     }
 
     private func refreshToday() async {
+        guard showsHistory else { return }
         today = try? await PythonAnywhereClient.shared.todaysDoublesDashboard()
     }
 
@@ -294,6 +303,8 @@ struct SiteAddDoublesView: View {
 struct SiteAddVollisView: View {
     var gameToEdit: VollisGame?
     var header: AnyView? = nil
+    var showsHistory = true
+    var onSavingChanged: (Bool) -> Void = { _ in }
     var onDone: () -> Void
 
     enum Field: Hashable { case winner, loser, wScore, lScore, location }
@@ -371,10 +382,15 @@ struct SiteAddVollisView: View {
                 }
                 .disabled(saving)
 
-                if !todayGames.isEmpty {
+                if showsHistory, !todayGames.isEmpty {
                     SiteExpandableSection(title: "Games", count: todayGames.count, subtitle: "Today") {
                         ForEach(todayGames) { g in
-                            VollisGameRow(game: g)
+                            VStack(alignment: .leading, spacing: 0) {
+                                VollisGameRow(game: g)
+                                SiteAddGameEditButton(game: .vollis(g), disabled: saving) {
+                                    await refreshToday()
+                                }
+                            }
                         }
                     }
                 }
@@ -383,6 +399,7 @@ struct SiteAddVollisView: View {
             .padding(.bottom, 40)
         }
         .sensoryFeedback(.success, trigger: successTick)
+        .onChange(of: saving) { _, value in onSavingChanged(value) }
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()
@@ -416,6 +433,7 @@ struct SiteAddVollisView: View {
 
     private func refreshToday() async {
         players = (try? await PythonAnywhereClient.shared.vollisPlayers()) ?? []
+        guard showsHistory else { return }
         let year = String(Calendar.current.component(.year, from: Date()))
         let all = (try? await PythonAnywhereClient.shared.vollisGames(year: year, preview: false))?.games ?? []
         todayGames = all.filter { siteIsToday($0.date) }
@@ -488,7 +506,11 @@ struct SiteAddVollisView: View {
 }
 
 struct SiteAddOtherView: View {
+    var gameToEdit: OtherGame? = nil
     var header: AnyView? = nil
+    var showsHistory = true
+    var onSavingChanged: (Bool) -> Void = { _ in }
+    var onDone: () -> Void = {}
 
     enum Field: Hashable {
         case gameName, gameType, winner(Int), loser(Int), winnerIndiv(Int), loserIndiv(Int), teamW, teamL, comment, location
@@ -524,7 +546,7 @@ struct SiteAddOtherView: View {
     @ObservedObject private var auth = SiteAuthManager.shared
 
     private var isVollis: Bool {
-        gameName.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare("Vollis") == .orderedSame
+        gameToEdit == nil && gameName.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare("Vollis") == .orderedSame
     }
     @FocusState private var focused: Field?
 
@@ -541,7 +563,7 @@ struct SiteAddOtherView: View {
                     .task {
                         // Apply focus once the field has joined the view hierarchy.
                         await Task.yield()
-                        focused = .gameName
+                        if gameToEdit == nil { focused = .gameName }
                     }
                     if focused == .gameName {
                         SiteAddSuggestionList(names: siteFilterPlayers(knownNames, query: gameName, excluding: [])) { name in
@@ -620,21 +642,26 @@ struct SiteAddOtherView: View {
                     SiteAddTextRow(label: "Location (optional)", text: $location, field: .location, focus: $focused, submit: .done, onSubmit: { focused = nil })
 
                     HStack(spacing: 8) {
-                        SiteAddActionButton(title: saving ? "Saving…" : "Save", filled: true, disabled: saving) { Task { await save() } }
+                        SiteAddActionButton(title: saving ? "Saving…" : (gameToEdit == nil ? "Save" : "Update"), filled: true, disabled: saving) { Task { await save() } }
                         SiteAddActionButton(title: "Clear") { clearForm() }
                     }
 
                 }
                 .disabled(saving)
 
-                if !todayVollisGames.isEmpty {
+                if showsHistory, !todayVollisGames.isEmpty {
                     SiteExpandableSection(title: "Vollis games", count: todayVollisGames.count, subtitle: "Today") {
                         ForEach(todayVollisGames) { game in
-                            VollisGameRow(game: game)
+                            VStack(alignment: .leading, spacing: 0) {
+                                VollisGameRow(game: game)
+                                SiteAddGameEditButton(game: .vollis(game), disabled: saving) {
+                                    await refreshToday()
+                                }
+                            }
                         }
                     }
                 }
-                if !todayGames.isEmpty {
+                if showsHistory, !todayGames.isEmpty {
                     SiteContentCard(title: "Today's Games") {
                     ForEach(todayGames) { g in
                         VStack(alignment: .leading, spacing: 2) {
@@ -643,6 +670,9 @@ struct SiteAddOtherView: View {
                             Text(g.displayLosers.joined(separator: " ")).foregroundStyle(.red).font(.caption)
                         }
                         .padding(.vertical, 4)
+                        SiteAddGameEditButton(game: .other(g), disabled: saving) {
+                            await refreshToday()
+                        }
                     }
                     }
                 }
@@ -651,6 +681,7 @@ struct SiteAddOtherView: View {
             .padding(.bottom, 40)
         }
         .sensoryFeedback(.success, trigger: successTick)
+        .onChange(of: saving) { _, value in onSavingChanged(value) }
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()
@@ -666,7 +697,7 @@ struct SiteAddOtherView: View {
             if isVollis { configureVollis() }
         }
         .task(id: auth.statsViewRevision) {
-            let name = gameName.trimmingCharacters(in: .whitespaces)
+            let name = (gameToEdit?.gameName ?? gameName).trimmingCharacters(in: .whitespaces)
             players = []
             guard !name.isEmpty else { return }
             let ordered = isVollis
@@ -683,9 +714,39 @@ struct SiteAddOtherView: View {
             await loadGameNames()
         }
         .task {
-            let year = String(Calendar.current.component(.year, from: Date()))
-            let all = (try? await PythonAnywhereClient.shared.otherGames(year: year, preview: false))?.games ?? []
-            todayGames = all.filter { siteIsToday(DoublesGame.parseDate($0.gameDateOnly ?? $0.gameDate) ?? .distantPast) }
+            applyEdit()
+            await refreshToday()
+        }
+    }
+
+    private func applyEdit() {
+        guard let game = gameToEdit else { return }
+        gameName = game.gameName ?? ""
+        gameType = game.gameType ?? ""
+        winners = game.displayWinners.isEmpty ? [""] : game.displayWinners
+        losers = game.displayLosers.isEmpty ? [""] : game.displayLosers
+        winnerIndiv = winners.indices.map { index in
+            game.winners?.indices.contains(index) == true ? game.winners?[index].score : nil
+        }
+        loserIndiv = losers.indices.map { index in
+            game.losers?.indices.contains(index) == true ? game.losers?[index].score : nil
+        }
+        scoreType = game.editingScoreType
+        teamWinnerScore = game.winnerScore
+        teamLoserScore = game.loserScore
+        comment = game.comment ?? ""
+        location = game.location ?? ""
+    }
+
+    private func refreshToday() async {
+        guard showsHistory else { return }
+        let year = String(Calendar.current.component(.year, from: Date()))
+        if let all = try? await PythonAnywhereClient.shared.otherGames(year: year, preview: false) {
+            todayGames = all.games.filter { siteIsToday(DoublesGame.parseDate($0.gameDateOnly ?? $0.gameDate) ?? .distantPast) }
+        }
+        if isVollis || !todayVollisGames.isEmpty,
+           let all = try? await PythonAnywhereClient.shared.vollisGames(year: year, preview: false) {
+            todayVollisGames = all.games.filter { siteIsToday($0.date) }
         }
     }
 
@@ -823,6 +884,7 @@ struct SiteAddOtherView: View {
     }
 
     private func applyGameName(advanceFocus: Bool = true) async {
+        guard gameToEdit == nil else { return }
         let name = gameName.trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty else { return }
         if isVollis {
@@ -900,7 +962,6 @@ struct SiteAddOtherView: View {
         error = nil
         let cleanLocation = location.trimmingCharacters(in: .whitespacesAndNewlines)
         var fields: [String: Any] = [
-            "game_date": siteNowString(),
             "game_type": gameType, "game_name": gameName.trimmingCharacters(in: .whitespaces),
             "winners": w, "losers": l,
             "score_type": scoreType,
@@ -908,12 +969,15 @@ struct SiteAddOtherView: View {
             "entered_timezone": TimeZone.current.identifier,
             "location": cleanLocation,
         ]
+        if gameToEdit == nil { fields["game_date"] = siteNowString() }
         if scoreType == "team" {
             if let ws = teamWinnerScore { fields["winner_score"] = ws }
             if let ls = teamLoserScore { fields["loser_score"] = ls }
         } else if scoreType == "individual" {
-            fields["winner_scores"] = winners.indices.map { winnerIndiv.indices.contains($0) ? (winnerIndiv[$0].map { "\($0)" } ?? "") : "" }
-            fields["loser_scores"] = losers.indices.map { loserIndiv.indices.contains($0) ? (loserIndiv[$0].map { "\($0)" } ?? "") : "" }
+            fields["winner_scores"] = winners.indices.filter { !winners[$0].trimmingCharacters(in: .whitespaces).isEmpty }
+                .map { winnerIndiv[$0].map { "\($0)" } ?? "" }
+            fields["loser_scores"] = losers.indices.filter { !losers[$0].trimmingCharacters(in: .whitespaces).isEmpty }
+                .map { loserIndiv[$0].map { "\($0)" } ?? "" }
         }
         focused = nil
         func side(_ names: [String], _ scores: [Int?]) -> String {
@@ -924,15 +988,19 @@ struct SiteAddOtherView: View {
                 return name
             }.joined(separator: ", ")
         }
-        savedGame = SiteSavedGameReceipt(title: gameName, status: "Saving…", isSaving: true, winners: side(winners, winnerIndiv),
-            losers: side(losers, loserIndiv),
-            winnerScore: scoreType == "team" ? teamWinnerScore : nil,
-            loserScore: scoreType == "team" ? teamLoserScore : nil,
-            location: cleanLocation, comment: savingVollis ? "" : comment,
-            onAddAnother: { focused = .gameName })
-        if let savedGame { gameSaveStatus(savedGame) }
+        if gameToEdit == nil {
+            savedGame = SiteSavedGameReceipt(title: gameName, status: "Saving…", isSaving: true, winners: side(winners, winnerIndiv),
+                losers: side(losers, loserIndiv),
+                winnerScore: scoreType == "team" ? teamWinnerScore : nil,
+                loserScore: scoreType == "team" ? teamLoserScore : nil,
+                location: cleanLocation, comment: savingVollis ? "" : comment,
+                onAddAnother: { focused = .gameName })
+            if let savedGame { gameSaveStatus(savedGame) }
+        }
         do {
-            if savingVollis {
+            if let game = gameToEdit {
+                try await PythonAnywhereClient.shared.updateOther(id: game.id, fields: fields)
+            } else if savingVollis {
                 let vollisFields: [String: Any] = [
                     "winner": w[0], "loser": l[0],
                     "winner_score": teamWinnerScore!, "loser_score": teamLoserScore!,
@@ -951,6 +1019,11 @@ struct SiteAddOtherView: View {
             if let savedGame { gameSaveStatus(savedGame) }
             saving = false
             self.error = error.localizedDescription
+            return
+        }
+        if gameToEdit != nil {
+            saving = false
+            onDone()
             return
         }
         // Remember the players actually saved, excluding unused blank slots.
@@ -1008,6 +1081,7 @@ struct SiteSavedGameReceipt: Identifiable {
 struct SiteSavedGamePopup: View {
     @Environment(\.siteAppearance) private var appearance
     @AccessibilityFocusState private var headingFocused: Bool
+    @State private var contentHeight: CGFloat = 0
     let game: SiteSavedGameReceipt
     var onDismiss: () -> Void
     var onAddAnother: () -> Void
@@ -1055,10 +1129,12 @@ struct SiteSavedGamePopup: View {
                     }
                     .padding(24)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
                 }
                 .scrollBounceBehavior(.basedOnSize)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: 420, maxHeight: max(0, geometry.size.height - 48))
+                .frame(maxWidth: 420)
+                .frame(height: min(contentHeight > 0 ? contentHeight : geometry.size.height - 48,
+                                   max(0, geometry.size.height - 48)))
                 .background(appearance.panel, in: RoundedRectangle(cornerRadius: 18))
                 .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(.primary.opacity(0.15)))
                 .padding(.horizontal, 24)
@@ -1087,5 +1163,82 @@ struct SiteSavedGamePopup: View {
         .padding(12)
         .background(appearance.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
         .accessibilityElement(children: .combine)
+    }
+}
+
+private enum SiteEditableGame {
+    case doubles(DoublesGame)
+    case vollis(VollisGame)
+    case other(OtherGame)
+
+    var id: Int {
+        switch self {
+        case .doubles(let game): return game.id
+        case .vollis(let game): return game.id
+        case .other(let game): return game.id
+        }
+    }
+}
+
+private struct SiteAddGameEditButton: View {
+    let game: SiteEditableGame
+    var disabled: Bool
+    var onDismiss: () async -> Void
+    @ObservedObject private var auth = SiteAuthManager.shared
+    @State private var showingEditor = false
+
+    var body: some View {
+        if auth.isLoggedIn && game.id > 0 && game.id < 4_294_967_296 {
+            HStack {
+                Spacer()
+                Button {
+                    showingEditor = true
+                } label: {
+                    Label("Edit", systemImage: "pencil")
+                        .padding(.vertical, 8)
+                }
+                .buttonStyle(.borderless)
+                .disabled(disabled)
+            }
+            .padding(.horizontal, 12)
+            .sheet(isPresented: $showingEditor, onDismiss: {
+                Task { await onDismiss() }
+            }) {
+                SiteAddGameEditor(game: game)
+            }
+        }
+    }
+}
+
+private struct SiteAddGameEditor: View {
+    let game: SiteEditableGame
+    @Environment(\.dismiss) private var dismiss
+    @State private var saving = false
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                switch game {
+                case .doubles(let game):
+                    SiteAddDoublesView(gameToEdit: game, showsHistory: false,
+                                       onSavingChanged: { saving = $0 }, onDone: { dismiss() })
+                case .vollis(let game):
+                    SiteAddVollisView(gameToEdit: game, showsHistory: false,
+                                      onSavingChanged: { saving = $0 }, onDone: { dismiss() })
+                case .other(let game):
+                    SiteAddOtherView(gameToEdit: game, showsHistory: false,
+                                     onSavingChanged: { saving = $0 }, onDone: { dismiss() })
+                }
+            }
+            .navigationTitle("Edit game")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                        .disabled(saving)
+                }
+            }
+            .interactiveDismissDisabled(saving)
+        }
     }
 }

@@ -413,6 +413,13 @@ struct OtherGame: Codable, Identifiable, Hashable {
         return [loser1, loser2].compactMap { $0 }.filter { !$0.isEmpty }
     }
 
+    var editingScoreType: String {
+        if ((winners ?? []) + (losers ?? [])).contains(where: { $0.score != nil }) {
+            return "individual"
+        }
+        return winnerScore != nil || loserScore != nil ? "team" : "none"
+    }
+
     private static func optionalInt(_ c: KeyedDecodingContainer<CodingKeys>, _ key: CodingKeys) -> Int? {
         if let v = try? c.decode(Int.self, forKey: key) { return v }
         if let v = try? c.decode(Double.self, forKey: key) { return Int(v) }
