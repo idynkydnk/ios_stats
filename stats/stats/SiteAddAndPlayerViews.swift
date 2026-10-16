@@ -339,82 +339,144 @@ struct SitePlayerDetailView: View {
 struct LoginView: View {
     @ObservedObject private var auth = SiteAuthManager.shared
     @Environment(\.dismiss) private var dismiss
+    @StateObject private var flow = SiteEmailSignIn(baseURL: PythonAnywhereClient.shared.baseURL)
+    @State private var email = ""
+    @State private var code = ""
+    @State private var firstName = ""
+    @State private var lastName = ""
     @State private var username = ""
     @State private var password = ""
-    @State private var confirmation = ""
-    @State private var registering = true
-    @StateObject private var google = SiteGoogleSignIn()
+    @State private var showPassword = false
     @State private var busy = false
     @State private var error: String?
+    @State private var requestTask: Task<Void, Never>?
+    @FocusState private var focused: Field?
+    private enum Field { case email, code, firstName, lastName }
+    private var enrolling: Bool { flow.state?.enrolling == true }
 
     var body: some View {
         Form {
-            Section {
-                Picker("Account", selection: $registering) {
-                    Text("Create account").tag(true)
-                    Text("Sign in").tag(false)
-                }.pickerStyle(.segmented)
-            }
-            if let error { Text(error).foregroundStyle(.red) }
-            if let message = auth.lastError { Text(message).foregroundStyle(.red) }
-            Section {
-            TextField("Username", text: $username)
-                .textContentType(.username)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-            SecureField("Password", text: $password)
-                .textContentType(registering ? .newPassword : .password)
-            if registering {
-                SecureField("Confirm password", text: $confirmation).textContentType(.newPassword)
-            }
-            Button(busy ? "Please wait..." : (registering ? "Create account" : "Sign in")) {
-                Task { await signIn() }
-            }
-            .disabled(busy || username.isEmpty || password.isEmpty || (registering && (password.count < 12 || password != confirmation)))
-            } footer: {
-                if registering { Text("Use at least 12 characters for your password.") }
-            }
-            Section {
-                SiteAppleSignInButton(busy: $busy, error: $error)
-                Button {
-                    Task {
-                        busy = true
-                        error = nil
-                        auth.lastError = nil
-                        do { try await google.signIn(); dismiss() }
-                        catch { self.error = error.localizedDescription }
-                        busy = false
+            if let error { Text(error).foregroundStyle(.red).accessibilityLabel("Sign-in error: " + error) }
+            if let state = flow.state {
+                switch state.step {
+                case .email:
+                    Section {
+                        TextField("Email address", text: $email)
+                            .keyboardType(.emailAddress).textContentType(.emailAddress)
+                            .textInputAutocapitalization(.never).autocorrectionDisabled()
+                            .focused($focused, equals: .email)
+                            .submitLabel(.go).onSubmit { sendCode() }
+                        Button("Email me a code", action: sendCode)
+                            .disabled(email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    } header: { Text(enrolling ? "Add your email" : "Sign in or create an account") }
+                    footer: {
+                        Text(enrolling ? "Verify your email to keep your existing account and stats. Next time, use a short code instead of a password." : "We’ll email you a four-digit code. New here? Verify your email, then add your first and last name.")
                     }
-                } label: {
-                    HStack(spacing: 12) {
-                        Text("G").font(.title3.weight(.bold)).foregroundStyle(Color.blue)
-                        Text("Continue with Google").font(.system(size: 17, weight: .medium))
+                    if !enrolling {
+                        Section {
+                            DisclosureGroup("Use my existing password", isExpanded: $showPassword) {
+                                TextField("Username", text: $username)
+                                    .textContentType(.username).textInputAutocapitalization(.never).autocorrectionDisabled()
+                                SecureField("Password", text: $password).textContentType(.password)
+                                Button("Sign in with password") {
+                                    submit(["action": "password", "username": username.trimmingCharacters(in: .whitespacesAndNewlines), "password": password])
+                                }.disabled(username.isEmpty || password.isEmpty)
+                                Text("If your account has no email yet, we’ll ask you to add one after signing in. Contact Kyle if you can’t access your old account.")
+                                    .font(.footnote).foregroundStyle(.secondary)
+                            }
+                        }
                     }
-                    .foregroundStyle(Color.black)
-                    .frame(maxWidth: .infinity, minHeight: 50)
-                    .background(Color.white, in: RoundedRectangle(cornerRadius: 8))
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.gray.opacity(0.4)))
+                case .code:
+                    Section {
+                        Text("Enter the four-digit code sent to \(state.email ?? email).")
+                        TextField("4-digit code", text: $code)
+                            .keyboardType(.numberPad).textContentType(.oneTimeCode)
+                            .font(.title2.monospacedDigit()).focused($focused, equals: .code)
+                            .onChange(of: code) { _, value in
+                                code = String(value.filter { "0123456789".contains($0) }.prefix(4))
+                            }
+                        Button("Continue") { submit(["action": "verify", "code": code]) }
+                            .disabled(code.count != 4)
+                    } header: { Text("Check your email") }
+                    footer: { Text("Your code expires in five minutes. Check your spam folder if you don’t see it.") }
+                    Section {
+                        Button("Send a new code") { code = ""; submit(["action": "resend"]) }
+                        Button("Use a different email") { code = ""; submit(["action": "change"]) }
+                    } footer: { Text("Wait a minute before requesting another code.") }
+                case .signup:
+                    Section {
+                        TextField("First name", text: $firstName)
+                            .textContentType(.givenName).textInputAutocapitalization(.words)
+                            .autocorrectionDisabled().focused($focused, equals: .firstName)
+                            .submitLabel(.next).onSubmit { focused = .lastName }
+                        TextField("Last name", text: $lastName)
+                            .textContentType(.familyName).textInputAutocapitalization(.words)
+                            .autocorrectionDisabled().focused($focused, equals: .lastName)
+                        Button("Create account") {
+                            submit(["action": "signup", "first_name": firstName, "last_name": lastName])
+                        }.disabled(firstName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || lastName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    } header: { Text("What’s your name?") }
+                    footer: { Text("Your email is verified. Add your name to finish. We’ll tidy up capitalization for you.") }
+                    Section {
+                        Button("Use my existing account") {
+                            showPassword = true
+                            submit(["action": "change", "password_start": "1"])
+                        }
+                    } footer: { Text("Already have stats in an account without an email? Use your old password first to keep them.") }
+                case .complete:
+                    Button("Finish signing in") { submit() }
+                case nil:
+                    Button("Try again") { submit() }
                 }
-                .buttonStyle(.plain)
-                .disabled(busy)
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0))
+            } else if !busy {
+                Button("Try again") { submit(bearer: auth.token) }
+            }
+            if busy { ProgressView("Please wait…") }
+            if auth.isLoggedIn && enrolling {
+                Button("Log out", role: .destructive) { Task { await auth.logout() } }
             }
         }
-        .navigationTitle("Welcome to Stats")
-        .onChange(of: registering) { _, _ in error = nil; auth.lastError = nil }
+        .disabled(busy)
+        .navigationTitle(enrolling ? "Add your email" : "Welcome to Stats")
+        .task { if flow.state == nil { await perform(bearer: auth.token) } }
+        .onDisappear { requestTask?.cancel() }
     }
 
-    private func signIn() async {
+    private func sendCode() {
+        guard !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        submit(["action": "send", "email": email.trimmingCharacters(in: .whitespacesAndNewlines)])
+    }
+
+    private func submit(_ fields: [String: String]? = nil, bearer: String? = nil) {
+        guard !busy else { return }
+        focused = nil
+        requestTask = Task { await perform(fields, bearer: bearer) }
+    }
+
+    @MainActor
+    private func perform(_ fields: [String: String]? = nil, bearer: String? = nil) async {
+        guard !busy else { return }
         busy = true
         error = nil
         auth.lastError = nil
+        defer { busy = false }
         do {
-            try await auth.login(username: username.trimmingCharacters(in: .whitespacesAndNewlines), password: password, registering: registering)
-            dismiss()
+            if let token = try await flow.request(fields, bearer: bearer) {
+                try Task.checkCancellation()
+                try await auth.loginWithEmailToken(token)
+                dismiss()
+            } else {
+                switch flow.state?.step {
+                case .email: focused = .email
+                case .code: focused = .code
+                case .signup: focused = .firstName
+                default: break
+                }
+            }
+        } catch is CancellationError {
+            // Closing sign-in leaves the existing account untouched.
         } catch {
             self.error = error.localizedDescription
         }
-        busy = false
     }
 }

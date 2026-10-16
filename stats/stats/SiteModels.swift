@@ -530,6 +530,7 @@ nonisolated struct YearsPayload: Codable, Sendable {
 }
 
 struct MePayload: Codable {
+    var needsLoginEmail: Bool? = nil
     var username: String
     var displayName: String? = nil
     var isAdmin: Bool

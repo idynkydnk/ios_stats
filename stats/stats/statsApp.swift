@@ -11,6 +11,8 @@ struct statsApp: App {
             Group {
                 if !auth.sessionReady {
                     ProgressView("Signing in")
+                } else if auth.isLoggedIn && auth.needsLoginEmail {
+                    NavigationStack { LoginView() }
                 } else {
                     SiteRootView().id(auth.token)
                 }

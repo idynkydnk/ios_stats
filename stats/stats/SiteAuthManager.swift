@@ -15,6 +15,7 @@ final class SiteAuthManager: ObservableObject {
     @Published private(set) var displayName: String?
     @Published private(set) var isAdmin: Bool = false
     @Published private(set) var isPrivate: Bool = true
+    @Published private(set) var needsLoginEmail = false
     @Published private(set) var sessionReady = false
     @Published private(set) var showStarterStats = true
     @Published var isPreviewing = true
@@ -57,6 +58,12 @@ final class SiteAuthManager: ObservableObject {
         await accept(me: me, token: token)
     }
 
+    func loginWithEmailToken(_ token: String) async throws {
+        let (me, verifiedToken) = try await PythonAnywhereClient.shared.emailSession(token)
+        try Task.checkCancellation()
+        await accept(me: me, token: verifiedToken)
+    }
+
     func loginWithGoogle(idToken: String) async throws {
         let (me, token) = try await PythonAnywhereClient.shared.googleLogin(idToken: idToken)
         await accept(me: me, token: token)
@@ -84,6 +91,7 @@ final class SiteAuthManager: ObservableObject {
             self.isAdmin = me.isAdmin
             self.isPrivate = me.isPrivate ?? true
             self.showStarterStats = me.showStarterStats ?? true
+            self.needsLoginEmail = me.needsLoginEmail ?? false
             self.isPreviewing = false
             self.sessionReady = true
             UserDefaults.standard.set(me.username, forKey: self.usernameKey)
@@ -111,6 +119,7 @@ final class SiteAuthManager: ObservableObject {
                 self.isAdmin = me.isAdmin
                 self.isPrivate = me.isPrivate ?? true
                 self.showStarterStats = me.showStarterStats ?? true
+                self.needsLoginEmail = me.needsLoginEmail ?? false
                 if !self.sessionReady { self.isPreviewing = false }
                 self.sessionReady = true
                 UserDefaults.standard.set(me.username, forKey: self.usernameKey)
@@ -144,6 +153,7 @@ final class SiteAuthManager: ObservableObject {
         isAdmin = false
         isPrivate = true
         showStarterStats = true
+        needsLoginEmail = false
         isPreviewing = true
         sessionReady = true
         UserDefaults.standard.removeObject(forKey: usernameKey)

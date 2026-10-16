@@ -41,6 +41,10 @@ final class PythonAnywhereClient {
         return try await verifiedSession(response.token)
     }
 
+    func emailSession(_ token: String) async throws -> (MePayload, String) {
+        try await verifiedSession(token)
+    }
+
     private struct AuthResponse: Decodable { var token: String }
 
     private func verifiedSession(_ token: String) async throws -> (MePayload, String) {
