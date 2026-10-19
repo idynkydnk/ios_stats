@@ -43,7 +43,7 @@ struct SiteMoreView: View {
                                     }
                                 }
                             )).disabled(updatingBiometrics)
-                            Text("Use \(auth.biometricName) to sign in when you reopen Stats. It also works after logging out. Turn this off before logging out to remove the saved sign-in.")
+                            Text("Use \(auth.biometricName) to sign in automatically when you reopen Stats. It also works after logging out. Turn this off before logging out to remove the saved sign-in.")
                                 .font(.footnote).foregroundStyle(.secondary)
                         }
                         Button("Log out") { Task { await auth.logout() } }

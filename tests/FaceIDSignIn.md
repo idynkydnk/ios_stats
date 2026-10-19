@@ -5,7 +5,8 @@ require device interaction and have not been run by the coding agent.
 
 1. Sign in with email, open Menu > Account, and enable Sign in with Face ID.
    Approve Face ID. The toggle should become enabled only after success.
-2. Terminate and relaunch Stats. Account data must remain unavailable until
+2. Terminate and relaunch Stats. Face ID should start automatically without a
+   button tap. Account data must remain unavailable until
    Sign in with Face ID succeeds. Successful authentication restores the same
    account and the server-verified permissions.
 3. Cancel Face ID, then retry. Cancellation must leave the sign-in form visible;
@@ -41,3 +42,13 @@ lock an already-open session when the app briefly goes into the background.
     relaunch. A failed verification must not replace the saved address. Verify
     a different email and confirm the suggestion changes. Delete a disposable
     account and confirm the suggestion is cleared.
+
+13. With Face ID disabled, relaunch with a valid saved session. It should restore
+    the account without showing the login form. Relaunch offline: show a retry
+    message, retain the saved credential, and keep account data hidden. Reconnect
+    and tap Try again; the account should open without another email code.
+14. Cancel automatic Face ID. Background and foreground the app: it must not
+    repeatedly prompt. Manual Face ID retry should work. Logging out while the
+    app is running must not immediately trigger automatic Face ID.
+15. With Face ID disabled, revoke the saved server session and relaunch online.
+    The rejected credential must be cleared; signing in again must still work.

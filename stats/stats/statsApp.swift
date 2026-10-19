@@ -3,6 +3,7 @@ import UIKit
 
 @main
 struct statsApp: App {
+    @Environment(\.scenePhase) private var scenePhase
     @ObservedObject private var theme = SiteTheme.shared
     @ObservedObject private var auth = SiteAuthManager.shared
 
@@ -10,14 +11,29 @@ struct statsApp: App {
         WindowGroup {
             Group {
                 if !auth.sessionReady {
-                    ProgressView("Signing in")
+                    if let error = auth.sessionRestoreError {
+                        VStack(spacing: 16) {
+                            Text(error).multilineTextAlignment(.center)
+                            Button("Try again") { Task { await auth.refreshMe() } }
+                        }
+                        .padding()
+                    } else {
+                        ProgressView("Signing in")
+                    }
                 } else if (auth.biometricEnabled && !auth.isLoggedIn) || (auth.isLoggedIn && auth.needsLoginEmail) {
                     NavigationStack { LoginView() }
                 } else {
                     SiteRootView().id(auth.token)
                 }
             }
-                .task { await auth.refreshMe() }
+                .task {
+                    if scenePhase == .active { await auth.restoreSessionOnLaunch() }
+                }
+                .onChange(of: scenePhase) { _, phase in
+                    if phase == .active {
+                        Task { await auth.restoreSessionOnLaunch() }
+                    }
+                }
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
                     for cache in [SiteBrowseCache.shared, .playerDetails, .playerSuggestions, .library, .navigation] {
                         cache.trimMemory()

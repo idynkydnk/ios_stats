@@ -32,6 +32,9 @@ final class SiteAuthManager: ObservableObject {
     @Published private(set) var isPrivate: Bool = true
     @Published private(set) var needsLoginEmail = false
     @Published private(set) var sessionReady = false
+    @Published private(set) var sessionRestoreError: String?
+    private var attemptedAutomaticSignIn = false
+    private var biometricSignInInProgress = false
     @Published private(set) var showStarterStats = true
     @Published var isPreviewing = true
     @Published var browseSelectedStats = true
@@ -67,6 +70,24 @@ final class SiteAuthManager: ObservableObject {
         username = UserDefaults.standard.string(forKey: usernameKey)
         displayName = UserDefaults.standard.string(forKey: displayNameKey)
         // Privileges and storage scope must be verified before showing data.
+    }
+
+    // Run once per launch, only after the app becomes active. Returning from a
+    // biometric prompt or explicitly logging out must not start another prompt.
+    @MainActor
+    func restoreSessionOnLaunch() async {
+        guard !attemptedAutomaticSignIn else { return }
+        attemptedAutomaticSignIn = true
+        if biometricEnabled && !isLoggedIn {
+            do {
+                try await loginWithBiometrics()
+            } catch {
+                // Leave the existing Face ID retry and email options available.
+                sessionReady = true
+            }
+        } else {
+            await refreshMe()
+        }
     }
 
     func login(username: String, password: String, registering: Bool = false) async throws {
@@ -142,7 +163,9 @@ final class SiteAuthManager: ObservableObject {
 
     @MainActor
     func loginWithBiometrics() async throws {
-        guard biometricEnabled, !isLoggedIn else { return }
+        guard biometricEnabled, !isLoggedIn, !biometricSignInInProgress else { return }
+        biometricSignInInProgress = true
+        defer { biometricSignInInProgress = false }
         let context = LAContext()
         context.localizedFallbackTitle = ""
         defer { context.invalidate() }
@@ -161,13 +184,18 @@ final class SiteAuthManager: ObservableObject {
         UserDefaults.standard.removeObject(forKey: biometricEnabledKey)
     }
 
+    @MainActor
     func refreshMe() async {
+        sessionRestoreError = nil
+        let refreshingToken = token
         guard isLoggedIn else {
             await MainActor.run { self.sessionReady = true }
             return
         }
         do {
             let me = try await PythonAnywhereClient.shared.me()
+            guard token == refreshingToken else { return }
+            guard me.loggedIn else { throw SiteAPIError.unauthorized }
             guard me.isPrivate != nil else {
                 throw SiteAPIError.message("The server needs the accounts update before you can sign in.")
             }
@@ -187,8 +215,19 @@ final class SiteAuthManager: ObservableObject {
             }
         } catch {
             await MainActor.run {
-                self.clearSession()
-                self.lastError = error.localizedDescription
+                guard self.token == refreshingToken else { return }
+                switch error {
+                case SiteAPIError.unauthorized, SiteAPIError.http(401, _):
+                    self.clearSession()
+                    self.lastError = error.localizedDescription
+                default:
+                    // A connection failure is not a sign-out. Keep credentials,
+                    // and keep unverified account data behind the launch screen.
+                    if !self.sessionReady {
+                        self.sessionRestoreError = "Couldn’t connect to Stats. Your sign-in is saved. Try again when you’re connected."
+                    }
+                    self.lastError = error.localizedDescription
+                }
             }
         }
     }
