@@ -357,6 +357,28 @@ struct LoginView: View {
     var body: some View {
         Form {
             if let error { Text(error).foregroundStyle(.red).accessibilityLabel("Sign-in error: " + error) }
+            if auth.biometricEnabled && !auth.isLoggedIn {
+                Section {
+                    Button {
+                        guard !busy else { return }
+                        busy = true
+                        error = nil
+                        requestTask = Task { @MainActor in
+                            defer { busy = false }
+                            do {
+                                try await auth.loginWithBiometrics()
+                                dismiss()
+                            } catch is CancellationError {
+                            } catch {
+                                self.error = "Couldn’t sign in with \(auth.biometricName). Try again or use email below."
+                            }
+                        }
+                    } label: {
+                        Label("Sign in with \(auth.biometricName)",
+                              systemImage: auth.biometricName == "Touch ID" ? "touchid" : "faceid")
+                    }
+                }
+            }
             if let state = flow.state {
                 switch state.step {
                 case .email:

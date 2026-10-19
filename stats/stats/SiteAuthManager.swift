@@ -1,9 +1,24 @@
 import Foundation
 import Combine
 import Security
+import LocalAuthentication
 
 final class SiteAuthManager: ObservableObject {
     static let shared = SiteAuthManager()
+
+    private let biometricKey = "com.kt.stats.pa.biometricToken"
+    private let biometricEnabledKey = "com.kt.stats.pa.biometricEnabled"
+    @Published private(set) var biometricEnabled = false
+
+    var biometricName: String {
+        let context = LAContext()
+        _ = context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil)
+        return context.biometryType == .touchID ? "Touch ID" : "Face ID"
+    }
+
+    var biometricsAvailable: Bool {
+        LAContext().canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil)
+    }
 
     private let tokenKey = "com.kt.stats.pa.token"
     private let usernameKey = "com.kt.stats.pa.username"
@@ -47,7 +62,8 @@ final class SiteAuthManager: ObservableObject {
     }
 
     private init() {
-        token = KeychainStore.get(tokenKey)
+        biometricEnabled = UserDefaults.standard.bool(forKey: biometricEnabledKey)
+        token = biometricEnabled ? nil : KeychainStore.get(tokenKey)
         username = UserDefaults.standard.string(forKey: usernameKey)
         displayName = UserDefaults.standard.string(forKey: displayNameKey)
         // Privileges and storage scope must be verified before showing data.
@@ -74,7 +90,7 @@ final class SiteAuthManager: ObservableObject {
         await accept(me: me, token: token)
     }
 
-    private func accept(me: MePayload, token: String) async {
+    private func accept(me: MePayload, token: String, biometric: Bool = false) async {
         await MainActor.run {
             SiteBrowseCache.shared.invalidate()
             SiteBrowseCache.playerSuggestions.invalidate()
@@ -82,7 +98,10 @@ final class SiteAuthManager: ObservableObject {
             SiteBrowseCache.library.invalidate()
         SiteBrowseCache.navigation.invalidate()
             SiteOfflineQueue.shared.clear()
-            KeychainStore.set(self.tokenKey, value: token)
+            if !biometric {
+                self.removeBiometricSignIn()
+                KeychainStore.set(self.tokenKey, value: token)
+            }
             self.token = token
             self.username = me.username
             self.displayName = me.displayName
@@ -99,6 +118,47 @@ final class SiteAuthManager: ObservableObject {
             self.lastError = nil
             self.welcomeMessage = self.needsAccountName ? "Signed in" : "Signed in as \(self.accountDisplayName)"
         }
+    }
+
+    @MainActor
+    func setBiometricSignIn(enabled: Bool) async throws {
+        guard let token else { return }
+        if enabled {
+            let context = LAContext()
+            context.localizedFallbackTitle = ""
+            try await context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics,
+                                             localizedReason: "Enable secure sign-in to Stats.")
+            // Do not save credentials if the account changed during authentication.
+            guard self.token == token else { throw CancellationError() }
+            try KeychainStore.setBiometric(biometricKey, value: token, context: context)
+            biometricEnabled = true
+            UserDefaults.standard.set(true, forKey: biometricEnabledKey)
+            KeychainStore.delete(tokenKey)
+        } else {
+            try KeychainStore.setChecked(tokenKey, value: token)
+            removeBiometricSignIn()
+        }
+    }
+
+    @MainActor
+    func loginWithBiometrics() async throws {
+        guard biometricEnabled, !isLoggedIn else { return }
+        let context = LAContext()
+        context.localizedFallbackTitle = ""
+        defer { context.invalidate() }
+        try await context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics,
+                                         localizedReason: "Sign in to Stats.")
+        let savedToken = try KeychainStore.getBiometric(biometricKey, context: context)
+        let (me, verifiedToken) = try await PythonAnywhereClient.shared.emailSession(savedToken)
+        try Task.checkCancellation()
+        guard biometricEnabled, !isLoggedIn else { throw CancellationError() }
+        await accept(me: me, token: verifiedToken, biometric: true)
+    }
+
+    private func removeBiometricSignIn() {
+        KeychainStore.delete(biometricKey)
+        biometricEnabled = false
+        UserDefaults.standard.removeObject(forKey: biometricEnabledKey)
     }
 
     func refreshMe() async {
@@ -147,6 +207,7 @@ final class SiteAuthManager: ObservableObject {
         SiteOfflineQueue.shared.clear()
         URLCache.shared.removeAllCachedResponses()
         KeychainStore.delete(tokenKey)
+        removeBiometricSignIn()
         token = nil
         username = nil
         displayName = nil
@@ -204,6 +265,53 @@ final class SiteAuthManager: ObservableObject {
 }
 
 enum KeychainStore {
+    private static func check(_ status: OSStatus) throws {
+        guard status == errSecSuccess else {
+            throw SiteAPIError.message("Couldn’t access your saved sign-in. Try again, or sign in with email.")
+        }
+    }
+
+    static func setChecked(_ key: String, value: String) throws {
+        delete(key)
+        try check(SecItemAdd([
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrAccount: key,
+            kSecAttrAccessible: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+            kSecValueData: Data(value.utf8)
+        ] as CFDictionary, nil))
+    }
+
+    static func setBiometric(_ key: String, value: String, context: LAContext) throws {
+        guard let access = SecAccessControlCreateWithFlags(nil,
+            kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly, .biometryCurrentSet, nil) else {
+            throw SiteAPIError.message("Set up Face ID or Touch ID in Settings first.")
+        }
+        delete(key)
+        try check(SecItemAdd([
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrAccount: key,
+            kSecAttrAccessControl: access,
+            kSecUseAuthenticationContext: context,
+            kSecValueData: Data(value.utf8)
+        ] as CFDictionary, nil))
+    }
+
+    static func getBiometric(_ key: String, context: LAContext) throws -> String {
+        var result: AnyObject?
+        try check(SecItemCopyMatching([
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrAccount: key,
+            kSecUseAuthenticationContext: context,
+            kSecReturnData: true,
+            kSecMatchLimit: kSecMatchLimitOne
+        ] as CFDictionary, &result))
+        guard let data = result as? Data, let token = String(data: data, encoding: .utf8),
+              !token.isEmpty else {
+            throw SiteAPIError.message("Please sign in with email again.")
+        }
+        return token
+    }
+
     static func set(_ key: String, value: String) {
         let data = Data(value.utf8)
         let query: [String: Any] = [

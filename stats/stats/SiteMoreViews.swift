@@ -8,6 +8,7 @@ struct SiteMoreView: View {
     @ObservedObject private var auth = SiteAuthManager.shared
     @State private var confirmDeletion = false
     @State private var accountError: String?
+    @State private var updatingBiometrics = false
     @State private var updatingStarterStats = false
 
     var body: some View {
@@ -29,6 +30,22 @@ struct SiteMoreView: View {
                     if auth.isLoggedIn {
                         Text(auth.needsAccountName ? "Signed in" : "Signed in as \(auth.accountDisplayName)")
                         if auth.isAdmin { Text("Admin").foregroundStyle(.orange) }
+                        if auth.biometricsAvailable || auth.biometricEnabled {
+                            Toggle("Sign in with \(auth.biometricName)", isOn: Binding(
+                                get: { auth.biometricEnabled },
+                                set: { enabled in
+                                    updatingBiometrics = true
+                                    accountError = nil
+                                    Task {
+                                        defer { updatingBiometrics = false }
+                                        do { try await auth.setBiometricSignIn(enabled: enabled) }
+                                        catch { accountError = error.localizedDescription }
+                                    }
+                                }
+                            )).disabled(updatingBiometrics)
+                            Text("Use \(auth.biometricName) to sign in when you reopen Stats. Logging out removes this saved sign-in.")
+                                .font(.footnote).foregroundStyle(.secondary)
+                        }
                         Button("Log out") { Task { await auth.logout() } }
                         NavigationLink("Stats to include") { SiteStatsSourcesView() }
                         if auth.isPrivate {
