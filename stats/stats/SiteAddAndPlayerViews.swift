@@ -340,6 +340,7 @@ struct LoginView: View {
     @ObservedObject private var auth = SiteAuthManager.shared
     @Environment(\.dismiss) private var dismiss
     @StateObject private var flow = SiteEmailSignIn(baseURL: PythonAnywhereClient.shared.baseURL)
+    @AppStorage("com.kt.stats.pa.lastLoginEmail") private var lastLoginEmail = ""
     @State private var email = ""
     @State private var code = ""
     @State private var firstName = ""
@@ -460,6 +461,14 @@ struct LoginView: View {
         }
         .disabled(busy)
         .navigationTitle(enrolling ? "Add your email" : "Welcome to Stats")
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                if focused == .email && !lastLoginEmail.isEmpty {
+                    Button(lastLoginEmail) { email = lastLoginEmail }
+                        .accessibilityLabel("Use email " + lastLoginEmail)
+                }
+            }
+        }
         .task { if flow.state == nil { await perform(bearer: auth.token) } }
         .onDisappear { requestTask?.cancel() }
     }
@@ -483,14 +492,20 @@ struct LoginView: View {
         auth.lastError = nil
         defer { busy = false }
         do {
+            let verifyingEmail = flow.state?.step == .code || flow.state?.step == .signup
             if let token = try await flow.request(fields, bearer: bearer) {
                 try Task.checkCancellation()
                 try await auth.loginWithEmailToken(token)
+                if verifyingEmail && !email.isEmpty {
+                    lastLoginEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
+                }
                 dismiss()
             } else {
                 switch flow.state?.step {
-                case .email: focused = .email
-                case .code: focused = .code
+                case .email: focused = auth.biometricEnabled && !auth.isLoggedIn ? nil : .email
+                case .code:
+                    if let verifiedDestination = flow.state?.email { email = verifiedDestination }
+                    focused = .code
                 case .signup: focused = .firstName
                 default: break
                 }

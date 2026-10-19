@@ -193,12 +193,19 @@ final class SiteAuthManager: ObservableObject {
         }
     }
 
+    @MainActor
     func logout() async {
-        try? await PythonAnywhereClient.shared.logout()
-        await MainActor.run { clearSession() }
+        // Face ID keeps the server credential only in the protected Keychain item.
+        // Revoking it here would make the next biometric sign-in impossible.
+        if biometricEnabled {
+            clearSession(preservingBiometrics: true)
+        } else {
+            try? await PythonAnywhereClient.shared.logout()
+            clearSession()
+        }
     }
 
-    private func clearSession() {
+    private func clearSession(preservingBiometrics: Bool = false) {
         SiteBrowseCache.shared.invalidate()
         SiteBrowseCache.playerSuggestions.invalidate()
         SiteBrowseCache.playerDetails.invalidate()
@@ -207,7 +214,7 @@ final class SiteAuthManager: ObservableObject {
         SiteOfflineQueue.shared.clear()
         URLCache.shared.removeAllCachedResponses()
         KeychainStore.delete(tokenKey)
-        removeBiometricSignIn()
+        if !preservingBiometrics { removeBiometricSignIn() }
         token = nil
         username = nil
         displayName = nil
@@ -259,6 +266,7 @@ final class SiteAuthManager: ObservableObject {
         try await PythonAnywhereClient.shared.deleteAccount()
         await MainActor.run {
             if let username { SiteOfflineQueue.shared.removeAccount(username) }
+            UserDefaults.standard.removeObject(forKey: "com.kt.stats.pa.lastLoginEmail")
             clearSession()
         }
     }

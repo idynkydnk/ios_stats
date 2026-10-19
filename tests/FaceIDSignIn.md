@@ -14,8 +14,12 @@ require device interaction and have not been run by the coding agent.
    with email clears the old biometric setup; enable it again from Account.
 5. Disable the toggle while signed in, then terminate and relaunch. The normal
    remembered session should work without a biometric prompt.
-6. Enable Face ID, log out, and relaunch. No saved Face ID sign-in should remain.
-   Repeat with account deletion on a disposable account.
+6. Enable Face ID and log out. Account data must be cleared, and the sign-in
+   screen must offer Face ID without opening the email keyboard. Tap Face ID
+   and verify the same account is restored. Repeat after terminating and
+   relaunching while logged out. Cancel Face ID and confirm email still works.
+   Disable Face ID before logging out: the saved sign-in must be removed and
+   the old server token revoked. Account deletion must also remove Face ID.
 7. Enable Face ID, then change the enrolled face. The saved credential must no
    longer unlock; email sign-in must recover access.
 8. Enable Face ID, terminate the app, disconnect the network, and attempt Face
@@ -30,3 +34,10 @@ require device interaction and have not been run by the coding agent.
 
 This feature protects the remembered credential on app launch. It does not
 lock an already-open session when the app briefly goes into the background.
+
+12. Complete email-code sign-in, log out, and focus the email field. The last
+    successfully verified address should appear as a tappable button above the
+    keyboard; tapping it fills the field without sending a code. Repeat after
+    relaunch. A failed verification must not replace the saved address. Verify
+    a different email and confirm the suggestion changes. Delete a disposable
+    account and confirm the suggestion is cleared.
