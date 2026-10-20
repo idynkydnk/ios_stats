@@ -552,6 +552,14 @@ struct SiteAddOtherView: View {
     }
     @FocusState private var focused: Field?
 
+    private var gameNameSuggestions: [String] {
+        if oneOnOneOnly {
+            return siteFilterPlayers(knownFormats, query: gameName, excluding: [])
+        }
+        let query = gameName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return knownNames.filter { query.isEmpty || $0.lowercased().contains(query) }
+    }
+
     var body: some View {
         SiteAddFormScrollView(focused: focused, header: header) {
             VStack(alignment: .leading, spacing: 14) {
@@ -568,7 +576,7 @@ struct SiteAddOtherView: View {
                         if gameToEdit == nil { focused = .gameName }
                     }
                     if focused == .gameName {
-                        SiteAddSuggestionList(names: siteFilterPlayers(oneOnOneOnly ? knownFormats : knownNames, query: gameName, excluding: [])) { name in
+                        SiteAddSuggestionList(names: gameNameSuggestions) { name in
                             gameName = name
                             Task { await applyGameName() }
                         }
@@ -1067,7 +1075,9 @@ struct SiteAddOtherView: View {
             if !knownFormats.contains(where: { $0.caseInsensitiveCompare(gameName) == .orderedSame }) {
                 knownFormats.append(gameName)
             }
-        } else {
+        } else if !savingVollis && !knownFormats.contains(where: {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare(gameName) == .orderedSame
+        }) {
             sitePromote([gameName], in: &knownNames)
         }
         sitePromote([gameType], in: &knownTypes)

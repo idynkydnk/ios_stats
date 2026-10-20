@@ -396,9 +396,13 @@ final class PythonAnywhereClient {
         var oneOnOneFormats: [String]? = nil
 
         @MainActor var suggestedNames: [String] {
-            var result = ["Vollis"]
-            sitePromote(names, in: &result)
-            return result
+            let formats = Set((["Vollis"] + (oneOnOneFormats ?? [])).map {
+                $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            })
+            // The server sends names in most-recently-played order.
+            return names.filter {
+                !formats.contains($0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+            }
         }
     }
 
