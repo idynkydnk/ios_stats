@@ -529,6 +529,7 @@ struct SiteAddOtherView: View {
     @State private var comment = ""
     @State private var location = siteLastGameLocation()
     @State private var knownNames: [String] = PythonAnywhereClient.shared.cachedOtherGameCatalog?.suggestedNames ?? []
+    @State private var knownFormats: [String] = PythonAnywhereClient.shared.cachedOtherGameCatalog?.oneOnOneFormats ?? ["Vollis"]
     @State private var loadingGameNames = false
     @State private var gameNamesError: String?
     @State private var knownTypes: [String] = []
@@ -555,16 +556,9 @@ struct SiteAddOtherView: View {
         SiteAddFormScrollView(focused: focused, header: header) {
             VStack(alignment: .leading, spacing: 14) {
                 SiteContentCard(title: oneOnOneOnly ? "1v1 volleyball" : "Other game") {
-                    if oneOnOneOnly {
-                        Picker("Format", selection: $gameName) {
-                            ForEach(PythonAnywhereClient.shared.cachedOtherGameCatalog?.oneOnOneFormats ?? ["Vollis"], id: \.self) { Text($0).tag($0) }
-                        }
-                        .onChange(of: gameName) { _, _ in Task { await applyGameName(advanceFocus: false) } }
-                    }
                     if let error { SiteAddBanner(text: error, isError: true) }
 
-                    if !oneOnOneOnly {
-                    SiteAddTextRow(label: "Game name", text: $gameName, field: .gameName, focus: $focused, submit: .done, onSubmit: {
+                    SiteAddTextRow(label: oneOnOneOnly ? "Volleyball format" : "Game name", text: $gameName, field: .gameName, focus: $focused, submit: .done, onSubmit: {
                         focused = nil
                         Task { await applyGameName(advanceFocus: false) }
                     })
@@ -574,11 +568,10 @@ struct SiteAddOtherView: View {
                         if gameToEdit == nil { focused = .gameName }
                     }
                     if focused == .gameName {
-                        SiteAddSuggestionList(names: siteFilterPlayers(knownNames, query: gameName, excluding: [])) { name in
+                        SiteAddSuggestionList(names: siteFilterPlayers(oneOnOneOnly ? knownFormats : knownNames, query: gameName, excluding: [])) { name in
                             gameName = name
                             Task { await applyGameName() }
                         }
-                    }
                     }
                     if loadingGameNames {
                         ProgressView("Loading game names…")
@@ -718,13 +711,14 @@ struct SiteAddOtherView: View {
         .task(id: auth.playerSuggestionsScope) {
             let saved = PythonAnywhereClient.shared.cachedOtherGameCatalog
             knownNames = saved?.suggestedNames ?? []
+            knownFormats = saved?.oneOnOneFormats ?? ["Vollis"]
             knownTypes = saved?.types ?? []
             entryDefaults = saved?.defaults ?? [:]
             await loadGameNames()
         }
         .task {
             applyEdit()
-            if oneOnOneOnly && gameName.isEmpty { gameName = "Vollis"; configureVollis() }
+            if oneOnOneOnly { gameType = "Volleyball" }
             await refreshToday()
         }
     }
@@ -759,7 +753,7 @@ struct SiteAddOtherView: View {
                         && $0.displayWinners.count == 1 && $0.displayLosers.count == 1))
             }
         }
-        if isVollis || !todayVollisGames.isEmpty,
+        if oneOnOneOnly || isVollis || !todayVollisGames.isEmpty,
            let all = try? await PythonAnywhereClient.shared.vollisGames(year: year, preview: false) {
             todayVollisGames = all.games.filter { siteIsToday($0.date) }
         }
@@ -774,6 +768,7 @@ struct SiteAddOtherView: View {
             let info = try await PythonAnywhereClient.shared.otherGameTypes()
             try Task.checkCancellation()
             knownNames = info.suggestedNames
+            knownFormats = info.oneOnOneFormats ?? ["Vollis"]
             knownTypes = info.types
             entryDefaults = info.defaults
         } catch {
@@ -875,13 +870,13 @@ struct SiteAddOtherView: View {
 
     private func clearForm() {
         clearPlayers()
-        if !oneOnOneOnly { gameName = "" }
+        gameName = ""
         gameType = oneOnOneOnly ? "Volleyball" : ""
         scoreType = "team"
         resizeSlots(winnerCount: 1, loserCount: 1)
         location = siteLastGameLocation()
         error = nil
-        focused = oneOnOneOnly ? .winner(0) : .gameName
+        focused = .gameName
     }
 
     private func loserChipsForTeam() -> [Int] {
@@ -900,8 +895,12 @@ struct SiteAddOtherView: View {
 
     private func applyGameName(advanceFocus: Bool = true) async {
         guard gameToEdit == nil else { return }
-        let name = gameName.trimmingCharacters(in: .whitespaces)
+        let enteredName = gameName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = oneOnOneOnly
+            ? knownFormats.first(where: { $0.caseInsensitiveCompare(enteredName) == .orderedSame }) ?? enteredName
+            : enteredName
         guard !name.isEmpty else { return }
+        gameName = name
         if isVollis {
             gameName = "Vollis"
             configureVollis()
@@ -956,15 +955,21 @@ struct SiteAddOtherView: View {
 
     private func save() async {
         guard !saving else { return }
+        gameName = gameName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if oneOnOneOnly,
+           let format = knownFormats.first(where: { $0.caseInsensitiveCompare(gameName) == .orderedSame }) {
+            gameName = format
+        }
         let w = winners.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         let l = losers.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         guard !gameName.trimmingCharacters(in: .whitespaces).isEmpty, !w.isEmpty, !l.isEmpty else {
-            error = "Game name, winners, and losers are required."
+            error = oneOnOneOnly ? "Volleyball format, winner, and loser are required." : "Game name, winners, and losers are required."
             return
         }
         if oneOnOneOnly {
             guard winners.filter({ !$0.trimmingCharacters(in: .whitespaces).isEmpty }).count == 1,
-                  losers.filter({ !$0.trimmingCharacters(in: .whitespaces).isEmpty }).count == 1, w[0] != l[0] else {
+                  losers.filter({ !$0.trimmingCharacters(in: .whitespaces).isEmpty }).count == 1,
+                  w[0].caseInsensitiveCompare(l[0]) != .orderedSame else {
                 error = "1v1 volleyball needs one player on each side."
                 return
             }
@@ -993,6 +998,7 @@ struct SiteAddOtherView: View {
             "entered_timezone": TimeZone.current.identifier,
             "location": cleanLocation,
         ]
+        if oneOnOneOnly { fields["one_on_one"] = true }
         if gameToEdit == nil { fields["game_date"] = siteNowString() }
         if scoreType == "team" {
             if let ws = teamWinnerScore { fields["winner_score"] = ws }
@@ -1057,10 +1063,17 @@ struct SiteAddOtherView: View {
             PythonAnywhereClient.OtherGameEntryInfo(
                 gameType: gameType, scoreType: scoreType,
                 winnerCount: w.count, loserCount: l.count)
-        sitePromote([gameName], in: &knownNames)
+        if oneOnOneOnly {
+            if !knownFormats.contains(where: { $0.caseInsensitiveCompare(gameName) == .orderedSame }) {
+                knownFormats.append(gameName)
+            }
+        } else {
+            sitePromote([gameName], in: &knownNames)
+        }
         sitePromote([gameType], in: &knownTypes)
         PythonAnywhereClient.shared.rememberOtherGameCatalog(.init(
-            names: knownNames, types: knownTypes, defaults: entryDefaults))
+            names: knownNames, types: knownTypes, defaults: entryDefaults,
+            oneOnOneFormats: oneOnOneOnly ? knownFormats : nil))
         siteRememberGameLocation(cleanLocation)
         saving = false
         banner = "Game saved"
@@ -1071,13 +1084,7 @@ struct SiteAddOtherView: View {
         if let savedGame { gameSaveStatus(savedGame) }
         clearForm()
         focused = nil
-        let year = String(Calendar.current.component(.year, from: Date()))
-        if savingVollis {
-            let games = (try? await PythonAnywhereClient.shared.vollisGames(year: year, preview: false))?.games ?? []
-            todayVollisGames = games.filter { siteIsToday($0.date) }
-        }
-        let all = (try? await PythonAnywhereClient.shared.otherGames(year: year, preview: false))?.games ?? []
-        todayGames = all.filter { siteIsToday(DoublesGame.parseDate($0.gameDateOnly ?? $0.gameDate) ?? .distantPast) }
+        await refreshToday()
     }
 }
 

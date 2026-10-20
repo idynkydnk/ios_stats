@@ -426,7 +426,7 @@ final class PythonAnywhereClient {
             value.typeForName = previous.typeForName
             value.defaultYears = previous.defaultYears
             value.vollisDefaultYear = previous.vollisDefaultYear
-            value.oneOnOneFormats = previous.oneOnOneFormats
+            value.oneOnOneFormats = catalog.oneOnOneFormats ?? previous.oneOnOneFormats
         }
         cache.save(value, key: otherCatalogCacheKey, generation: cache.generation)
         cache.markStale()
