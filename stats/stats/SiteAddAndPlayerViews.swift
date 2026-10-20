@@ -21,9 +21,10 @@ struct SiteAddHubView: View {
                                 doublesEdit = nil
                             }
                         case .vollis:
-                            SiteAddVollisView(gameToEdit: vollisEdit, header: AnyView(addHeader)) {
-                                vollisEdit = nil
-                                section = .other
+                            if let game = vollisEdit {
+                                SiteAddVollisView(gameToEdit: game, header: AnyView(addHeader)) { vollisEdit = nil }
+                            } else {
+                                SiteAddOtherView(oneOnOneOnly: true, header: AnyView(addHeader))
                             }
                         case .other:
                             SiteAddOtherView(header: AnyView(addHeader))
@@ -43,10 +44,11 @@ struct SiteAddHubView: View {
                 .padding(.horizontal)
                 .padding(.top, 8)
             Picker("Type", selection: Binding(
-                get: { section == .doubles ? GameSection.doubles : .other },
+                get: { section },
                 set: { section = $0 }
             )) {
                 Text("Doubles").tag(GameSection.doubles)
+                Text("1v1").tag(GameSection.vollis)
                 Text("Other").tag(GameSection.other)
             }
             .pickerStyle(.segmented)
@@ -64,6 +66,7 @@ struct SitePlayerDetailView: View {
 
     var name: String
     @State private var year: String
+    var format: String
     var section: GameSection
     @State private var years: [String] = ["All years"]
     @State private var payload: DoublesPlayerPayload?
@@ -75,15 +78,16 @@ struct SitePlayerDetailView: View {
     @State private var error: String?
     @ObservedObject private var auth = SiteAuthManager.shared
 
-    init(name: String, year: String, section: GameSection) {
+    init(name: String, year: String, section: GameSection, format: String = "") {
         self.name = name
         self.section = section
+        self.format = format
         _year = State(initialValue: year == "All" ? "All years" : year)
     }
 
     private var cacheKey: String {
         SiteBrowseCache.playerKey(scope: auth.browseCacheScope, section: section.rawValue, year: year, name: name,
-                                 division: section == .doubles ? division : "", revision: auth.statsViewRevision)
+                                 division: section == .doubles ? division : "", revision: auth.statsViewRevision) + "-1v1-" + format
     }
 
     var body: some View {
@@ -95,6 +99,7 @@ struct SitePlayerDetailView: View {
             }
             .padding(.horizontal)
             .padding(.top, 8)
+            if section == .vollis { Text(format.isEmpty ? "All 1v1 volleyball" : format).font(.subheadline).foregroundStyle(.secondary) }
             if let error { Text(error).foregroundStyle(.red).padding() }
             if error == nil && (payload == nil || displayedCacheKey != cacheKey) {
                 ProgressView("Loading player…").padding()
@@ -155,7 +160,7 @@ struct SitePlayerDetailView: View {
                     SiteExpandableSection(title: "Opponents", count: opponents.count) {
                         SiteLimitedRows(opponents) { m in
                             NavigationLink {
-                                SitePlayerDetailView(name: m.opponent ?? "", year: year, section: section)
+                                SitePlayerDetailView(name: m.opponent ?? "", year: year, section: section, format: format)
                             } label: {
                                 matchupRow(name: m.opponent ?? "", wins: m.wins, losses: m.losses, winPct: m.winPercentage)
                             }
@@ -190,6 +195,7 @@ struct SitePlayerDetailView: View {
             }
         }
         .background(appearance.background)
+        .environment(\.oneOnOneFormat, format)
         .navigationTitle(name)
         .toolbar {
             if auth.isLoggedIn && !auth.isPreviewing {
@@ -200,7 +206,7 @@ struct SitePlayerDetailView: View {
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
-                SiteCopyLinkButton(url: SitePublicLink.player(section: section, year: year, name: payload?.name ?? name))
+                SiteCopyLinkButton(url: SitePublicLink.player(section: section, year: year, name: payload?.name ?? name, format: format))
             }
         }
         .task(id: "\(cacheKey)-\(dataRevision)-\(auth.sessionReady)") { await load() }
@@ -298,7 +304,7 @@ struct SitePlayerDetailView: View {
             case .doubles:
                 result = try await PythonAnywhereClient.shared.doublesPlayer(name: name, year: requestedYear)
             case .vollis:
-                result = try await PythonAnywhereClient.shared.vollisPlayer(name: name, year: requestedYear)
+                result = try await PythonAnywhereClient.shared.vollisPlayer(name: name, year: requestedYear, format: format)
             case .other:
                 result = try await PythonAnywhereClient.shared.otherPlayer(name: name, year: requestedYear)
             }

@@ -629,7 +629,18 @@ struct SiteExpandableSection<Content: View>: View {
     }
 }
 
+private struct OneOnOneFormatKey: EnvironmentKey {
+    static let defaultValue = ""
+}
+extension EnvironmentValues {
+    var oneOnOneFormat: String {
+        get { self[OneOnOneFormatKey.self] }
+        set { self[OneOnOneFormatKey.self] = newValue }
+    }
+}
+
 struct RankingTable: View {
+    @Environment(\.oneOnOneFormat) private var oneOnOneFormat
     @Environment(\.siteAppearance) private var appearance
     @Environment(\.dynamicTypeSize) private var textSize
     @ScaledMetric(relativeTo: .subheadline) private var ratingWidth: CGFloat = 62
@@ -707,7 +718,7 @@ struct RankingTable: View {
                 Divider()
                 SiteLimitedRows(Array(displayedRows.enumerated()), id: \.element.id) { idx, row in
                     NavigationLink {
-                        SitePlayerDetailView(name: row.name, year: year, section: section)
+                        SitePlayerDetailView(name: row.name, year: year, section: section, format: section == .vollis ? oneOnOneFormat : "")
                     } label: {
                         HStack(spacing: columnSpacing) {
                             tableCell("\(idx + 1)", width: rankColumnWidth)
@@ -784,7 +795,7 @@ struct RankingTable: View {
         VStack(spacing: 0) {
             SiteLimitedRows(Array(displayedRows.enumerated()), id: \.element.id) { idx, row in
                 NavigationLink {
-                    SitePlayerDetailView(name: row.name, year: year, section: section)
+                    SitePlayerDetailView(name: row.name, year: year, section: section, format: section == .vollis ? oneOnOneFormat : "")
                 } label: {
                     VStack(alignment: .leading, spacing: 10) {
                         HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -860,7 +871,7 @@ struct SiteStatsView: View {
         var other: OtherStatsPayload?
     }
 
-    private var cacheKey: String { "\(auth.browseCacheScope)-stats-\(section.rawValue)-\(selectedYear)-\(division)" }
+    private var cacheKey: String { "\(auth.browseCacheScope)-stats-\(section.rawValue)-\(selectedYear)-\(division)-1v1-\(selectedOtherGame)" }
     private var hasStats: Bool {
         switch section {
         case .doubles: return doubles != nil
@@ -956,7 +967,8 @@ struct SiteStatsView: View {
                 .background(appearance.background)
                 .refreshable { await load(force: true) }
             }
-            .navigationTitle(loading ? (hasStats ? "Updating stats…" : "Loading stats…") : "Stats")
+            .environment(\.oneOnOneFormat, section == .vollis ? selectedOtherGame : "")
+            .navigationTitle(loading ? (hasStats ? "Updating stats…" : "Loading stats…") : (section == .vollis ? "1v1 Stats" : "Stats"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -1028,7 +1040,7 @@ struct SiteStatsView: View {
                 doubles = payload
                 if payload.showingPreviousYear { selectedYear = payload.displayYear }
             case .vollis:
-                let payload = try await PythonAnywhereClient.shared.vollisStats(year: year)
+                let payload = try await PythonAnywhereClient.shared.oneOnOneStats(year: year, format: selectedOtherGame)
                 try Task.checkCancellation()
                 guard loadID == requestID, auth.browseCacheScope == scope, cache.generation == generation else { return }
                 vollis = payload
@@ -1083,6 +1095,7 @@ struct SiteGamesView: View {
     @State private var isDeleting = false
     @State private var successTick = 0
     @State private var openedPlayer: SitePlayerRoute?
+    @State private var editingOneOnOne: OtherGame?
     @State private var loadID = UUID()
     @State private var displayedCacheKey: String?
     private typealias Snapshot = SiteGamesSnapshot
@@ -1159,14 +1172,14 @@ struct SiteGamesView: View {
                                         .listRowInsets(EdgeInsets())
                                     .buttonStyle(.borderless)
                                     .swipeActions {
-                                        if canEdit && g.id < 4_294_967_296 && !isDeleting {
-                                            Button("Edit") { onEditVollis(g) }
+                                        if canEdit && g.canEdit == true && !isDeleting {
+                                            Button("Edit") { if let original = g.otherGame { editingOneOnOne = original } else { onEditVollis(g) } }
                                             Button("Delete", role: .destructive) { Task { await deleteVollis(g) } }
                                         }
                                     }
                                     .contextMenu {
-                                        if canEdit && g.id < 4_294_967_296 && !isDeleting {
-                                            Button("Edit") { onEditVollis(g) }
+                                        if canEdit && g.canEdit == true && !isDeleting {
+                                            Button("Edit") { if let original = g.otherGame { editingOneOnOne = original } else { onEditVollis(g) } }
                                             Button("Delete", role: .destructive) { Task { await deleteVollis(g) } }
                                         }
                                     }
@@ -1220,10 +1233,13 @@ struct SiteGamesView: View {
                 .environment(\.openSitePlayer, OpenSitePlayerAction { openedPlayer = $0 })
             }
             .navigationDestination(item: $openedPlayer) { route in
-                SitePlayerDetailView(name: route.name, year: route.year, section: route.section)
+                SitePlayerDetailView(name: route.name, year: route.year, section: route.section, format: section == .vollis ? selectedOtherGame : "")
                     .environment(\.openSitePlayer, nil)
             }
-            .navigationTitle("Games")
+            .sheet(item: $editingOneOnOne, onDismiss: { Task { await load(force: true) } }) { game in
+                SiteAddGameEditor(game: .other(game))
+            }
+            .navigationTitle(section == .vollis ? "1v1 Games" : "Games")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -1326,7 +1342,7 @@ struct SiteGamesView: View {
                 nextOffset = p.nextOffset
                 totalGames = p.total
             case .vollis:
-                let p = try await PythonAnywhereClient.shared.vollisGames(year: year, offset: offset, search: search)
+                let p = try await PythonAnywhereClient.shared.oneOnOneGames(year: year, format: selectedOtherGame, offset: offset, search: search)
                 try Task.checkCancellation()
                 guard loadID == requestID, gamesCacheKey == key, auth.browseCacheScope == scope, cache.generation == generation else { return }
                 vollis = older ? vollis + p.games.filter { game in !vollis.contains { $0.id == game.id } } : p.games
@@ -1385,7 +1401,11 @@ struct SiteGamesView: View {
         error = nil
         defer { isDeleting = false }
         do {
-            try await PythonAnywhereClient.shared.deleteVollis(id: g.id)
+            if g.source == "other", let id = g.sourceId {
+                try await PythonAnywhereClient.shared.deleteOther(id: id)
+            } else {
+                try await PythonAnywhereClient.shared.deleteVollis(id: g.sourceId ?? g.id)
+            }
             vollis.removeAll { $0.id == g.id }
             showDeletedBanner()
         } catch {
@@ -1428,6 +1448,7 @@ extension EnvironmentValues {
 }
 
 struct SitePlayerNameLink: View {
+    @Environment(\.oneOnOneFormat) private var oneOnOneFormat
     var name: String
     var year: String?
     var section: GameSection
@@ -1445,7 +1466,7 @@ struct SitePlayerNameLink: View {
                 .buttonStyle(.borderless)
             } else {
                 NavigationLink {
-                    SitePlayerDetailView(name: name, year: year, section: section)
+                    SitePlayerDetailView(name: name, year: year, section: section, format: section == .vollis ? oneOnOneFormat : "")
                 } label: {
                     Text(name).foregroundStyle(color)
                 }
@@ -1525,6 +1546,7 @@ struct DoublesGameRow: View {
     var section: GameSection = .doubles
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
+            if let format = game.gameName { Text(format).font(.subheadline.weight(.semibold)) }
             SiteGameDateLabel(raw: game.gameDate)
             SiteTeamScorePanel(score: game.winnerScore, winner: true) {
                 playerPair(game.winner1, game.winner2, color: .green)
@@ -1555,6 +1577,7 @@ struct VollisGameRow: View {
     var section: GameSection = .vollis
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
+            Text(game.gameName ?? "Vollis").font(.subheadline.weight(.semibold))
             SiteGameDateLabel(raw: game.gameDate)
             SiteTeamScorePanel(score: game.winnerScore, winner: true) {
                 if let name = game.winner { SitePlayerNameLink(name: name, year: year, section: section, color: .green) }
@@ -1581,12 +1604,13 @@ struct OtherGameNavigation: View {
     @AppStorage("stats.doublesDivision") private var division = "open"
     @State private var defaultYears: [String: String] = [:]
     @State private var vollisDefaultYear = "All years"
+    @State private var oneOnOneFormats: [String] = ["Vollis"]
     @State private var groups: [String: [String]] = ["Volleyball": ["No jump"]]
     @State private var loadError = false
     @State private var expanded = false
 
     private var selectedGame: String {
-        section == .doubles ? "Doubles" : section == .vollis ? "Vollis" : selection
+        section == .doubles ? "Doubles" : section == .vollis ? "1v1" : selection
     }
 
     var body: some View {
@@ -1609,6 +1633,13 @@ struct OtherGameNavigation: View {
                     }.font(.caption)
                 }
                 .accessibilityValue(expanded ? "Expanded" : "Collapsed")
+            }
+            if section == .vollis {
+                Picker("Format", selection: $selection) {
+                    Text("All 1v1").tag("")
+                    ForEach(oneOnOneFormats, id: \.self) { Text($0).tag($0) }
+                }
+                .pickerStyle(.menu)
             }
             if expanded { gameChoices.padding(.top, 12) }
         }
@@ -1634,7 +1665,7 @@ struct OtherGameNavigation: View {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), alignment: .leading)], alignment: .leading, spacing: 8) {
                     if category == "Volleyball" {
                         choice("Doubles", value: "", destination: .doubles)
-                        choice("Vollis", value: "", destination: .vollis)
+                        choice("1v1", value: "", destination: .vollis)
                         choice("No jump", value: "No jump")
                         if !selection.isEmpty && selection != "No jump" && (groups[category] ?? []).contains(selection) {
                             choice(selection, value: selection)
@@ -1669,6 +1700,7 @@ struct OtherGameNavigation: View {
             groups = navigation.groups
             defaultYears = navigation.defaultYears
             vollisDefaultYear = navigation.vollisDefaultYear
+            oneOnOneFormats = navigation.formats
             loadError = false
         } catch { if !Task.isCancelled, auth.browseCacheScope == scope { loadError = true } }
     }

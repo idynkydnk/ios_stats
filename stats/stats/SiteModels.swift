@@ -6,7 +6,7 @@ enum GameSection: String, CaseIterable, Identifiable, Hashable {
     var title: String {
         switch self {
         case .doubles: return "Doubles"
-        case .vollis: return "Vollis"
+        case .vollis: return "1v1"
         case .other: return "Other"
         }
     }
@@ -151,6 +151,7 @@ struct DoublesStatsPayload: Codable {
 
 struct DoublesGame: Codable, Identifiable, Hashable {
     var id: Int
+    var gameName: String? = nil
     var gameDate: String?
     var winner1: String?
     var winner2: String?
@@ -301,6 +302,11 @@ struct DoublesPlayerPayload: Codable {
 
 struct VollisGame: Codable, Identifiable, Hashable {
     var id: Int
+    var sourceId: Int? = nil
+    var source: String? = nil
+    var gameName: String? = nil
+    var canEdit: Bool? = nil
+    var otherGame: OtherGame? = nil
     var gameDate: String?
     var winner: String?
     var winnerScore: Int?

@@ -118,7 +118,7 @@ final class PythonAnywhereClient {
     func me() async throws -> MePayload { try await get("/api/me") }
 
     func years() async throws -> YearsPayload {
-        let req = request("/api/years", method: "GET", authed: token != nil)
+        let req = request("/api/years", method: "GET", query: ["one_on_one": "1"], authed: token != nil)
         return try await yearsCache.load(key: metadataKey(req)) { try await self.decode(req) }
     }
 
@@ -133,7 +133,7 @@ final class PythonAnywhereClient {
             let page = try await doublesGames(year: year, offset: 0, search: selection.search)
             return SiteGamesSnapshot(doubles: page.games, nextOffset: page.nextOffset, total: page.total)
         case .vollis:
-            let page = try await vollisGames(year: year, offset: 0, search: selection.search)
+            let page = try await oneOnOneGames(year: year, format: selection.otherGame, offset: 0, search: selection.search)
             return SiteGamesSnapshot(vollis: page.games, nextOffset: page.nextOffset, total: page.total)
         case .other:
             let page = try await otherGames(year: year, gameName: selection.otherGame.isEmpty ? nil : selection.otherGame,
@@ -167,6 +167,15 @@ final class PythonAnywhereClient {
         return try await get("/api/doubles/players/\(encoded)", query: ["year": year, "game_limit": "30", "game_offset": String(gameOffset)])
     }
 
+    func oneOnOneStats(year: String, format: String) async throws -> VollisStatsPayload {
+        try await get("/api/vollis/stats", query: ["year": year, "one_on_one": "1", "format": format])
+    }
+
+    func oneOnOneGames(year: String, format: String, offset: Int = 0, search: String = "") async throws -> GamesListPayload<VollisGame> {
+        try await get("/api/vollis/games", query: ["year": year, "one_on_one": "1", "format": format,
+                                                "limit": "50", "offset": String(offset), "q": search])
+    }
+
     func vollisStats(year: String) async throws -> VollisStatsPayload {
         try await get("/api/vollis/stats", query: ["year": year])
     }
@@ -189,9 +198,9 @@ final class PythonAnywhereClient {
 
     func deleteVollis(id: Int) async throws { try await delete("/api/vollis/games/\(id)") }
 
-    func vollisPlayer(name: String, year: String) async throws -> DoublesPlayerPayload {
+    func vollisPlayer(name: String, year: String, format: String = "") async throws -> DoublesPlayerPayload {
         let encoded = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? name
-        return try await get("/api/vollis/players/\(encoded)", query: ["year": year])
+        return try await get("/api/vollis/players/\(encoded)", query: ["year": year, "one_on_one": "1", "format": format])
     }
 
     func otherPlayer(name: String, year: String) async throws -> DoublesPlayerPayload {
@@ -200,7 +209,7 @@ final class PythonAnywhereClient {
     }
 
     func otherStats(year: String) async throws -> OtherStatsPayload {
-        try await get("/api/other/stats", query: ["year": year, "include_volleyball": "1"])
+        try await get("/api/other/stats", query: ["year": year, "include_volleyball": "1", "one_on_one": "1"])
     }
 
     func otherGames(year: String? = nil, gameName: String? = nil, preview: Bool? = nil, offset: Int? = nil, search: String = "") async throws -> GamesListPayload<OtherGame> {
@@ -222,14 +231,15 @@ final class PythonAnywhereClient {
 
     func deleteOther(id: Int) async throws { try await delete("/api/other/games/\(id)") }
 
-    func otherNavigationGroups() async throws -> (groups: [String: [String]], defaultYears: [String: String], vollisDefaultYear: String) {
+    func otherNavigationGroups() async throws -> (groups: [String: [String]], defaultYears: [String: String], vollisDefaultYear: String, formats: [String]) {
         let payload = try await loadOtherGameCatalog(preview: nil)
         var groups: [String: [String]] = ["Volleyball": ["No jump"]]
         for name in payload.names {
+            if (payload.oneOnOneFormats ?? []).contains(name) { continue }
             let category = (payload.typeForName ?? [:])[name].flatMap { $0.isEmpty ? nil : $0 } ?? "Other games"
             if !(groups[category] ?? []).contains(name) { groups[category, default: []].append(name) }
         }
-        return (groups, payload.defaultYears ?? [:], payload.vollisDefaultYear ?? "All years")
+        return (groups, payload.defaultYears ?? [:], payload.vollisDefaultYear ?? "All years", payload.oneOnOneFormats ?? ["Vollis"])
     }
 
     func volleyballStats(year: String) async throws -> OtherStatsPayload {
@@ -383,6 +393,7 @@ final class PythonAnywhereClient {
         var typeForName: [String: String]? = nil
         var defaultYears: [String: String]? = nil
         var vollisDefaultYear: String? = nil
+        var oneOnOneFormats: [String]? = nil
 
         @MainActor var suggestedNames: [String] {
             var result = ["Vollis"]
@@ -415,6 +426,7 @@ final class PythonAnywhereClient {
             value.typeForName = previous.typeForName
             value.defaultYears = previous.defaultYears
             value.vollisDefaultYear = previous.vollisDefaultYear
+            value.oneOnOneFormats = previous.oneOnOneFormats
         }
         cache.save(value, key: otherCatalogCacheKey, generation: cache.generation)
         cache.markStale()
@@ -436,10 +448,11 @@ final class PythonAnywhereClient {
                 var typeForName: [String: String]?
                 var defaultYears: [String: String]?
                 var vollisDefaultYear: String?
+                var oneOnOneFormats: [String]?
             }
             let w: Wrap = try await self.decode(req)
             return OtherGameCatalog(names: w.gameNames ?? [], types: w.gameTypes ?? [], defaults: w.entryDefaults ?? [:],
-                typeForName: w.typeForName, defaultYears: w.defaultYears, vollisDefaultYear: w.vollisDefaultYear)
+                typeForName: w.typeForName, defaultYears: w.defaultYears, vollisDefaultYear: w.vollisDefaultYear, oneOnOneFormats: w.oneOnOneFormats)
         }
     }
 
@@ -1003,7 +1016,7 @@ final class PythonAnywhereClient {
         let method = request.httpMethod ?? "GET"
         let path = request.url?.path ?? ""
         let section = path.split(separator: "/").dropFirst().first.map(String.init)
-        let sport = ["doubles", "vollis", "other"].contains(section ?? "") ? section : nil
+        let sport = section == "doubles" ? section : nil // 1v1 combines Vollis and other volleyball games.
         await Task.detached(priority: .userInitiated) {
             if SiteStatsRefreshPolicy.affectsPlayerSuggestions(method: method, path: path) {
                 SiteBrowseCache.playerSuggestions.invalidate()

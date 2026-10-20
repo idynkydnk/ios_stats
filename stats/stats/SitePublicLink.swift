@@ -9,7 +9,7 @@ enum SitePublicLink {
         let y = normalizedYear(year)
         switch section {
         case .doubles: return doublesPage("stats", y)
-        case .vollis: return page("vollis_stats", y)
+        case .vollis: return singlesPage("vollis_stats", y, format: gameName)
         case .other: return gameName.isEmpty ? page("other_stats", y) : page("game_name_stats", gameName, y)
         }
     }
@@ -18,18 +18,25 @@ enum SitePublicLink {
         let y = normalizedYear(year)
         switch section {
         case .doubles: return doublesPage("games", y)
-        case .vollis: return page("vollis_games", y)
+        case .vollis: return singlesPage("vollis_games", y, format: gameName)
         case .other: return gameName.isEmpty ? page("other_games", y) : page("other_games", y, gameName)
         }
     }
 
-    static func player(section: GameSection, year: String, name: String) -> URL? {
+    static func player(section: GameSection, year: String, name: String, format: String = "") -> URL? {
         let y = normalizedYear(year)
         switch section {
         case .doubles: return doublesPage("player", y, name)
-        case .vollis: return page("vollis_player", y, name)
+        case .vollis: return singlesPage("vollis_player", y, name, format: format)
         case .other: return page("other_player", y, name)
         }
+    }
+
+    private static func singlesPage(_ components: String..., format: String) -> URL? {
+        let encoded = components.map { $0.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed.subtracting(CharacterSet(charactersIn: "/"))) ?? $0 }
+        var url = URLComponents(string: host + "/" + encoded.joined(separator: "/") + "/")
+        if !format.isEmpty { url?.queryItems = [URLQueryItem(name: "format", value: format)] }
+        return url?.url
     }
 
     static func volleyball(year: String) -> URL? {

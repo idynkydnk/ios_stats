@@ -9,7 +9,7 @@ struct SiteGamesSelection: Equatable {
     var search: String = ""
 
     var cacheKey: String {
-        let fields = [scope, section.rawValue, "games-v2", year, division, otherGame, search]
+        let fields = [scope, section.rawValue, "games-v3-1v1", year, division, otherGame, search]
         return (try? JSONEncoder().encode(fields).base64EncodedString()) ?? ""
     }
 }

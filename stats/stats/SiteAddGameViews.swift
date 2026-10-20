@@ -507,6 +507,7 @@ struct SiteAddVollisView: View {
 
 struct SiteAddOtherView: View {
     var gameToEdit: OtherGame? = nil
+    var oneOnOneOnly = false
     var header: AnyView? = nil
     var showsHistory = true
     var onSavingChanged: (Bool) -> Void = { _ in }
@@ -553,9 +554,16 @@ struct SiteAddOtherView: View {
     var body: some View {
         SiteAddFormScrollView(focused: focused, header: header) {
             VStack(alignment: .leading, spacing: 14) {
-                SiteContentCard(title: "Other game") {
+                SiteContentCard(title: oneOnOneOnly ? "1v1 volleyball" : "Other game") {
+                    if oneOnOneOnly {
+                        Picker("Format", selection: $gameName) {
+                            ForEach(PythonAnywhereClient.shared.cachedOtherGameCatalog?.oneOnOneFormats ?? ["Vollis"], id: \.self) { Text($0).tag($0) }
+                        }
+                        .onChange(of: gameName) { _, _ in Task { await applyGameName(advanceFocus: false) } }
+                    }
                     if let error { SiteAddBanner(text: error, isError: true) }
 
+                    if !oneOnOneOnly {
                     SiteAddTextRow(label: "Game name", text: $gameName, field: .gameName, focus: $focused, submit: .done, onSubmit: {
                         focused = nil
                         Task { await applyGameName(advanceFocus: false) }
@@ -571,6 +579,7 @@ struct SiteAddOtherView: View {
                             Task { await applyGameName() }
                         }
                     }
+                    }
                     if loadingGameNames {
                         ProgressView("Loading game names…")
                     } else if let gameNamesError {
@@ -580,7 +589,7 @@ struct SiteAddOtherView: View {
                         }
                     }
 
-                    if !isVollis {
+                    if !isVollis && !oneOnOneOnly {
                         SiteAddTextRow(label: "Game type", text: $gameType, field: .gameType, focus: $focused, submit: .done, onSubmit: {
                             focused = nil
                         })
@@ -605,7 +614,7 @@ struct SiteAddOtherView: View {
                     ForEach(winners.indices, id: \.self) { i in
                         playerSlot(side: .winner, index: i)
                     }
-                    if !isVollis {
+                    if !isVollis && !oneOnOneOnly {
                         Button("Add winner") { addSlot(winner: true) }
                             .font(.subheadline)
                     }
@@ -614,7 +623,7 @@ struct SiteAddOtherView: View {
                     ForEach(losers.indices, id: \.self) { i in
                         playerSlot(side: .loser, index: i)
                     }
-                    if !isVollis {
+                    if !isVollis && !oneOnOneOnly {
                         Button("Add loser") { addSlot(winner: false) }
                             .font(.subheadline)
                     }
@@ -715,6 +724,7 @@ struct SiteAddOtherView: View {
         }
         .task {
             applyEdit()
+            if oneOnOneOnly && gameName.isEmpty { gameName = "Vollis"; configureVollis() }
             await refreshToday()
         }
     }
@@ -742,7 +752,12 @@ struct SiteAddOtherView: View {
         guard showsHistory else { return }
         let year = String(Calendar.current.component(.year, from: Date()))
         if let all = try? await PythonAnywhereClient.shared.otherGames(year: year, preview: false) {
-            todayGames = all.games.filter { siteIsToday(DoublesGame.parseDate($0.gameDateOnly ?? $0.gameDate) ?? .distantPast) }
+            let formats = PythonAnywhereClient.shared.cachedOtherGameCatalog?.oneOnOneFormats ?? []
+            todayGames = all.games.filter {
+                siteIsToday(DoublesGame.parseDate($0.gameDateOnly ?? $0.gameDate) ?? .distantPast)
+                    && (!oneOnOneOnly || (formats.contains($0.gameName ?? "")
+                        && $0.displayWinners.count == 1 && $0.displayLosers.count == 1))
+            }
         }
         if isVollis || !todayVollisGames.isEmpty,
            let all = try? await PythonAnywhereClient.shared.vollisGames(year: year, preview: false) {
@@ -860,13 +875,13 @@ struct SiteAddOtherView: View {
 
     private func clearForm() {
         clearPlayers()
-        gameName = ""
-        gameType = ""
+        if !oneOnOneOnly { gameName = "" }
+        gameType = oneOnOneOnly ? "Volleyball" : ""
         scoreType = "team"
         resizeSlots(winnerCount: 1, loserCount: 1)
         location = siteLastGameLocation()
         error = nil
-        focused = .gameName
+        focused = oneOnOneOnly ? .winner(0) : .gameName
     }
 
     private func loserChipsForTeam() -> [Int] {
@@ -923,6 +938,7 @@ struct SiteAddOtherView: View {
                 resizeSlots(winnerCount: 2, loserCount: 2)
             }
         }
+        if oneOnOneOnly { gameType = "Volleyball"; resizeSlots(winnerCount: 1, loserCount: 1) }
         if advanceFocus {
             focused = gameType.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .gameType : .winner(0)
         }
@@ -946,6 +962,13 @@ struct SiteAddOtherView: View {
             error = "Game name, winners, and losers are required."
             return
         }
+        if oneOnOneOnly {
+            guard winners.filter({ !$0.trimmingCharacters(in: .whitespaces).isEmpty }).count == 1,
+                  losers.filter({ !$0.trimmingCharacters(in: .whitespaces).isEmpty }).count == 1, w[0] != l[0] else {
+                error = "1v1 volleyball needs one player on each side."
+                return
+            }
+        }
         let savingVollis = isVollis
         if savingVollis {
             guard w.count == 1, l.count == 1, w[0] != l[0],
@@ -955,6 +978,7 @@ struct SiteAddOtherView: View {
             }
             scoreType = "team"
         }
+        if oneOnOneOnly { gameType = "Volleyball" }
         if gameType.isEmpty { gameType = knownTypes.first ?? "Other" }
         var savedGame: SiteSavedGameReceipt?
         saving = true
@@ -1166,7 +1190,7 @@ struct SiteSavedGamePopup: View {
     }
 }
 
-private enum SiteEditableGame {
+enum SiteEditableGame {
     case doubles(DoublesGame)
     case vollis(VollisGame)
     case other(OtherGame)
@@ -1210,7 +1234,7 @@ private struct SiteAddGameEditButton: View {
     }
 }
 
-private struct SiteAddGameEditor: View {
+struct SiteAddGameEditor: View {
     let game: SiteEditableGame
     @Environment(\.dismiss) private var dismiss
     @State private var saving = false
