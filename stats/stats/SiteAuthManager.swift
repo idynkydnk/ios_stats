@@ -114,7 +114,14 @@ final class SiteAuthManager: ObservableObject {
     private func accept(me: MePayload, token: String, biometric: Bool = false) async {
         await MainActor.run {
             SiteBrowseCache.shared.invalidate()
-            SiteBrowseCache.playerSuggestions.invalidate()
+            if biometric {
+                // The server has verified the saved session. Names remain keyed
+                // by that session and its permissions, just like ordinary launch
+                // restoration; keep them visible while refreshing their order.
+                SiteBrowseCache.playerSuggestions.markStale()
+            } else {
+                SiteBrowseCache.playerSuggestions.invalidate()
+            }
             SiteBrowseCache.playerDetails.invalidate()
             SiteBrowseCache.library.invalidate()
         SiteBrowseCache.navigation.invalidate()

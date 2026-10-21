@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 
 struct SiteAddDoublesView: View {
     var gameToEdit: DoublesGame?
@@ -20,6 +21,7 @@ struct SiteAddDoublesView: View {
     @State private var comments = ""
     @State private var location = siteLastGameLocation()
     @State private var players: [String] = []
+    @State private var playerSuggestionsRevision = UUID()
     @State private var error: String?
     @State private var banner: String?
     @State private var bannerIsError = false
@@ -104,7 +106,7 @@ struct SiteAddDoublesView: View {
             }
         }
         .task { await bootstrap() }
-        .task(id: auth.playerSuggestionsScope) {
+        .task(id: "\(auth.playerSuggestionsScope)-\(playerSuggestionsRevision)") {
             let client = PythonAnywhereClient.shared
             let key = client.doublesPlayersCacheKey
             players = client.cachedDoublesPlayers
@@ -113,6 +115,8 @@ struct SiteAddDoublesView: View {
                 players = refreshed
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: SiteBrowseCache.didChange, object: SiteBrowseCache.playerSuggestions)
+            .receive(on: RunLoop.main)) { _ in playerSuggestionsRevision = UUID() }
         .onChange(of: gameToEdit?.id) { _, _ in applyEdit() }
         .onAppear {
             if gameToEdit == nil {
@@ -315,6 +319,7 @@ struct SiteAddVollisView: View {
     @State private var loserScore: Int?
     @State private var location = siteLastGameLocation()
     @State private var players: [String] = []
+    @State private var playerSuggestionsRevision = UUID()
     @State private var todayGames: [VollisGame] = []
     @State private var error: String?
     @State private var banner: String?
@@ -412,6 +417,9 @@ struct SiteAddVollisView: View {
             }
         }
         .task { await load() }
+        .task(id: "\(auth.playerSuggestionsScope)-\(playerSuggestionsRevision)") { await refreshPlayers() }
+        .onReceive(NotificationCenter.default.publisher(for: SiteBrowseCache.didChange, object: SiteBrowseCache.playerSuggestions)
+            .receive(on: RunLoop.main)) { _ in playerSuggestionsRevision = UUID() }
         .onChange(of: auth.statsViewRevision) { _, _ in
             Task { await refreshToday() }
         }
@@ -431,8 +439,17 @@ struct SiteAddVollisView: View {
         await refreshToday()
     }
 
+    private func refreshPlayers() async {
+        let client = PythonAnywhereClient.shared
+        let key = client.vollisPlayersCacheKey
+        players = client.cachedVollisPlayers
+        if let refreshed = try? await client.vollisPlayers(),
+           !Task.isCancelled, key == client.vollisPlayersCacheKey {
+            players = refreshed
+        }
+    }
+
     private func refreshToday() async {
-        players = (try? await PythonAnywhereClient.shared.vollisPlayers()) ?? []
         guard showsHistory else { return }
         let year = String(Calendar.current.component(.year, from: Date()))
         let all = (try? await PythonAnywhereClient.shared.vollisGames(year: year, preview: false))?.games ?? []
@@ -501,6 +518,7 @@ struct SiteAddVollisView: View {
         clearForm()
         focused = nil
         if gameToEdit != nil { onDone() }
+        await refreshPlayers()
         await refreshToday()
     }
 }
@@ -535,6 +553,8 @@ struct SiteAddOtherView: View {
     @State private var knownTypes: [String] = []
     @State private var entryDefaults: [String: PythonAnywhereClient.OtherGameEntryInfo] = [:]
     @State private var players: [String] = []
+    @State private var playerGameName = ""
+    @State private var playerSuggestionsRevision = UUID()
     @State private var winnerChips: [Int] = [21, 25, 15, 18, 20]
     @State private var loserChips: [Int] = [19, 23, 12, 16, 17]
     @State private var indivChips: [Int] = Array(0...10)
@@ -549,6 +569,12 @@ struct SiteAddOtherView: View {
 
     private var isVollis: Bool {
         gameToEdit == nil && gameName.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare("Vollis") == .orderedSame
+    }
+
+    private var playerSuggestionsKey: String {
+        guard !playerGameName.isEmpty else { return "" }
+        let client = PythonAnywhereClient.shared
+        return isVollis ? client.vollisPlayersCacheKey : client.otherGamePlayersCacheKey(gameName: playerGameName)
     }
     @FocusState private var focused: Field?
 
@@ -705,17 +731,14 @@ struct SiteAddOtherView: View {
         }
         .onChange(of: gameName) { _, _ in
             if isVollis { configureVollis() }
+            if gameName.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare(playerGameName) != .orderedSame {
+                playerGameName = ""
+                players = []
+            }
         }
-        .task(id: auth.statsViewRevision) {
-            let name = (gameToEdit?.gameName ?? gameName).trimmingCharacters(in: .whitespaces)
-            players = []
-            guard !name.isEmpty else { return }
-            let ordered = isVollis
-                ? (try? await PythonAnywhereClient.shared.vollisPlayers())
-                : (try? await PythonAnywhereClient.shared.otherGamePlayers(gameName: name))
-            guard gameName.trimmingCharacters(in: .whitespaces) == name else { return }
-            players = ordered ?? []
-        }
+        .task(id: "\(playerSuggestionsKey)-\(playerSuggestionsRevision)") { await refreshPlayers() }
+        .onReceive(NotificationCenter.default.publisher(for: SiteBrowseCache.didChange, object: SiteBrowseCache.playerSuggestions)
+            .receive(on: RunLoop.main)) { _ in playerSuggestionsRevision = UUID() }
         .task(id: auth.playerSuggestionsScope) {
             let saved = PythonAnywhereClient.shared.cachedOtherGameCatalog
             knownNames = saved?.suggestedNames ?? []
@@ -734,6 +757,7 @@ struct SiteAddOtherView: View {
     private func applyEdit() {
         guard let game = gameToEdit else { return }
         gameName = game.gameName ?? ""
+        selectPlayerGame(gameName)
         gameType = game.gameType ?? ""
         winners = game.displayWinners.isEmpty ? [""] : game.displayWinners
         losers = game.displayLosers.isEmpty ? [""] : game.displayLosers
@@ -748,6 +772,26 @@ struct SiteAddOtherView: View {
         teamLoserScore = game.loserScore
         comment = game.comment ?? ""
         location = game.location ?? ""
+    }
+
+    private func selectPlayerGame(_ name: String) {
+        playerGameName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let client = PythonAnywhereClient.shared
+        players = isVollis ? client.cachedVollisPlayers : client.cachedOtherGamePlayers(gameName: playerGameName)
+    }
+
+    private func refreshPlayers() async {
+        let name = playerGameName
+        guard !name.isEmpty else { players = []; return }
+        let key = playerSuggestionsKey
+        let client = PythonAnywhereClient.shared
+        players = isVollis ? client.cachedVollisPlayers : client.cachedOtherGamePlayers(gameName: name)
+        let refreshed = isVollis
+            ? (try? await client.vollisPlayers())
+            : (try? await client.otherGamePlayers(gameName: name))
+        guard !Task.isCancelled, key == playerSuggestionsKey,
+              gameName.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare(name) == .orderedSame else { return }
+        if let refreshed { players = refreshed }
     }
 
     private func refreshToday() async {
@@ -908,17 +952,18 @@ struct SiteAddOtherView: View {
             ? knownFormats.first(where: { $0.caseInsensitiveCompare(enteredName) == .orderedSame }) ?? enteredName
             : enteredName
         guard !name.isEmpty else { return }
+        let scope = auth.playerSuggestionsScope
         gameName = name
+        // Populate the first player before waiting for game defaults or scores.
+        // The keyed task refreshes this game's saved names independently.
+        selectPlayerGame(name)
         if isVollis {
             gameName = "Vollis"
             configureVollis()
             if advanceFocus { focused = .winner(0) }
-            let ordered = (try? await PythonAnywhereClient.shared.vollisPlayers()) ?? []
-            guard isVollis else { return }
-            players = ordered
             let year = String(Calendar.current.component(.year, from: Date()))
             let games = (try? await PythonAnywhereClient.shared.vollisGames(year: year, preview: false))?.games ?? []
-            guard isVollis else { return }
+            guard !Task.isCancelled, isVollis, scope == auth.playerSuggestionsScope else { return }
             todayVollisGames = games.filter { siteIsToday($0.date) }
             return
         }
@@ -933,9 +978,10 @@ struct SiteAddOtherView: View {
                 scoreType: info["score_type"] as? String,
                 winnerCount: PythonAnywhereClient.jsonIntPublic(info["winner_count"]),
                 loserCount: PythonAnywhereClient.jsonIntPublic(info["loser_count"]))
-            entryDefaults[key] = defaults
         }
-        guard gameName.trimmingCharacters(in: .whitespaces) == name else { return }
+        guard !Task.isCancelled, scope == auth.playerSuggestionsScope,
+              gameName.trimmingCharacters(in: .whitespacesAndNewlines) == name else { return }
+        entryDefaults[key] = defaults
         if let info = defaults {
             if let t = info.gameType, !t.isEmpty { gameType = t }
             if let s = info.scoreType, !s.isEmpty { scoreType = s }
@@ -949,12 +995,9 @@ struct SiteAddOtherView: View {
         if advanceFocus {
             focused = gameType.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .gameType : .winner(0)
         }
-        if let ordered = try? await PythonAnywhereClient.shared.otherGamePlayers(gameName: name) {
-            guard gameName.trimmingCharacters(in: .whitespaces) == name else { return }
-            players = ordered
-        }
         if let scores = try? await PythonAnywhereClient.shared.otherGameCommonScores(gameName: name) {
-            guard gameName.trimmingCharacters(in: .whitespaces) == name else { return }
+            guard !Task.isCancelled, scope == auth.playerSuggestionsScope,
+                  gameName.trimmingCharacters(in: .whitespacesAndNewlines) == name else { return }
             if !scores.winners.isEmpty { winnerChips = scores.winners }
             if !scores.losers.isEmpty { loserChips = scores.losers }
             if !scores.winnerIndiv.isEmpty { indivChips = scores.winnerIndiv }

@@ -477,13 +477,42 @@ final class PythonAnywhereClient {
         }
     }
 
-    func vollisPlayers() async throws -> [String] {
-        try await nameList("/api/vollis_players")
+    @MainActor
+    var vollisPlayersCacheKey: String {
+        "\(SiteAuthManager.shared.playerSuggestionsScope)-vollis-players"
     }
 
+    @MainActor
+    var cachedVollisPlayers: [String] {
+        SitePlayerSuggestionCache.shared.saved(key: vollisPlayersCacheKey)
+    }
+
+    @MainActor
+    func vollisPlayers() async throws -> [String] {
+        try await SitePlayerSuggestionCache.shared.load(key: vollisPlayersCacheKey) {
+            try await self.nameList("/api/vollis_players")
+        }
+    }
+
+    @MainActor
+    func otherGamePlayersCacheKey(gameName: String) -> String {
+        let name = gameName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let fields = [SiteAuthManager.shared.playerSuggestionsScope, "other", name, "players"]
+        return (try? JSONEncoder().encode(fields).base64EncodedString()) ?? ""
+    }
+
+    @MainActor
+    func cachedOtherGamePlayers(gameName: String) -> [String] {
+        SitePlayerSuggestionCache.shared.saved(key: otherGamePlayersCacheKey(gameName: gameName))
+    }
+
+    @MainActor
     func otherGamePlayers(gameName: String) async throws -> [String] {
-        let encoded = gameName.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? gameName
-        return try await nameList("/api/other_game_players/\(encoded)")
+        let name = gameName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return try await SitePlayerSuggestionCache.shared.load(key: otherGamePlayersCacheKey(gameName: name)) {
+            let encoded = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? name
+            return try await self.nameList("/api/other_game_players/\(encoded)")
+        }
     }
 
     func otherGameCommonScores(gameName: String) async throws -> (winners: [Int], losers: [Int], winnerIndiv: [Int], loserIndiv: [Int]) {
@@ -539,12 +568,25 @@ final class PythonAnywhereClient {
     }
 
     private func nameList(_ path: String) async throws -> [String] {
-        let raw = try await getRaw(path)
-        if let names = try JSONSerialization.jsonObject(with: raw) as? [String] { return names }
-        if let objs = try JSONSerialization.jsonObject(with: raw) as? [[String: Any]] {
-            return objs.compactMap { $0["name"] as? String ?? $0["full_name"] as? String }
+        // Use the timed, bounded read path for suggestions too. Performance
+        // categories identify the endpoint without logging player or game names.
+        let result: PlayerNameList = try await get(path)
+        return result.names
+    }
+
+    private struct PlayerNameList: Decodable {
+        let names: [String]
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.singleValueContainer()
+            if let strings = try? container.decode([String].self) {
+                names = strings
+            } else {
+                struct Player: Decodable { var name: String?; var fullName: String? }
+                let players = try container.decode([Player].self)
+                names = players.compactMap { $0.name ?? $0.fullName }
+            }
         }
-        return []
     }
 
     static func jsonIntPublic(_ v: Any?) -> Int? { jsonInt(v) }
@@ -972,7 +1014,7 @@ final class PythonAnywhereClient {
     private func transport(_ request: URLRequest, session: URLSession) async throws -> (Data, URLResponse) {
         guard request.httpMethod == "GET" else { return try await session.data(for: request) }
         // Mutations/source changes must not join requests for an older revision.
-        let revision = [SiteBrowseCache.shared.generation, SiteBrowseCache.playerDetails.generation,
+        let revision = [SiteBrowseCache.shared.generation, SiteBrowseCache.playerSuggestions.generation, SiteBrowseCache.playerDetails.generation,
                         SiteBrowseCache.navigation.generation].map(\.uuidString).joined(separator: ":")
         return try await getRequests.load(key: SiteGETRequests.key(request, revision: revision)) {
             try await session.data(for: request)
@@ -983,7 +1025,8 @@ final class PythonAnywhereClient {
         let started = Date()
         let category = SitePerformance.category(req)
         defer { SitePerformance.record("request-" + category, since: started) }
-        let browsingPaths = ["/api/years", "/api/doubles/", "/api/vollis/", "/api/other/", "/api/volleyball/stats"]
+        let browsingPaths = ["/api/years", "/api/doubles/", "/api/vollis/", "/api/other/", "/api/volleyball/stats",
+                             "/api/doubles_players", "/api/vollis_players", "/api/other_game_players/"]
         let isBrowsing = req.httpMethod == "GET" && browsingPaths.contains {
             $0.hasSuffix("/") ? (req.url?.path.hasPrefix($0) ?? false) : req.url?.path == $0
         }
@@ -1023,7 +1066,16 @@ final class PythonAnywhereClient {
         let sport = section == "doubles" ? section : nil // 1v1 combines Vollis and other volleyball games.
         await Task.detached(priority: .userInitiated) {
             if SiteStatsRefreshPolicy.affectsPlayerSuggestions(method: method, path: path) {
-                SiteBrowseCache.playerSuggestions.invalidate()
+                let parts = path.split(separator: "/")
+                let isGameMutation = parts.count >= 3 && parts[0] == "api"
+                    && ["doubles", "vollis", "other"].contains(String(parts[1])) && parts[2] == "games"
+                if isGameMutation {
+                    // Keep the last choices visible while game changes refresh their order.
+                    SiteBrowseCache.playerSuggestions.markStale()
+                } else {
+                    // Renames, player changes, and explicit cache resets must not show old identities.
+                    SiteBrowseCache.playerSuggestions.invalidate()
+                }
                 SiteBrowseCache.navigation.markStale()
             }
             if SiteStatsRefreshPolicy.affectsPlayerDetails(method: method, path: path) {

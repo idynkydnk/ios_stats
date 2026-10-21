@@ -214,6 +214,22 @@ struct SiteRootView: View {
                 })
             }
         }
+        // Names are needed as soon as Add opens. Do not queue them behind years
+        // and game history, or cancel their head start when switching tabs.
+        .task(id: "\(auth.playerSuggestionsScope)-\(section.rawValue)-\(selectedOtherGame)-\(network.isConnected)") {
+            guard auth.sessionReady, auth.isLoggedIn, network.isConnected else { return }
+            let client = PythonAnywhereClient.shared
+            switch section {
+            case .doubles:
+                _ = try? await client.doublesPlayers()
+            case .vollis where selectedOtherGame.isEmpty || selectedOtherGame.caseInsensitiveCompare("Vollis") == .orderedSame:
+                _ = try? await client.vollisPlayers()
+            case .vollis, .other:
+                if !selectedOtherGame.isEmpty {
+                    _ = try? await client.otherGamePlayers(gameName: selectedOtherGame)
+                }
+            }
+        }
         // statsApp already verifies the session. Let the visible screen finish
         // its first load before metadata, the first Games page, and form defaults.
         .task(id: "\(startupScope)-\(readyScope == startupScope)-\(selectedTab)-\(gamesPreloadSelection.cacheKey)-\(gamesPreloadRevision)-\(navigationRevision)", priority: .utility) {
@@ -232,8 +248,7 @@ struct SiteRootView: View {
                 }
             }
             guard !Task.isCancelled, auth.isLoggedIn, selectedTab == 0 else { return }
-            if section == .doubles { _ = try? await PythonAnywhereClient.shared.doublesPlayers() }
-            else { _ = try? await PythonAnywhereClient.shared.otherGameTypes() }
+            if section != .doubles { _ = try? await PythonAnywhereClient.shared.otherGameTypes() }
         }
         .onReceive(NotificationCenter.default.publisher(for: SiteBrowseCache.didChange, object: SiteBrowseCache.navigation)
             .receive(on: RunLoop.main)) { _ in navigationRevision = UUID() }
