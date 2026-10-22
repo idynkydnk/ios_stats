@@ -21,8 +21,8 @@ enum SitePolicyLinks {
     static let community = PythonAnywhereClient.shared.baseURL.appendingPathComponent("community-guidelines")
 }
 
-/// The disclosure is fetched from the server so a changed policy requires fresh
-/// permission. Granting it does not submit the user's content or start a job.
+/// AI sharing defaults to on at the server. This control lets people turn it
+/// off or back on; changing the setting does not start a job.
 struct SiteAIConsentControl: View {
     var alwaysExpanded = false
     @ObservedObject private var auth = SiteAuthManager.shared
@@ -39,28 +39,28 @@ struct SiteAIConsentControl: View {
             if let consent {
                 if !consent.granted || alwaysExpanded {
                     Text(consent.disclosure).font(.subheadline)
-                    Text("Only share information and photos you have permission to use. You can keep browsing and recording scores without enabling these features.")
+                    Text("AI sharing is on by default when you use these features. You can turn it off here and keep browsing and recording scores. Only share information and photos you have permission to use.")
                         .font(.caption).foregroundStyle(.secondary)
                     Link("Read privacy policy", destination: SitePolicyLinks.privacy)
                 }
                 if consent.granted {
-                    Label("Sharing allowed", systemImage: "checkmark.shield")
+                    Label("AI sharing is on", systemImage: "checkmark.shield")
                         .font(.subheadline).foregroundStyle(.secondary)
                     if alwaysExpanded {
-                        Button("Withdraw permission", role: .destructive) { confirmingWithdrawal = true }
+                        Button("Turn off AI sharing", role: .destructive) { confirmingWithdrawal = true }
                     } else {
-                        NavigationLink("Manage permission") { SitePrivacySafetyView() }
+                        NavigationLink("Manage AI sharing") { SitePrivacySafetyView() }
                     }
                 } else if declined {
-                    Text("Sharing is off. Photos, AI generation, and shared-content editing will wait for your permission.")
+                    Text("AI sharing is off. Turn it on to upload photos, generate AI content, or edit shared content.")
                         .font(.subheadline).foregroundStyle(.secondary)
-                    Button("Review permission") { declined = false }
+                    Button("Review AI sharing") { declined = false }
                 } else {
-                    Button("Allow sharing with " + consent.providers.joined(separator: " and ")) {
+                    Button("Turn on sharing with " + consent.providers.joined(separator: " and ")) {
                         Task { await save(granted: true) }
                     }
                     .buttonStyle(.borderedProminent)
-                    Button("Not now") { declined = true }
+                    Button("Keep sharing off") { declined = true }
                 }
             } else if !busy && error == nil {
                 ProgressView("Loading privacy information…")
@@ -73,9 +73,9 @@ struct SiteAIConsentControl: View {
         }
         .disabled(busy)
         .task(id: auth.token) { await load() }
-        .confirmationDialog("Withdraw AI and content safety permission?", isPresented: $confirmingWithdrawal,
+        .confirmationDialog("Turn off AI and content safety sharing?", isPresented: $confirmingWithdrawal,
                             titleVisibility: .visible) {
-            Button("Withdraw permission", role: .destructive) { Task { await save(granted: false) } }
+            Button("Turn off AI sharing", role: .destructive) { Task { await save(granted: false) } }
         } message: {
             Text("This stops future sharing for these features. Information already sent cannot be recalled. Existing content remains until you delete it or your account.")
         }

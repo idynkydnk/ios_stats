@@ -128,7 +128,7 @@ final class PythonAnywhereClient {
             throw SiteAPIError.message("Your account changed. Please try again from the account you want to use.")
         }
         guard permission.granted else {
-            throw SiteAPIError.message("Review AI and content safety sharing on this screen before continuing. You can also manage it in More → Privacy and safety.")
+            throw SiteAPIError.message("AI sharing is turned off for your account. Turn it on here or in More → Privacy and safety to continue.")
         }
     }
 
