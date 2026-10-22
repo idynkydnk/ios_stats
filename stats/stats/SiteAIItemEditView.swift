@@ -64,6 +64,7 @@ struct SiteAIItemEditView: View {
 
     var body: some View {
         List {
+            Section { SiteAIConsentControl() }
             if let error { Label(error, systemImage: "exclamationmark.circle").foregroundStyle(.red) }
             if let message { Label(message, systemImage: "checkmark.circle").foregroundStyle(appearance.accent) }
             if busy { ProgressView(progress) }

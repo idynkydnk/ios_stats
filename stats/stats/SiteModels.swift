@@ -23,6 +23,7 @@ struct RankingRow: Codable, Identifiable {
     var name: String
     var wins: Int
     var losses: Int
+    var ties: Int?
     var winPct: Double
     var games: Int?
     var rating: Double?
@@ -37,7 +38,7 @@ struct RankingRow: Codable, Identifiable {
         return String(format: "%.0f%%", pct)
     }
 
-    var gamesCount: Int { games ?? (wins + losses) }
+    var gamesCount: Int { games ?? (wins + losses + (ties ?? 0)) }
 
     /// Fraction 0...1, whether the API sent 0.75 or 75.
     var winPctFraction: Double { winPct > 1.0 ? winPct / 100.0 : winPct }
@@ -61,10 +62,11 @@ struct RankingRow: Codable, Identifiable {
         }
     }
 
-    init(name: String, wins: Int, losses: Int, winPct: Double, games: Int? = nil, rating: Double? = nil, plusMinus: Int? = nil) {
+    init(name: String, wins: Int, losses: Int, winPct: Double, games: Int? = nil, rating: Double? = nil, plusMinus: Int? = nil, ties: Int? = nil) {
         self.name = name
         self.wins = wins
         self.losses = losses
+        self.ties = ties
         self.winPct = winPct
         self.games = games
         self.rating = rating
@@ -72,7 +74,7 @@ struct RankingRow: Codable, Identifiable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case name, wins, losses, winPct, games, rating, plusMinus, provisional, ratedGames
+        case name, wins, losses, ties, winPct, games, rating, plusMinus, provisional, ratedGames
     }
 
     private enum AltKeys: String, CodingKey {
@@ -85,6 +87,7 @@ struct RankingRow: Codable, Identifiable {
         name = try c.decode(String.self, forKey: .name)
         wins = Self.int(c, .wins)
         losses = Self.int(c, .losses)
+        ties = Self.optionalInt(c, .ties)
         winPct = Self.optionalDouble(c, .winPct) ?? Self.optionalDouble(alt, .win_pct) ?? 0
         games = Self.optionalInt(c, .games)
         rating = Self.optionalDouble(c, .rating)
@@ -236,6 +239,7 @@ struct MatchupRow: Codable, Identifiable {
     var opponent: String?
     var wins: Int
     var losses: Int
+    var ties: Int?
     var winPercentage: Double
     var totalGames: Int
     var id: String { (partner ?? opponent ?? "") + "-\(totalGames)-\(wins)" }
@@ -365,6 +369,7 @@ struct OtherGame: Codable, Identifiable, Hashable {
     var gameDate: String?
     var gameDateOnly: String?
     var gameType: String?
+    var isTie: Bool
     var gameName: String?
     var location: String?
     var comment: String?
@@ -381,7 +386,7 @@ struct OtherGame: Codable, Identifiable, Hashable {
     var id: Int { jsonId ?? gameId ?? 0 }
 
     enum CodingKeys: String, CodingKey {
-        case gameId, gameDate, gameDateOnly, gameType, gameName, location, comment, updatedAt
+        case gameId, gameDate, gameDateOnly, gameType, isTie, gameName, location, comment, updatedAt
         case winnerScore, loserScore, winners, losers, winner1, winner2, loser1, loser2
         case jsonId = "id"
     }
@@ -393,6 +398,7 @@ struct OtherGame: Codable, Identifiable, Hashable {
         gameDate = try c.decodeIfPresent(String.self, forKey: .gameDate)
         gameDateOnly = try c.decodeIfPresent(String.self, forKey: .gameDateOnly)
         gameType = try c.decodeIfPresent(String.self, forKey: .gameType)
+        isTie = (try? c.decode(Bool.self, forKey: .isTie)) ?? (Self.optionalInt(c, .isTie) == 1)
         gameName = try c.decodeIfPresent(String.self, forKey: .gameName)
         location = try c.decodeIfPresent(String.self, forKey: .location)
         comment = try c.decodeIfPresent(String.self, forKey: .comment)
@@ -417,6 +423,11 @@ struct OtherGame: Codable, Identifiable, Hashable {
         let names = (losers ?? []).map(\.name).filter { !$0.isEmpty }
         if !names.isEmpty { return names }
         return [loser1, loser2].compactMap { $0 }.filter { !$0.isEmpty }
+    }
+
+    static func allowsTie(gameType: String, gameName: String, oneOnOne: Bool = false) -> Bool {
+        !oneOnOne && !gameType.lowercased().contains("volleyball")
+            && gameName.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare("Vollis") != .orderedSame
     }
 
     var editingScoreType: String {

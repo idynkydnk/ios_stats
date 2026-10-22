@@ -115,6 +115,7 @@ struct SitePlayerDetailView: View {
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: statMinimumWidth), spacing: 12)], spacing: 16) {
                             stat("Wins", "\(s.wins)", nil)
                             stat("Losses", "\(s.losses)", nil)
+                            if let ties = s.ties, ties > 0 { stat("Ties", "\(ties)", nil) }
                             stat("Win%", s.winPctDisplay, nil)
                             if let st = p.currentStreak {
                                 stat("Streak", "\(st.length)\(st.type)", st.type == "W" ? .green : .red)
@@ -150,7 +151,7 @@ struct SitePlayerDetailView: View {
                             NavigationLink {
                                 SitePlayerDetailView(name: m.partner ?? "", year: year, section: section)
                             } label: {
-                                matchupRow(name: m.partner ?? "", wins: m.wins, losses: m.losses, winPct: m.winPercentage)
+                                matchupRow(name: m.partner ?? "", wins: m.wins, losses: m.losses, ties: m.ties ?? 0, winPct: m.winPercentage)
                             }
                         }
                     }
@@ -162,7 +163,7 @@ struct SitePlayerDetailView: View {
                             NavigationLink {
                                 SitePlayerDetailView(name: m.opponent ?? "", year: year, section: section, format: format)
                             } label: {
-                                matchupRow(name: m.opponent ?? "", wins: m.wins, losses: m.losses, winPct: m.winPercentage)
+                                matchupRow(name: m.opponent ?? "", wins: m.wins, losses: m.losses, ties: m.ties ?? 0, winPct: m.winPercentage)
                             }
                         }
                     }
@@ -249,15 +250,16 @@ struct SitePlayerDetailView: View {
         }
     }
 
-    private func matchupRow(name: String, wins: Int, losses: Int, winPct: Double) -> some View {
+    private func matchupRow(name: String, wins: Int, losses: Int, ties: Int, winPct: Double) -> some View {
         let pct = winPct <= 1.0 ? winPct * 100 : winPct
         return HStack(alignment: .center, spacing: 12) {
             Text(name)
                 .foregroundStyle(.primary)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            Text("\(wins)-\(losses)")
+            Text(ties > 0 ? "\(wins)-\(losses)-\(ties)" : "\(wins)-\(losses)")
+                .accessibilityLabel("\(wins) wins, \(losses) losses, \(ties) ties")
                 .monospacedDigit()
-                .frame(width: 56, alignment: .leading)
+                .frame(minWidth: 56, alignment: .leading)
             Text(String(format: "%.0f%%", pct))
                 .monospacedDigit()
                 .frame(width: 48, alignment: .leading)
@@ -461,6 +463,16 @@ struct LoginView: View {
                 Button("Try again") { submit(bearer: auth.token) }
             }
             if busy { ProgressView("Please wait…") }
+            if !auth.isLoggedIn && (flow.state?.step == .email || flow.state?.step == nil) {
+                Section {
+                    SiteAppleSignInButton(busy: $busy, error: $error, onSignedIn: { dismiss() })
+                }
+            }
+            Section("Privacy and help") {
+                Link("Privacy policy", destination: SitePolicyLinks.privacy)
+                Link("Community guidelines", destination: SitePolicyLinks.community)
+                Link("Support", destination: SitePolicyLinks.support)
+            }
             if auth.isLoggedIn && enrolling {
                 Button("Log out", role: .destructive) { Task { await auth.logout() } }
             }

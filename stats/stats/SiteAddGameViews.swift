@@ -538,6 +538,7 @@ struct SiteAddOtherView: View {
     @State private var gameType = ""
     @State private var gameName = ""
     @State private var scoreType = "team"
+    @State private var isTie = false
     @State private var winners: [String] = [""]
     @State private var losers: [String] = [""]
     @State private var winnerIndiv: [Int?] = [nil]
@@ -569,6 +570,10 @@ struct SiteAddOtherView: View {
 
     private var isVollis: Bool {
         gameToEdit == nil && gameName.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare("Vollis") == .orderedSame
+    }
+
+    private var allowsTie: Bool {
+        OtherGame.allowsTie(gameType: gameType, gameName: gameName, oneOnOne: oneOnOneOnly)
     }
 
     private var playerSuggestionsKey: String {
@@ -637,33 +642,45 @@ struct SiteAddOtherView: View {
                         .pickerStyle(.segmented)
                     }
 
-                    Text("Winners").font(.headline)
+                    if allowsTie {
+                        Picker("Result", selection: $isTie) {
+                            Text("Win / loss").tag(false)
+                            Text("Tie").tag(true)
+                        }
+                        .pickerStyle(.segmented)
+                        if isTie {
+                            Text("Both sides tied. Enter equal scores, such as 1–1.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+
+                    Text(isTie ? "Side 1" : "Winners").font(.headline)
                     ForEach(winners.indices, id: \.self) { i in
                         playerSlot(side: .winner, index: i)
                     }
                     if !isVollis && !oneOnOneOnly {
-                        Button("Add winner") { addSlot(winner: true) }
+                        Button(isTie ? "Add player to side 1" : "Add winner") { addSlot(winner: true) }
                             .font(.subheadline)
                     }
 
-                    Text("Losers").font(.headline)
+                    Text(isTie ? "Side 2" : "Losers").font(.headline)
                     ForEach(losers.indices, id: \.self) { i in
                         playerSlot(side: .loser, index: i)
                     }
                     if !isVollis && !oneOnOneOnly {
-                        Button("Add loser") { addSlot(winner: false) }
+                        Button(isTie ? "Add player to side 2" : "Add loser") { addSlot(winner: false) }
                             .font(.subheadline)
                     }
 
                     if scoreType == "team" {
-                        SiteAddScoreRow(label: "Winner score", value: $teamWinnerScore, field: .teamW, focus: $focused, onSubmit: { focused = .teamL })
+                        SiteAddScoreRow(label: isTie ? "Side 1 score" : "Winner score", value: $teamWinnerScore, field: .teamW, focus: $focused, onSubmit: { focused = .teamL })
                         if focused == .teamW {
                             SiteAddScoreChips(scores: siteWinnerScores(value: teamWinnerScore, defaults: winnerChips), selected: teamWinnerScore) { s in
                                 teamWinnerScore = s
                                 focused = .teamL
                             }
                         }
-                        SiteAddScoreRow(label: "Loser score", value: $teamLoserScore, field: .teamL, focus: $focused, submit: .next, onSubmit: { focused = isVollis ? .location : .comment })
+                        SiteAddScoreRow(label: isTie ? "Side 2 score" : "Loser score", value: $teamLoserScore, field: .teamL, focus: $focused, submit: .next, onSubmit: { focused = isVollis ? .location : .comment })
                         if focused == .teamL {
                             SiteAddScoreChips(scores: loserChipsForTeam(), selected: teamLoserScore) { s in
                                 teamLoserScore = s
@@ -702,8 +719,9 @@ struct SiteAddOtherView: View {
                     ForEach(todayGames) { g in
                         VStack(alignment: .leading, spacing: 2) {
                             Text(g.gameName ?? "").font(.subheadline.weight(.semibold))
-                            Text(g.displayWinners.joined(separator: " ")).foregroundStyle(.green).font(.caption)
-                            Text(g.displayLosers.joined(separator: " ")).foregroundStyle(.red).font(.caption)
+                            if g.isTie { Text("Tie").font(.caption.weight(.semibold)).foregroundStyle(.secondary) }
+                            Text(g.displayWinners.joined(separator: " ")).foregroundStyle(g.isTie ? Color.primary : .green).font(.caption)
+                            Text(g.displayLosers.joined(separator: " ")).foregroundStyle(g.isTie ? Color.primary : .red).font(.caption)
                         }
                         .padding(.vertical, 4)
                         SiteAddGameEditButton(game: .other(g), disabled: saving) {
@@ -718,6 +736,7 @@ struct SiteAddOtherView: View {
         }
         .sensoryFeedback(.success, trigger: successTick)
         .onChange(of: saving) { _, value in onSavingChanged(value) }
+        .onChange(of: allowsTie) { _, allowed in if !allowed { isTie = false } }
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()
@@ -768,6 +787,7 @@ struct SiteAddOtherView: View {
             game.losers?.indices.contains(index) == true ? game.losers?[index].score : nil
         }
         scoreType = game.editingScoreType
+        isTie = game.isTie && allowsTie
         teamWinnerScore = game.winnerScore
         teamLoserScore = game.loserScore
         comment = game.comment ?? ""
@@ -837,7 +857,7 @@ struct SiteAddOtherView: View {
             get: { side == .winner ? winners[index] : losers[index] },
             set: { if side == .winner { winners[index] = $0 } else { losers[index] = $0 } }
         )
-        SiteAddTextRow(label: side == .winner ? "Winner \(index + 1)" : "Loser \(index + 1)", text: binding, field: field, focus: $focused, submit: .done, onSubmit: {
+        SiteAddTextRow(label: isTie ? "Side \(side == .winner ? 1 : 2) player \(index + 1)" : (side == .winner ? "Winner \(index + 1)" : "Loser \(index + 1)"), text: binding, field: field, focus: $focused, submit: .done, onSubmit: {
             focused = nil
         })
         if focused == field {
@@ -918,6 +938,7 @@ struct SiteAddOtherView: View {
         winnerIndiv = Array(repeating: nil, count: winners.count)
         loserIndiv = Array(repeating: nil, count: losers.count)
         teamWinnerScore = nil; teamLoserScore = nil; comment = ""
+        isTie = false
     }
 
     private func clearForm() {
@@ -932,6 +953,7 @@ struct SiteAddOtherView: View {
     }
 
     private func loserChipsForTeam() -> [Int] {
+        if isTie, let score = teamWinnerScore { return [score] + loserChips.filter { $0 != score } }
         if gameType.lowercased().contains("volleyball"), let w = teamWinnerScore {
             return siteLoserScores(winner: w)
         }
@@ -939,6 +961,7 @@ struct SiteAddOtherView: View {
     }
 
     private func configureVollis() {
+        isTie = false
         gameType = "Volleyball"
         scoreType = "team"
         resizeSlots(winnerCount: 1, loserCount: 1)
@@ -1014,7 +1037,7 @@ struct SiteAddOtherView: View {
         let w = winners.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         let l = losers.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         guard !gameName.trimmingCharacters(in: .whitespaces).isEmpty, !w.isEmpty, !l.isEmpty else {
-            error = oneOnOneOnly ? "Volleyball format, winner, and loser are required." : "Game name, winners, and losers are required."
+            error = isTie ? "Game name and players on both sides are required." : (oneOnOneOnly ? "Volleyball format, winner, and loser are required." : "Game name, winners, and losers are required.")
             return
         }
         if oneOnOneOnly {
@@ -1025,6 +1048,7 @@ struct SiteAddOtherView: View {
                 return
             }
         }
+        if !allowsTie { isTie = false }
         let savingVollis = isVollis
         if savingVollis {
             guard w.count == 1, l.count == 1, w[0] != l[0],
@@ -1034,8 +1058,27 @@ struct SiteAddOtherView: View {
             }
             scoreType = "team"
         }
+        if !isTie && allowsTie && scoreType == "team",
+           let first = teamWinnerScore, let second = teamLoserScore, first == second {
+            error = "These scores are tied. Choose Tie to save this result."
+            return
+        }
+        if isTie && allowsTie && scoreType == "team" {
+            guard let first = teamWinnerScore, let second = teamLoserScore, first == second else {
+                error = "Enter equal scores for a tie, such as 1–1."
+                return
+            }
+        }
+        if isTie && allowsTie && scoreType == "individual" {
+            let scores = winners.indices.filter { !winners[$0].trimmingCharacters(in: .whitespaces).isEmpty }.compactMap { winnerIndiv[$0] }
+                + losers.indices.filter { !losers[$0].trimmingCharacters(in: .whitespaces).isEmpty }.compactMap { loserIndiv[$0] }
+            guard Set(scores).count <= 1 else {
+                error = "All entered scores must be equal for a tie."
+                return
+            }
+        }
         if oneOnOneOnly { gameType = "Volleyball" }
-        if gameType.isEmpty { gameType = knownTypes.first ?? "Other" }
+        if gameType.isEmpty { gameType = isTie ? "Other" : (knownTypes.first ?? "Other") }
         var savedGame: SiteSavedGameReceipt?
         saving = true
         banner = nil
@@ -1045,6 +1088,7 @@ struct SiteAddOtherView: View {
             "game_type": gameType, "game_name": gameName.trimmingCharacters(in: .whitespaces),
             "winners": w, "losers": l,
             "score_type": scoreType,
+            "is_tie": isTie && allowsTie,
             "comment": comment,
             "entered_timezone": TimeZone.current.identifier,
             "location": cleanLocation,
@@ -1074,7 +1118,7 @@ struct SiteAddOtherView: View {
                 losers: side(losers, loserIndiv),
                 winnerScore: scoreType == "team" ? teamWinnerScore : nil,
                 loserScore: scoreType == "team" ? teamLoserScore : nil,
-                location: cleanLocation, comment: savingVollis ? "" : comment,
+                location: cleanLocation, comment: savingVollis ? "" : comment, isTie: isTie && allowsTie,
                 onAddAnother: { focused = .gameName })
             if let savedGame { gameSaveStatus(savedGame) }
         }
@@ -1153,6 +1197,7 @@ struct SiteSavedGameReceipt: Identifiable {
     var loserScore: Int?
     var location: String
     var comment = ""
+    var isTie = false
     var onAddAnother: () -> Void = {}
 
     var heading: String {
@@ -1189,8 +1234,9 @@ struct SiteSavedGamePopup: View {
                                 .accessibilityFocused($headingFocused)
                         }
                         Text(game.title).font(.headline)
-                        side("Winners", names: game.winners, score: game.winnerScore)
-                        side("Losers", names: game.losers, score: game.loserScore)
+                        if game.isTie { Text("Tie").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary) }
+                        side(game.isTie ? "Side 1" : "Winners", names: game.winners, score: game.winnerScore)
+                        side(game.isTie ? "Side 2" : "Losers", names: game.losers, score: game.loserScore)
                         if !game.location.isEmpty {
                             Label(game.location, systemImage: "mappin.and.ellipse")
                                 .foregroundStyle(.secondary)

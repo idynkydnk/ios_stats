@@ -81,8 +81,10 @@ final class PythonAnywhereClient {
         try await putJSON("/api/account/stats-sharing", json: ["share_stats": enabled])
     }
 
-    func deleteAccount() async throws {
-        try await delete("/api/account")
+    func deleteAccount() async throws -> SiteAccountDeletionResult {
+        let result: SiteAccountDeletionResult = try await decode(request("/api/account", method: "DELETE"))
+        guard result.ok else { throw SiteAPIError.message("Your account could not be deleted. Please try again.") }
+        return result
     }
 
     func setStarterStats(visible: Bool) async throws {
@@ -103,10 +105,57 @@ final class PythonAnywhereClient {
         return profile.displayName
     }
 
-    func appleLogin(idToken: String, nonce: String, fullName: String? = nil) async throws -> (MePayload, String) {
-        struct Body: Encodable { var idToken: String; var nonce: String; var fullName: String? }
-        let response: AuthResponse = try await post("/api/auth/apple", body: Body(idToken: idToken, nonce: nonce, fullName: fullName), authed: false)
+    func appleLogin(idToken: String, nonce: String, authorizationCode: String, fullName: String? = nil) async throws -> (MePayload, String) {
+        struct Body: Encodable { var idToken: String; var nonce: String; var authorizationCode: String; var fullName: String? }
+        let response: AuthResponse = try await post("/api/auth/apple", body: Body(idToken: idToken, nonce: nonce,
+            authorizationCode: authorizationCode, fullName: fullName), authed: false)
         return try await verifiedSession(response.token)
+    }
+
+    func aiConsent() async throws -> SiteAIConsent {
+        try await get("/api/privacy/ai-consent")
+    }
+
+    func setAIConsent(version: String, granted: Bool) async throws -> SiteAIConsent {
+        try await putJSON("/api/privacy/ai-consent", json: ["version": version, "granted": granted])
+    }
+
+    private func requireAIConsent() async throws {
+        let ownerToken = token
+        let permission = try await aiConsent()
+        try Task.checkCancellation()
+        guard ownerToken != nil, ownerToken == token else {
+            throw SiteAPIError.message("Your account changed. Please try again from the account you want to use.")
+        }
+        guard permission.granted else {
+            throw SiteAPIError.message("Review AI and content safety sharing on this screen before continuing. You can also manage it in More → Privacy and safety.")
+        }
+    }
+
+    func reportContent(kind: String, shareId: String, reason: String) async throws {
+        struct Body: Encodable { var kind: String; var id: String; var reason: String }
+        struct Response: Decodable { var success: Bool }
+        var req = request("/api/content/report", method: "POST", authed: token != nil)
+        req.setValue(nil, forHTTPHeaderField: "X-Stats-Account-Required")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try encoder.encode(Body(kind: kind, id: shareId, reason: reason))
+        let response: Response = try await decode(req)
+        guard response.success else { throw SiteAPIError.message("Your report could not be sent. Please try again.") }
+    }
+
+    func blockedUsers() async throws -> SiteBlockedUsers {
+        try await get("/api/content/blocked-users")
+    }
+
+    func setBlockedUser(_ username: String, blocked: Bool) async throws -> SiteBlockedUsers {
+        var req = request("/api/content/blocked-users", method: blocked ? "POST" : "DELETE", authed: true)
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: ["username": username])
+        let response: SiteBlockedUsers = try await decode(req)
+        // Blocking also changes which shared stats sources the server permits.
+        // Discard snapshots and replace visible stats before fetching again.
+        await MainActor.run { SiteAuthManager.shared.statsSourcesChanged() }
+        return response
     }
 
     func logout() async throws {
@@ -308,6 +357,7 @@ final class PythonAnywhereClient {
     }
 
     func uploadPlayerPhoto(name: String, imageData: Data, filename: String) async throws -> String {
+        try await requireAIConsent()
         struct Msg: Decodable { var success: Bool; var photoUrl: String?; var error: String? }
         let encoded = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? name
         let r: Msg = try await upload("/api/player_photo/\(encoded)/", imageData: imageData, filename: filename)
@@ -318,6 +368,7 @@ final class PythonAnywhereClient {
     }
 
     func uploadPlayerAIImage(name: String, imageData: Data, filename: String) async throws -> String {
+        try await requireAIConsent()
         struct Resp: Decodable {
             var success: Bool?
             var aiImageUrl: String?
@@ -626,6 +677,7 @@ final class PythonAnywhereClient {
         imageMode: String = "image",
         imageDetails: String = ""
     ) async throws -> Int {
+        try await requireAIConsent()
         struct Resp: Decodable { var success: Bool?; var jobId: Int?; var error: String? }
         let r: Resp = try await postJSON("/api/ai/summary", json: [
             "game_type": gameType,
@@ -657,6 +709,7 @@ final class PythonAnywhereClient {
     }
 
     func savePlayerAIImageTraits(name: String, phrases: [String]) async throws -> [String] {
+        try await requireAIConsent()
         struct Resp: Decodable {
             var success: Bool?
             var phrases: [String]?
@@ -669,6 +722,7 @@ final class PythonAnywhereClient {
     }
 
     func generatePlayerAIImage(name: String) async throws -> (jobId: Int?, imageUrl: String?) {
+        try await requireAIConsent()
         struct Resp: Decodable {
             var success: Bool?
             var jobId: Int?
@@ -733,6 +787,7 @@ final class PythonAnywhereClient {
     }
 
     func saveAIItem(kind: String, shareId: String, fields: [String: String]) async throws {
+        try await requireAIConsent()
         struct Response: Decodable { var message: String }
         let _: Response = try await putJSON("/api/ai-library/\(kind)/\(shareId)", json: fields)
     }
@@ -742,6 +797,7 @@ final class PythonAnywhereClient {
     }
 
     func remakeAIItem(kind: String, shareId: String, summary: Bool, prompt: String) async throws -> String {
+        try await requireAIConsent()
         struct Response: Decodable { var message: String }
         let action = summary ? "remake-summary" : "remake-image"
         var req = request("/\(kind)/\(shareId)/\(action)/", method: "POST")
@@ -753,6 +809,7 @@ final class PythonAnywhereClient {
     }
 
     func createFlyer(_ fields: [String: Any]) async throws -> Int {
+        try await requireAIConsent()
         struct Resp: Decodable { var success: Bool?; var jobId: Int?; var error: String? }
         let r: Resp = try await postJSON("/api/flyers", json: fields)
         if let id = r.jobId { return id }
@@ -1106,10 +1163,14 @@ final class PythonAnywhereClient {
         }
         if (200..<300).contains(http.statusCode) { return }
         if http.statusCode >= 500 {
-            throw SiteAPIError.message("Stats is taking a timeout. Please try again in a moment. If you were saving a game, check your games before adding it again.")
+            if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let message = object["error"] as? String, !message.isEmpty {
+                throw SiteAPIError.message(message)
+            }
+            throw SiteAPIError.message("Stats is temporarily unavailable. Please try again in a moment. If you were saving a game, check your games before adding it again.")
         }
         if http.statusCode == 404 {
-            throw SiteAPIError.message("The live site doesn’t have this API yet. Push the website repo to PythonAnywhere, then try again.")
+            throw SiteAPIError.message("This item or feature is unavailable. Refresh and try again, or contact support from More → Support.")
         }
         if let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             let msg = (obj["error"] as? String) ?? (obj["message"] as? String) ?? ""

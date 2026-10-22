@@ -691,6 +691,7 @@ struct RankingTable: View {
 
     // Shared column widths keep the headings and every player's values aligned.
     // Today's columns through +/- fit before the secondary stats scroll into view.
+    private var showTies: Bool { rows.contains { ($0.ties ?? 0) > 0 } }
     private var columnSpacing: CGFloat { showPlusMinus ? 4 : 8 }
     private var rowPadding: CGFloat { showPlusMinus ? 6 : 12 }
     private var rankColumnWidth: CGFloat { showPlusMinus ? 20 : 28 }
@@ -709,8 +710,8 @@ struct RankingTable: View {
     }
     private var playerColumnWidth: CGFloat {
         guard showPlusMinus else { return 144 }
-        let numericWidth = winsColumnWidth + lossesColumnWidth + plusMinusColumnWidth + (showRating ? ratingColumnWidth : 0)
-        let gaps = CGFloat(showRating ? 5 : 4) * columnSpacing
+        let numericWidth = winsColumnWidth + lossesColumnWidth + plusMinusColumnWidth + (showRating ? ratingColumnWidth : 0) + (showTies ? 32 : 0)
+        let gaps = CGFloat((showRating ? 5 : 4) + (showTies ? 1 : 0)) * columnSpacing
         return max(0, tableViewportWidth - 2 * rowPadding - gaps - rankColumnWidth - numericWidth)
     }
     private var tableStandings: some View {
@@ -722,6 +723,7 @@ struct RankingTable: View {
                     if showRating { tableCell("Rating", width: ratingColumnWidth) }
                     tableCell("W", width: winsColumnWidth)
                     tableCell("L", width: lossesColumnWidth)
+                    if showTies { tableCell("T", width: 32).accessibilityLabel("Ties") }
                     if showPlusMinus { tableCell("+/-", width: plusMinusColumnWidth) }
                     tableCell("Win%", width: 50)
                     tableCell("Games", width: 50)
@@ -755,6 +757,11 @@ struct RankingTable: View {
                                 .foregroundStyle(.red)
                                 .accessibilityLabel("Losses, \(row.losses)")
                                 .accessibilityIdentifier("ranking-\(row.id)-losses")
+                            if showTies {
+                                tableCell("\(row.ties ?? 0)", width: 32)
+                                    .accessibilityLabel("Ties, \(row.ties ?? 0)")
+                                    .accessibilityIdentifier("ranking-\(row.id)-ties")
+                            }
                             if showPlusMinus {
                                 let pm = row.plusMinus ?? 0
                                 tableCell(pm > 0 ? "+\(pm)" : "\(pm)", width: plusMinusColumnWidth)
@@ -765,8 +772,8 @@ struct RankingTable: View {
                             tableCell(row.winPctDisplay, width: 50)
                                 .accessibilityLabel("Win percentage, " + row.winPctDisplay)
                                 .accessibilityIdentifier("ranking-\(row.id)-winpct")
-                            tableCell("\(row.wins + row.losses)", width: 50)
-                                .accessibilityLabel("Games, \(row.wins + row.losses)")
+                            tableCell("\(row.gamesCount)", width: 50)
+                                .accessibilityLabel("Games, \(row.gamesCount)")
                                 .accessibilityIdentifier("ranking-\(row.id)-games")
                         }
                         .font(.subheadline).monospacedDigit()
@@ -824,12 +831,13 @@ struct RankingTable: View {
                             }
                             stackedStat("W", id: "ranking-\(row.id)-wins", value: "\(row.wins)")
                             stackedStat("L", id: "ranking-\(row.id)-losses", value: "\(row.losses)")
+                            if showTies { stackedStat("Ties", id: "ranking-\(row.id)-ties", value: "\(row.ties ?? 0)") }
                             if showPlusMinus {
                                 let pm = row.plusMinus ?? 0
                                 stackedStat("+/-", id: "ranking-\(row.id)-plusminus", value: pm > 0 ? "+\(pm)" : "\(pm)")
                             }
                             stackedStat("Win%", id: "ranking-\(row.id)-winpct", value: row.winPctDisplay)
-                            stackedStat("Games", id: "ranking-\(row.id)-games", value: "\(row.wins + row.losses)")
+                            stackedStat("Games", id: "ranking-\(row.id)-games", value: "\(row.gamesCount)")
                         }
                     }
                     .font(.subheadline).monospacedDigit()
@@ -1204,11 +1212,12 @@ struct SiteGamesView: View {
                                     VStack(alignment: .leading, spacing: 7) {
                                         Text("\(g.gameName ?? "") · \(g.gameType ?? "")").font(.headline)
                                         SiteGameDateLabel(raw: g.gameDate ?? g.gameDateOnly)
-                                        SiteTeamScorePanel(score: g.winnerScore, winner: true) {
-                                            SitePlayerNamesLine(names: g.displayWinners, year: selectedYear, section: .other, color: .green)
+                                        if g.isTie { Text("Tie").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary) }
+                                        SiteTeamScorePanel(score: g.winnerScore, winner: true, isTie: g.isTie) {
+                                            SitePlayerNamesLine(names: g.displayWinners, year: selectedYear, section: .other, color: g.isTie ? .primary : .green)
                                         }
-                                        SiteTeamScorePanel(score: g.loserScore, winner: false) {
-                                            SitePlayerNamesLine(names: g.displayLosers, year: selectedYear, section: .other, color: .red)
+                                        SiteTeamScorePanel(score: g.loserScore, winner: false, isTie: g.isTie) {
+                                            SitePlayerNamesLine(names: g.displayLosers, year: selectedYear, section: .other, color: g.isTie ? .primary : .red)
                                         }
                                         if let c = g.comment, !c.isEmpty { Text(c).font(.caption).italic() }
                                     }
@@ -1531,13 +1540,14 @@ struct SiteGameDateLabel: View {
 struct SiteTeamScorePanel<Players: View>: View {
     var score: Int?
     var winner: Bool
+    var isTie = false
     @ViewBuilder var players: Players
 
-    private var color: Color { winner ? .green : .red }
+    private var color: Color { isTie ? .secondary : (winner ? .green : .red) }
     var body: some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 3) {
-                Text(winner ? "WINNERS" : "LOSERS")
+                Text(isTie ? (winner ? "SIDE 1" : "SIDE 2") : (winner ? "WINNERS" : "LOSERS"))
                     .font(.caption2.weight(.bold)).tracking(1).foregroundStyle(.secondary)
                 players.font(.subheadline.weight(.semibold))
             }

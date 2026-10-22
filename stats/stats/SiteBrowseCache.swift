@@ -5,7 +5,8 @@ import CryptoKit
 nonisolated final class SiteBrowseCache: @unchecked Sendable {
     static let shared = SiteBrowseCache()
     static let playerSuggestions = SiteBrowseCache(directory: cacheDirectory("StatsPlayers-v1"))
-    static let playerDetails = SiteBrowseCache(directory: cacheDirectory("StatsPlayerDetails-v1"))
+    // Older snapshots could contain personal fields now redacted on shared profiles.
+    static let playerDetails = SiteBrowseCache(directory: cacheDirectory("StatsPlayerDetails-v2"))
     static let library = SiteBrowseCache(directory: cacheDirectory("StatsLibrary-v1"))
     static let navigation = SiteBrowseCache(directory: cacheDirectory("StatsNavigation-v1"))
 

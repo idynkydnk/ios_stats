@@ -10,6 +10,8 @@ struct SiteMoreView: View {
     @State private var accountError: String?
     @State private var updatingBiometrics = false
     @State private var updatingStarterStats = false
+    @State private var deletingAccount = false
+    @State private var deletionResult: SiteAccountDeletionResult?
 
     var body: some View {
         NavigationStack {
@@ -62,6 +64,8 @@ struct SiteMoreView: View {
                                 }
                             )).disabled(updatingStarterStats)
                             Button("Delete account", role: .destructive) { confirmDeletion = true }
+                                .disabled(deletingAccount)
+                            if deletingAccount { ProgressView("Deleting account…") }
                         }
                         if let accountError { Text(accountError).foregroundStyle(.red) }
                     }
@@ -88,20 +92,57 @@ struct SiteMoreView: View {
                 if auth.isAdmin {
                     SiteListSection("Admin") {
                         NavigationLink("Admin dashboard") { SiteAdminView() }
+                        NavigationLink("Content reports") {
+                            SiteRecapPageView(title: "Content reports",
+                                url: PythonAnywhereClient.shared.baseURL.appendingPathComponent("admin/content-reports"),
+                                showsCopyLink: false)
+                        }
                         NavigationLink("Site updates") { SiteUpdatesView() }
                     }
                 }
+                Section("Privacy and help") {
+                    NavigationLink("Privacy and safety") { SitePrivacySafetyView() }
+                    Link("Privacy policy", destination: SitePolicyLinks.privacy)
+                    Link("Support", destination: SitePolicyLinks.support)
+                    Link("Community guidelines", destination: SitePolicyLinks.community)
+                }
             }
             .navigationTitle("Menu")
-            .confirmationDialog("Delete your account and all your games?", isPresented: $confirmDeletion, titleVisibility: .visible) {
+            .confirmationDialog("Permanently delete your account?", isPresented: $confirmDeletion, titleVisibility: .visible) {
                 Button("Delete account", role: .destructive) {
                     Task {
-                        do { try await auth.deleteAccount() }
+                        guard !deletingAccount else { return }
+                        deletingAccount = true
+                        accountError = nil
+                        defer { deletingAccount = false }
+                        do { deletionResult = try await auth.deleteAccount() }
                         catch { accountError = error.localizedDescription }
                     }
                 }
             } message: {
-                Text("This permanently deletes your private games, players, and stats.")
+                Text("This deletes your personal account, private games, players, uploaded photos, and saved recaps and flyers. Shared links to your content will stop working. Other people's game records are not deleted.")
+            }
+            .sheet(item: $deletionResult) { result in
+                NavigationStack {
+                    Form {
+                        Section {
+                            Label("Your account has been deleted", systemImage: "checkmark.circle")
+                                .font(.headline)
+                            Text("Your Stats account and its data were deleted. You're signed out of that account.")
+                        }
+                        if result.needsAppleInstructions {
+                            Section("Remove the Apple connection") {
+                                Text("Apple still lists Stats among the apps using your Apple Account. You can remove that connection in iPhone Settings.")
+                                Text("Open Settings → your name → Sign in with Apple. Choose Stats or its developer, then tap Delete and confirm.")
+                                Link("Apple's instructions", destination: result.appleHelpURL)
+                            }
+                        }
+                    }
+                    .navigationTitle("Account deleted")
+                    .toolbar { ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { deletionResult = nil }
+                    } }
+                }
             }
         }
     }
@@ -269,6 +310,9 @@ struct SiteEditPlayerView: View {
         Form {
             if let error { Text(error).foregroundStyle(.red) }
             if let banner { SiteAddBanner(text: banner, isError: false) }
+            if auth.isLoggedIn {
+                Section { SiteAIConsentControl() }
+            }
             HStack {
                 Spacer()
                 SitePlayerAvatar(name: canonicalName, size: 96, photoUrl: photoUrl)
@@ -1035,6 +1079,7 @@ struct SiteAIRosterView: View {
 
     var body: some View {
         List {
+            if case .flyer = kind { Section { SiteAIConsentControl() } }
             Section {
                 Text(rosterSummary)
                     .font(.subheadline)
@@ -1275,6 +1320,8 @@ struct SiteAIStyleView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                SiteAIConsentControl()
+                Divider()
                 if let banner {
                     SiteAddBanner(text: banner, isError: bannerIsError)
                 }
@@ -1518,13 +1565,19 @@ struct SiteRecapsView: View {
                 ForEach(items) { recap in
                     if let url = recap.publicURL {
                         NavigationLink {
-                            SiteRecapPageView(title: "AI Recap", url: url, onChanged: { Task { await load() } })
+                            SiteRecapPageView(title: "AI Recap", url: url, contentAuthor: recap.username,
+                                              onChanged: { Task { await load() } })
                         } label: {
                             recapCard(recap)
                         }
                         .buttonStyle(.plain)
                     } else {
                         recapCard(recap)
+                    }
+                    if let id = recap.shareId {
+                        SiteContentSafetyControls(kind: "recap", shareId: id, username: recap.username,
+                            onBlocked: { items.removeAll { $0.username == recap.username }; Task { await load() } })
+                            .buttonStyle(.bordered)
                     }
                     if auth.isLoggedIn && (auth.isAdmin || recap.username?.lowercased() == auth.username?.lowercased()) {
                         if let id = recap.shareId {
@@ -1648,7 +1701,7 @@ struct SiteRecapsView: View {
         let loadStarted = Date()
         defer { SitePerformance.record("recaps-load", since: loadStarted) }
         guard auth.sessionReady, reset || !loading else { return }
-        let scope = "\(auth.browseCacheScope)-\(auth.isAdmin)-\(auth.statsViewRevision)-recaps"
+        let scope = "\(auth.browseCacheScope)-\(auth.isAdmin)-\(auth.statsViewRevision)-recaps-safety-v1"
         let requestID = UUID()
         loadID = requestID
         let cache = SiteBrowseCache.library
@@ -1735,6 +1788,10 @@ struct SiteFlyersView: View {
                     if let download = downloadURL(for: flyer) {
                         SiteSaveFlyerPictureButton(imageURL: download)
                     }
+                    if let id = flyer.shareId {
+                        SiteContentSafetyControls(kind: "flyer", shareId: id, username: flyer.username,
+                            onBlocked: { items.removeAll { $0.username == flyer.username }; Task { await load() } })
+                    }
                     if auth.isLoggedIn && (auth.isAdmin || flyer.username?.lowercased() == auth.username?.lowercased()) {
                         if let id = flyer.shareId {
                             SiteAIItemControls(kind: "flyer", shareId: id,
@@ -1803,7 +1860,7 @@ struct SiteFlyersView: View {
         let loadStarted = Date()
         defer { SitePerformance.record("flyers-load", since: loadStarted) }
         guard auth.sessionReady else { return }
-        let scope = "\(auth.browseCacheScope)-\(auth.isAdmin)-\(auth.statsViewRevision)-flyers"
+        let scope = "\(auth.browseCacheScope)-\(auth.isAdmin)-\(auth.statsViewRevision)-flyers-safety-v1"
         let requestID = UUID()
         loadID = requestID
         let cache = SiteBrowseCache.library

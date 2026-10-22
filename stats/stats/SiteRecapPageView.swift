@@ -8,6 +8,8 @@ struct SiteRecapPageView: View {
     @ScaledMetric(relativeTo: .body) private var readingSize = 17.0
     var title: String
     var url: URL
+    var contentAuthor: String? = nil
+    var showsCopyLink = true
     var onChanged: () -> Void = {}
     @State private var loading = true
     @State private var loadError: String?
@@ -31,6 +33,16 @@ struct SiteRecapPageView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(appearance.background, for: .navigationBar)
         .toolbar {
+            let page = currentURL ?? url
+            let parts = page.pathComponents.filter { $0 != "/" }
+            if SiteWebAuthentication.isSameOrigin(page, as: PythonAnywhereClient.shared.baseURL),
+               parts.count == 2, ["recap", "flyer"].contains(parts[0]) {
+                ToolbarItem(placement: .primaryAction) {
+                    SiteContentSafetyControls(kind: parts[0], shareId: parts[1],
+                        username: page.path == url.path ? contentAuthor : nil,
+                        onBlocked: { onChanged(); dismiss() })
+                }
+            }
             if let id = editableShareId {
                 ToolbarItem(placement: .primaryAction) {
                     SiteAIItemControls(kind: "recap", shareId: id,
@@ -38,9 +50,11 @@ struct SiteRecapPageView: View {
                         onDeleted: { onChanged(); dismiss() })
                 }
             }
-            ToolbarItem(placement: .primaryAction) {
-                SiteCopyLinkButton(url: currentURL ?? url, showsTitle: true, isPublicLink: true)
-                    .labelStyle(.titleAndIcon)
+            if showsCopyLink {
+                ToolbarItem(placement: .primaryAction) {
+                    SiteCopyLinkButton(url: currentURL ?? url, showsTitle: true, isPublicLink: true)
+                        .labelStyle(.titleAndIcon)
+                }
             }
         }
         .task(id: currentURL ?? url) {
@@ -84,6 +98,7 @@ private struct SiteInAppWebView: UIViewRepresentable {
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
         config.allowsInlineMediaPlayback = true
+        config.websiteDataStore = .nonPersistent()
 
         let web = WKWebView(frame: .zero, configuration: config)
         web.navigationDelegate = context.coordinator
@@ -104,16 +119,25 @@ private struct SiteInAppWebView: UIViewRepresentable {
         context.coordinator.load(url, in: uiView)
     }
 
+    static func dismantleUIView(_ uiView: WKWebView, coordinator: Coordinator) {
+        coordinator.readerWasDismissed()
+        uiView.stopLoading()
+        uiView.navigationDelegate = nil
+        uiView.uiDelegate = nil
+    }
+
     private var readerScript: String {
         SiteRecapReaderStyle.script(appearance: appearance, readingSize: readingSize)
     }
 
-    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
+    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, UIAdaptivePresentationControllerDelegate {
         var isLoading: Binding<Bool>
         var loadError: Binding<String?>
         var currentURL: Binding<URL?>
         private var loadedURL: URL?
         private var styleScript: String?
+        private var pendingConfirmation: SiteWebConfirmation?
+        private weak var confirmationAlert: UIAlertController?
 
         func applyStyle(_ script: String, to webView: WKWebView) {
             guard styleScript != script else { return }
@@ -136,11 +160,68 @@ private struct SiteInAppWebView: UIViewRepresentable {
             loadedURL = url
             isLoading.wrappedValue = true
             loadError.wrappedValue = nil
-            webView.load(URLRequest(url: url))
+            webView.load(SiteWebAuthentication.request(url, baseURL: PythonAnywhereClient.shared.baseURL,
+                                                       token: SiteAuthManager.shared.token))
         }
 
         func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+            cancelConfirmation()
             isLoading.wrappedValue = true
+        }
+
+        private func cancelConfirmation() {
+            pendingConfirmation?.finish(false)
+            pendingConfirmation = nil
+            confirmationAlert?.dismiss(animated: false)
+            confirmationAlert = nil
+        }
+
+        func readerWasDismissed() { cancelConfirmation() }
+
+        func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
+            if presentationController.presentedViewController === confirmationAlert { cancelConfirmation() }
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            runJavaScriptConfirmPanelWithMessage message: String,
+            initiatedByFrame frame: WKFrameInfo,
+            completionHandler: @escaping (Bool) -> Void
+        ) {
+            let confirmation = SiteWebConfirmation(completionHandler)
+            guard frame.isMainFrame, let frameURL = frame.request.url,
+                  SiteWebAuthentication.isSameOrigin(frameURL, as: PythonAnywhereClient.shared.baseURL),
+                  let pageURL = webView.url,
+                  SiteWebAuthentication.isSameOrigin(pageURL, as: PythonAnywhereClient.shared.baseURL),
+                  var presenter = webView.window?.rootViewController else {
+                confirmation.finish(false)
+                return
+            }
+            // Do not stack a web confirmation on an unrelated native alert.
+            while let presented = presenter.presentedViewController { presenter = presented }
+            guard !(presenter is UIAlertController), !presenter.isBeingDismissed,
+                  presenter.viewIfLoaded?.window != nil else {
+                confirmation.finish(false)
+                return
+            }
+            cancelConfirmation()
+            pendingConfirmation = confirmation
+            let alert = UIAlertController(title: "Confirm action", message: message, preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { [weak self] _ in
+                confirmation.finish(false)
+                self?.pendingConfirmation = nil
+                self?.confirmationAlert = nil
+            })
+            alert.addAction(UIAlertAction(title: "Continue", style: .destructive) { [weak self] _ in
+                confirmation.finish(true)
+                self?.pendingConfirmation = nil
+                self?.confirmationAlert = nil
+            })
+            confirmationAlert = alert
+            presenter.present(alert, animated: true) {
+                if alert.presentingViewController == nil { confirmation.finish(false) }
+            }
+            alert.presentationController?.delegate = self
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -173,9 +254,21 @@ private struct SiteInAppWebView: UIViewRepresentable {
                 return
             }
             let scheme = url.scheme?.lowercased() ?? ""
-            if ["http", "https", "about"].contains(scheme) {
-                if navigationAction.targetFrame == nil {
-                    webView.load(URLRequest(url: url))
+            if scheme == "about" {
+                decisionHandler(.allow)
+                return
+            }
+            if ["http", "https"].contains(scheme) {
+                guard SiteWebAuthentication.isSameOrigin(url, as: PythonAnywhereClient.shared.baseURL) else {
+                    UIApplication.shared.open(url)
+                    decisionHandler(.cancel)
+                    return
+                }
+                let authorized = SiteWebAuthentication.request(navigationAction.request, baseURL: PythonAnywhereClient.shared.baseURL,
+                                                               token: SiteAuthManager.shared.token)
+                if navigationAction.targetFrame == nil ||
+                    navigationAction.request.value(forHTTPHeaderField: "Authorization") != authorized.value(forHTTPHeaderField: "Authorization") {
+                    webView.load(authorized)
                     decisionHandler(.cancel)
                     return
                 }
@@ -193,7 +286,10 @@ private struct SiteInAppWebView: UIViewRepresentable {
             windowFeatures: WKWindowFeatures
         ) -> WKWebView? {
             if let url = navigationAction.request.url {
-                webView.load(URLRequest(url: url))
+                if SiteWebAuthentication.isSameOrigin(url, as: PythonAnywhereClient.shared.baseURL) {
+                    webView.load(SiteWebAuthentication.request(navigationAction.request, baseURL: PythonAnywhereClient.shared.baseURL,
+                                                               token: SiteAuthManager.shared.token))
+                } else { UIApplication.shared.open(url) }
             }
             return nil
         }

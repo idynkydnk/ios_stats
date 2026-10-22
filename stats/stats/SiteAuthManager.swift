@@ -106,8 +106,9 @@ final class SiteAuthManager: ObservableObject {
         await accept(me: me, token: token)
     }
 
-    func loginWithApple(idToken: String, nonce: String, fullName: String? = nil) async throws {
-        let (me, token) = try await PythonAnywhereClient.shared.appleLogin(idToken: idToken, nonce: nonce, fullName: fullName)
+    func loginWithApple(idToken: String, nonce: String, authorizationCode: String, fullName: String? = nil) async throws {
+        let (me, token) = try await PythonAnywhereClient.shared.appleLogin(idToken: idToken, nonce: nonce,
+                                                                         authorizationCode: authorizationCode, fullName: fullName)
         await accept(me: me, token: token)
     }
 
@@ -308,13 +309,17 @@ final class SiteAuthManager: ObservableObject {
         if wasMissingName || welcomeMessage != nil { welcomeMessage = "Signed in as \(savedName)" }
     }
 
-    func deleteAccount() async throws {
-        try await PythonAnywhereClient.shared.deleteAccount()
+    func deleteAccount() async throws -> SiteAccountDeletionResult {
+        let deletingToken = token
+        let deletingUsername = username
+        let result = try await PythonAnywhereClient.shared.deleteAccount()
         await MainActor.run {
-            if let username { SiteOfflineQueue.shared.removeAccount(username) }
+            if let deletingUsername { SiteOfflineQueue.shared.removeAccount(deletingUsername) }
+            guard token == deletingToken else { return }
             UserDefaults.standard.removeObject(forKey: "com.kt.stats.pa.lastLoginEmail")
             clearSession()
         }
+        return result
     }
 }
 

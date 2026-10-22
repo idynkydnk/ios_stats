@@ -5,6 +5,7 @@ import CryptoKit
 struct SiteAppleSignInButton: View {
     @Binding var busy: Bool
     @Binding var error: String?
+    var onSignedIn: () -> Void = {}
     @Environment(\.colorScheme) private var colorScheme
     @State private var nonce: String?
     @State private var challengeFailed = false
@@ -24,6 +25,8 @@ struct SiteAppleSignInButton: View {
                     guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
                           let tokenData = credential.identityToken,
                           let token = String(data: tokenData, encoding: .utf8),
+                          let codeData = credential.authorizationCode,
+                          let authorizationCode = String(data: codeData, encoding: .utf8),
                           let nonce else {
                         throw SiteAPIError.message("Apple sign-in did not finish. Please try again.")
                     }
@@ -36,12 +39,14 @@ struct SiteAppleSignInButton: View {
                         if !name.isEmpty { KeychainStore.set(nameKey, value: name) }
                     }
                     try await SiteAuthManager.shared.loginWithApple(
-                        idToken: token, nonce: nonce, fullName: KeychainStore.get(nameKey))
+                        idToken: token, nonce: nonce, authorizationCode: authorizationCode,
+                        fullName: KeychainStore.get(nameKey))
                     // Clear the retry copy only after the server returns a name.
                     // Older servers can accept sign-in without saving this field.
                     if !SiteAuthManager.shared.needsAccountName {
                         KeychainStore.delete(nameKey)
                     }
+                    onSignedIn()
                 } catch {
                     if (error as? ASAuthorizationError)?.code != .canceled {
                         self.error = error.localizedDescription

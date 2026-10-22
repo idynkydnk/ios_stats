@@ -44,3 +44,6 @@ stats/stats/Supabase-Info.plist
 
 # Website copy dropped into the Xcode source folder (do not ship)
 stats/stats/STATS WEB SITE/
+
+# Locally signed App Store packages and signing/export diagnostics
+app-store/builds/

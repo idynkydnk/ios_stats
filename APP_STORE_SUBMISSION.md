@@ -1,96 +1,124 @@
-# App Store submission checklist
+# App Store submission — version 9.4 (10)
 
-Your project is configured for App Store distribution. Use this checklist to publish **Beach Volleyball Stats** from Xcode and App Store Connect.
+Prepared October 21, 2026. This is a connected account-based app. **Do not select
+“Data Not Collected.”** Local preparation does not mean the server has been
+deployed, the listing has been updated, or Apple has approved the app.
 
----
+## Release identity
 
-## Project configuration (already set)
+| Field | Value |
+| --- | --- |
+| App Store app ID | 6759741764 |
+| Bundle ID | com.kt.stats |
+| Listing name | Beach Volleyball Statistics |
+| Local version/build | 9.4 / 10 |
+| Device families | iPhone and iPad |
+| Website | https://idynkydnk.pythonanywhere.com |
+| Proposed support URL | https://idynkydnk.pythonanywhere.com/support |
+| Proposed privacy URL | https://idynkydnk.pythonanywhere.com/privacy |
 
-- **Bundle ID:** `com.kt.stats`
-- **Display name:** Beach Volleyball Stats
-- **Version:** 1.0 (1)
-- **Copyright:** Set in the project
+The prior listing snapshot in `app-store/submission-draft.json` recorded build 8.
+It is historical evidence, not a live App Store Connect status check. Submit the
+new build containing these fixes, after its required backend is deployed.
 
----
+## Implemented locally
 
-## 1. App icon (required)
+- Privacy, support, and community pages, reachable without signing in.
+- Explicit, revocable OpenAI permission before AI/content-safety transfers.
+- Content filtering, reports, author blocking, and administrator enforcement.
+- Full personal-account deletion, encrypted Apple refresh-token storage, and
+  Apple authorization revocation during deletion.
+- Apple sign-in on the login screen alongside existing email/password access.
+- Required-reason API and collected-data privacy manifest.
+- Review-account preparation script using ordinary authentication and fictional
+  private games, without a reviewer-only feature bypass.
 
-App Store requires a **1024×1024 px** app icon.
+## Before uploading or submitting
 
-- Open **stats/Assets.xcassets/AppIcon.appiconset** in Xcode.
-- Ensure there is at least one **1024×1024** image for iOS (e.g. the first slot). If the asset catalog references missing files, add a 1024×1024 PNG there.
-- Without a valid icon, the archive or upload can fail or be rejected.
+1. **Deploy the website changes first.** Follow the deployment section below.
+   Confirm public policy URLs return 200 without a session and production safety
+   endpoints work. Check the support email is monitored.
+2. **Configure and verify providers.** Apple server signing/encryption keys and
+   OpenAI moderation/generation must work. Keep secrets out of Git, screenshots,
+   review notes, and the app bundle.
+3. **Prepare reviewer access.** Follow `app-store/reviewer-notes.md`; provision the
+   ordinary private account on the deployed service and save its credentials
+   only in App Store Connect's review fields. This task has not created a
+   production review account.
+4. **Run signed-device acceptance checks** below against the deployed server.
+   Compilation and backend tests cannot verify live Apple authorization or
+   real-device layout.
+5. **Upload the new build.** Confirm processing, privacy-manifest validation, and
+   export-compliance answers in App Store Connect. An exported IPA alone does
+   not prove that Apple accepted it.
+6. **Finish the listing.** Use `app-store/privacy-and-listing.md` and the revised
+   JSON draft. Publish privacy answers, choose price and countries, complete age
+   rating/content rights, upload screenshots, and verify review contact details.
+   The user approved free pricing and worldwide eligible storefront availability.
+7. Run submission validation, inspect the selected build and release option,
+   then submit. This task has not submitted or released the app.
 
----
+## Website deployment and operations
 
-## 2. Xcode: team and signing
+The website repository is `/Users/mila/Library/CloudStorage/Dropbox/coding/stats`.
+Both repositories have changes and the website contains required app update
+notes. Follow their AGENTS.md and `docs/site-updates.md` when committing/pushing.
 
-1. Open **stats.xcodeproj** in Xcode.
-2. Select the **stats** project (blue icon) → **stats** target → **Signing & Capabilities**.
-3. Check **Automatically manage signing**.
-4. Set **Team** to your Apple Developer Program team.
-5. Confirm **Bundle Identifier** is `com.kt.stats` (General tab).
+- Install existing project requirements and start the updated WSGI app so
+  account, consent, reporting, and deletion schemas initialize.
+- Configure `OPENAI_API_KEY`. App/web generation and upload moderation fail
+  closed when it is missing or unavailable. Gemini is not an app/web fallback;
+  the current disclosure and permission cover OpenAI only.
+- Configure `APPLE_TEAM_ID`, `APPLE_KEY_ID`, `APPLE_PRIVATE_KEY_PATH` (protected
+  server-only Sign in with Apple `.p8`), and `APPLE_TOKEN_ENCRYPTION_KEY`. The
+  default client ID is `com.kt.stats`. Retain the encryption key securely across
+  deployments so stored Apple tokens remain decryptable. See `.env.example`
+  and `docs/personal-app-accounts.md` for exact setup.
+- Retain the existing mail configuration for email-code sign-in. The app also
+  supports the existing-password route used by the reviewer account.
+- Confirm `STATS_SUPPORT_EMAIL`, hosting/log/backup retention, and the erasure
+  procedure match the policy. Restore backups only during maintenance after
+  reapplying deletions; never restore deleted identities into service.
+- An administrator must monitor **More → Admin → Content reports** (or website
+  `/admin/content-reports`) and the support inbox, promptly review reports, and
+  remove/restrict abuse. Review existing public content before launch.
+  Automated moderation does not replace this operational responsibility.
+- Verify stale credentials can still open `/privacy`, `/support`, and
+  `/community-guidelines`. Verify consent starts off for a new account.
 
----
+## Signed-device acceptance checks
 
-## 3. App Store Connect: create the app
+Use disposable ordinary accounts and fictional records. Do not delete the
+reviewer's account while a review is in progress.
 
-1. Go to [App Store Connect](https://appstoreconnect.apple.com) and sign in.
-2. **My Apps** → **+** → **New App**.
-3. Fill in:
-   - **Platform:** iOS
-   - **Name:** Beach Volleyball Stats (or your preferred name)
-   - **Primary Language:** your language
-   - **Bundle ID:** choose **com.kt.stats** (must match Xcode)
-   - **SKU:** e.g. `beach-volleyball-stats-001`
-4. Click **Create**.
+| Check | Expected result |
+| --- | --- |
+| Fresh launch, guest browsing, iPhone and iPad | Useful public stats; no login needed to view privacy/support |
+| Email code and existing password | Sign-in, save a game, relaunch, and logout work |
+| Apple sign-in | New/repeat sign-in, Hide My Email, cancellation, and recovery work |
+| AI permission declined | Browsing and score recording work; covered transfers stay blocked |
+| Permission granted/withdrawn | Generation needs current permission; withdrawal stops future covered requests |
+| Report, block, unblock | Reports reach admin; author content disappears and can be restored by unblocking |
+| Administrator remove/suspend | Confirmation works inside app; content disappears; suspended users retain privacy/deletion access |
+| Non-Apple account deletion | Identity and owned records/media disappear; old sessions fail; other accounts stay intact |
+| Apple account deletion | Saved Apple token revoked; older accounts without a usable token are erased with manual Apple-disconnect instructions |
+| Busy/provider failure during deletion | Retryable error, no false successful deletion |
+| Poor connection, background/foreground | No crash, unintended duplicate game, or cross-account cached content |
+| Accessibility and layout | Large text, VoiceOver, contrast, keyboard dismissal, and iPad layout checked manually |
 
----
+Capture screenshots of the actual final app and sample records after these
+checks. Do not use mockups as screenshots. Project instructions prohibit local
+desktop/browser/simulator interaction by the agent; use an authorized cloud
+device/computer or perform these checks manually when one is unavailable.
 
-## 4. Xcode: archive and upload
+## Reference rules
 
-1. In Xcode, set the run destination to **Any iOS Device** (top toolbar).
-2. **Product** → **Archive**.
-3. When the Organizer appears, select the new archive → **Distribute App**.
-4. **App Store Connect** → **Next** → **Upload** → **Next**.
-5. Keep default options → **Next** → **Upload**.
-6. Wait for the upload to finish → **Done**.
+- [App Review Guidelines](https://developer.apple.com/app-store/review/guidelines/):
+  completeness (2.1), user-generated content (1.2), privacy (5.1.1/5.1.2), and
+  login services (4.8).
+- [Account deletion](https://developer.apple.com/support/offering-account-deletion-in-your-app/).
+- [App privacy details](https://developer.apple.com/app-store/app-privacy-details/).
+- [Screenshot specifications](https://developer.apple.com/help/app-store-connect/reference/app-information/screenshot-specifications/).
 
-The build can take 5–15 minutes to appear in App Store Connect.
-
----
-
-## 5. App Store Connect: version and metadata
-
-1. In App Store Connect, open your app → **App Store** tab (left).
-2. Under **iOS App**, click **+ Version** or the version number (e.g. 1.0).
-3. Fill in:
-   - **Screenshots:** at least one per required device size (e.g. 6.7", 6.5"). Use the Simulator: **File → Save Screen** or ⌘S.
-   - **Promotional Text** (optional).
-   - **Description:** e.g. "Track beach volleyball games and player stats with TrueSkill-style ratings."
-   - **Keywords:** e.g. volleyball, stats, beach, scores.
-   - **Support URL:** a working URL (e.g. a GitHub repo or simple webpage).
-   - **Marketing URL** (optional).
-4. Under **Build**, click **+** and select the build you uploaded (wait until it appears and is processed).
-5. **App Privacy:** open the questionnaire. For this app (local-only, no collection): choose that you **do not collect** data, or answer according to your actual behavior.
-6. **Pricing and Availability:** set **Free** (or your price) and the countries.
-7. **Version Release:** e.g. "Manually release this version" or "Automatically release after approval".
-
----
-
-## 6. Submit for review
-
-1. Click **Add for Review** (or **Submit for Review**).
-2. Answer **Export Compliance**: typically "No" if the app doesn’t use encryption beyond what’s built into iOS.
-3. **Content Rights**, **Advertising Identifier**, etc.: answer as needed (often "No" for this app).
-4. Click **Submit to App Review**.
-
-Review usually takes 24–48 hours. After approval, the app will be available on the App Store (and you can install it on your phone from the store).
-
----
-
-## Updating the app later
-
-- Bump **Current Project Version** in Xcode (target → General → **Build**) for each new upload.
-- Optionally bump **Marketing Version** (e.g. 1.1) for user-visible version.
-- Create a new archive, upload, then add the new build to a new version (or replace the build) in App Store Connect and submit again.
+Apple makes the final approval decision. Keep the production service and review
+account available throughout review.

@@ -1,0 +1,88 @@
+{
+  "prepared_on": "2026-10-21",
+  "status": "local_fixes_and_distribution_build_prepared_not_deployed_or_submitted",
+  "app_store_id": "6759741764",
+  "bundle_id": "com.kt.stats",
+  "observed_uploaded_build": {
+    "version": "9.4",
+    "build": "8"
+  },
+  "locale": "en-US",
+  "contacts": {
+    "public_support_email": "idynkydnk@gmail.com",
+    "app_review_email": "idynkydnk@gmail.com",
+    "app_review_phone": "Provided by user and saved in App Store Connect; omitted from this file"
+  },
+  "metadata": {
+    "name": "Beach Volleyball Statistics",
+    "subtitle": "Scores, rankings & match stats",
+    "promotional_text": "Follow your beach volleyball results, compare player rankings, and keep your games and stats together.",
+    "description": "Track beach volleyball games, rankings, and player statistics in one place.\n\nBrowse public game results and ratings, or sign in to keep your own players and results. Record doubles and one-on-one games, explore player records, and choose the stats you want to include.\n\nFeatures include:\n• Game scores and history\n• Player rankings and statistics\n• Season and game-format filters\n• Personal game entry and player profiles\n• Optional AI recaps and shareable flyers\n• Privacy choices, content reporting, and author blocking\n\nAI features ask permission before sending selected information and photos to OpenAI. Browsing and ordinary score recording remain available without that permission.\n\nBeach Volleyball Statistics connects to the stats website. Internet access is required for sign-in, syncing, and AI features.",
+    "keywords": "beach,volleyball,stats,scores,rankings,players,results,match,history,doubles",
+    "marketing_url": "https://idynkydnk.pythonanywhere.com",
+    "support_url": "https://idynkydnk.pythonanywhere.com/support",
+    "privacy_policy_url": "https://idynkydnk.pythonanywhere.com/privacy",
+    "primary_category": "Sports"
+  },
+  "review_notes_draft": "See app-store/reviewer-notes.md. Native sign-in offers email/password and Apple. Prepare the ordinary reviewer account on the deployed service before saving review credentials. No production review account has been created in this task.",
+  "remaining_requirements": [
+    "Deploy the website privacy, consent, reporting, account deletion, and Apple token changes; verify public URLs and production APIs.",
+    "Create and install the Sign in with Apple server key and persistent token encryption key; user requested setup help.",
+    "Confirm OpenAI generation/moderation and email-code delivery work on production.",
+    "Create a dedicated normal review account with fictional games and supply its credentials in App Store Connect.",
+    "Complete signed-device/TestFlight acceptance checks, including Apple sign-in and account deletion.",
+    "Upload the new 9.4 build 10, confirm processing/manifest/export compliance, and select it for review.",
+    "Review and publish privacy data types/purposes/linkage, age rating, content rights, and required regional declarations.",
+    "Save the user-approved free price and worldwide eligible storefront availability.",
+    "Upload actual final-app screenshots for required iPhone and iPad slots.",
+    "Confirm monitored support/moderation and backup/log retention procedures.",
+    "Run App Store submission validation and review release timing before submitting."
+  ],
+  "saved_in_app_store_connect": [
+    "Version 9.4 and uploaded build 8",
+    "Promotional text, description, keywords, marketing URL, and copyright",
+    "Subtitle and Sports category",
+    "Review contact name, supplied email and phone, and review notes",
+    "Automatic release after approval remains selected"
+  ],
+  "app_store_connect_snapshot_date": "2026-10-20",
+  "app_store_connect_snapshot_note": "saved_in_app_store_connect and observed_uploaded_build are preserved historical observations; not reverified in this task.",
+  "local_prepared_build": {
+    "version": "9.4",
+    "build": "10",
+    "bundle_id": "com.kt.stats",
+    "archive": "app-store/builds/9.4-10/stats-9.4-10.xcarchive",
+    "ipa": "app-store/builds/9.4-10/export/stats.ipa",
+    "upload_status": "not_uploaded",
+    "ipa_sha256": "64263dae22d16a8728da399a6ea75c7ad1babff9cc06f483887f6d6453c549c1",
+    "local_distribution_signature_verified": true,
+    "verification_record": "app-store/builds/9.4-10/verification.json"
+  },
+  "user_approved_distribution": {
+    "price": "free",
+    "availability": "worldwide_all_eligible_storefronts",
+    "confirmed_on": "2026-10-21",
+    "saved_to_app_store_connect": false
+  },
+  "privacy_declaration_draft": {
+    "tracking": false,
+    "linked_to_user": true,
+    "purpose": "App Functionality",
+    "data_types": [
+      "Name",
+      "Email Address",
+      "User ID",
+      "Photos or Videos",
+      "Other User Content",
+      "Customer Support",
+      "Product Interaction",
+      "Other Data",
+      "Fitness",
+      "Health",
+      "Precise Location",
+      "Coarse Location"
+    ],
+    "status": "matches_local_manifest_requires_live_processing_review_and_ASC_publication",
+    "worksheet": "app-store/privacy-and-listing.md"
+  }
+}
