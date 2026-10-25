@@ -387,10 +387,14 @@ struct SiteStarterStatsControl: View {
 }
 
 struct SiteYearMenu: View {
+    @ObservedObject private var auth = SiteAuthManager.shared
     @Binding var selectedYear: String
     var years: [String]
 
     var body: some View {
+        if auth.statsFilters.hasDates {
+            NavigationLink("Custom days") { SiteTimeFrameView() }
+        } else {
         Picker("Year", selection: $selectedYear) {
             ForEach(normalizedYears, id: \.self) { year in
                 Text(year == "All years" ? "All" : year).tag(year)
@@ -400,6 +404,7 @@ struct SiteYearMenu: View {
         .labelsHidden()
         .fixedSize()
         .accessibilityLabel("Year")
+        }
     }
 
     private var normalizedYears: [String] {
@@ -669,6 +674,8 @@ struct RankingTable: View {
     var sortLikeToday: Bool = false
     var year: String
     var section: GameSection
+    var playerDestination: ((String) -> AnyView)? = nil
+    var playerNotes: [String: String] = [:]
 
     private var displayedRows: [RankingRow] {
         sortLikeToday ? RankingRow.sortedForToday(rows) : rows
@@ -735,14 +742,13 @@ struct RankingTable: View {
                 Divider()
                 SiteLimitedRows(Array(displayedRows.enumerated()), id: \.element.id) { idx, row in
                     NavigationLink {
-                        SitePlayerDetailView(name: row.name, year: year, section: section, format: section == .vollis ? oneOnOneFormat : "")
+                        destination(for: row.name)
                     } label: {
                         HStack(spacing: columnSpacing) {
                             tableCell("\(idx + 1)", width: rankColumnWidth)
                                 .foregroundStyle(rankColor(idx))
-                            tableCell(row.name, width: playerColumnWidth, alignment: .leading)
-                                .fontWeight(.semibold)
-                                .accessibilityIdentifier("ranking-\(row.id)-name")
+                            playerLabel(row.name)
+                                .frame(width: playerColumnWidth, alignment: .leading)
                             if showRating {
                                 tableCell(row.rating.map { String(format: "%.2f", $0) } ?? "—", width: ratingColumnWidth)
                                     .foregroundStyle(appearance.accent)
@@ -796,6 +802,25 @@ struct RankingTable: View {
         .background(appearance.panel)
     }
 
+    @ViewBuilder private func destination(for name: String) -> some View {
+        if let playerDestination {
+            playerDestination(name)
+        } else {
+            SitePlayerDetailView(name: name, year: year, section: section, format: section == .vollis ? oneOnOneFormat : "")
+        }
+    }
+
+    private func playerLabel(_ name: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(name).fontWeight(.semibold)
+                .accessibilityIdentifier("ranking-\(name)-name")
+            if let note = playerNotes[name] {
+                Text(note).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
     private func tableCell(_ value: String, width: CGFloat, alignment: Alignment = .center) -> some View {
         Text(value)
             .fixedSize(horizontal: false, vertical: true)
@@ -817,13 +842,12 @@ struct RankingTable: View {
         VStack(spacing: 0) {
             SiteLimitedRows(Array(displayedRows.enumerated()), id: \.element.id) { idx, row in
                 NavigationLink {
-                    SitePlayerDetailView(name: row.name, year: year, section: section, format: section == .vollis ? oneOnOneFormat : "")
+                    destination(for: row.name)
                 } label: {
                     VStack(alignment: .leading, spacing: 10) {
                         HStack(alignment: .firstTextBaseline, spacing: 8) {
                             Text("\(idx + 1)").foregroundStyle(.secondary)
-                            Text(row.name).fontWeight(.semibold)
-                                .accessibilityIdentifier("ranking-\(row.id)-name")
+                            playerLabel(row.name)
                         }
                         LazyVGrid(columns: metricColumns, alignment: .leading, spacing: 10) {
                             if showRating {
@@ -908,6 +932,7 @@ struct SiteStatsView: View {
             VStack(spacing: 0) {
                 SiteSearchBar(search: $search, searchPrompt: "Search players...")
                 ScrollView {
+                    SiteStatsFilterSummary()
                     OtherGameNavigation(section: $section, selection: $selectedOtherGame, selectedYear: $selectedYear)
                     if let error { Text(error).foregroundStyle(.red).padding() }
                     switch section {
@@ -1159,6 +1184,7 @@ struct SiteGamesView: View {
                         .padding(.horizontal)
                 }
                 List {
+                    SiteStatsFilterSummary()
                     OtherGameNavigation(section: $section, selection: $selectedOtherGame, selectedYear: $selectedYear)
                     Section {
                         SiteSectionBubble(title: "Games", count: totalGames ?? visibleGameCount, expanded: $gamesExpanded)

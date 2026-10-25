@@ -1,0 +1,325 @@
+{
+  "detail": {
+    "awards_explanation": "Ratings start fresh and use only this season\u2019s games. Each game format has its own standings. The highest-rated qualifying player wins; formats without ratings use win percentage. Equal results share the award. Most improved is the largest positive rating gain from the end of a player\u2019s first rated playing day to their latest, with at least two rated playing days and the season minimum. Awards become final after the end day; corrections to games or season settings update the results.",
+    "game_count": 60,
+    "groups": [
+      {
+        "award_metric": "rating",
+        "champions": [
+          {
+            "first_rating": 17.33,
+            "games": 60,
+            "games_needed": 0,
+            "losses": 0,
+            "name": "B",
+            "qualified": true,
+            "rating": 18.79,
+            "rating_gain": 1.46,
+            "ties": 0,
+            "win_pct": 1.0,
+            "wins": 60
+          }
+        ],
+        "game_count": 60,
+        "id": "doubles:open",
+        "minimum_games": 2,
+        "most_improved": [
+          {
+            "first_rating": 14.33,
+            "games": 59,
+            "games_needed": 0,
+            "losses": 0,
+            "name": "A",
+            "qualified": true,
+            "rating": 15.94,
+            "rating_gain": 1.61,
+            "ties": 0,
+            "win_pct": 1.0,
+            "wins": 59
+          }
+        ],
+        "rare_stats": [
+          {
+            "first_rating": 4.97,
+            "games": 1,
+            "games_needed": 1,
+            "losses": 0,
+            "name": "Rare",
+            "qualified": false,
+            "rating": 4.97,
+            "rating_gain": null,
+            "ties": 0,
+            "win_pct": 1.0,
+            "wins": 1
+          }
+        ],
+        "rated_games": 60,
+        "rating_enabled": true,
+        "stats": [
+          {
+            "first_rating": 17.33,
+            "games": 60,
+            "games_needed": 0,
+            "losses": 0,
+            "name": "B",
+            "qualified": true,
+            "rating": 18.79,
+            "rating_gain": 1.46,
+            "ties": 0,
+            "win_pct": 1.0,
+            "wins": 60
+          },
+          {
+            "first_rating": 14.33,
+            "games": 59,
+            "games_needed": 0,
+            "losses": 0,
+            "name": "A",
+            "qualified": true,
+            "rating": 15.94,
+            "rating_gain": 1.61,
+            "ties": 0,
+            "win_pct": 1.0,
+            "wins": 59
+          },
+          {
+            "first_rating": -0.78,
+            "games": 60,
+            "games_needed": 0,
+            "losses": 60,
+            "name": "C",
+            "qualified": true,
+            "rating": -0.39,
+            "rating_gain": 0.39,
+            "ties": 0,
+            "win_pct": 0.0,
+            "wins": 0
+          },
+          {
+            "first_rating": -0.78,
+            "games": 60,
+            "games_needed": 0,
+            "losses": 60,
+            "name": "D",
+            "qualified": true,
+            "rating": -0.39,
+            "rating_gain": 0.39,
+            "ties": 0,
+            "win_pct": 0.0,
+            "wins": 0
+          }
+        ],
+        "title": "Men\u2019s Doubles",
+        "unrated_games": 0
+      }
+    ],
+    "minimum_explanation": "Automatic uses the same rule as the site: divide the number of games in each season standings group by 30, round down, and use at least 1. For example, 90 games means a player needs 3 games to qualify. It grows with participation, so a busy season asks for more games without making a quieter season too hard to qualify for. Choose a fixed minimum if your league needs a specific target.",
+    "season": {
+      "end_date": "2026-01-02",
+      "id": "5c9a07263823567cc04f8295b0543a06",
+      "minimum_games": null,
+      "minimum_mode": "automatic",
+      "name": "Winter league",
+      "share_url": null,
+      "start_date": "2025-12-31",
+      "status": "Completed",
+      "timezone": "America/Los_Angeles"
+    }
+  },
+  "library": {
+    "champions": [
+      {
+        "end_date": "2026-01-02",
+        "first_rating": 17.33,
+        "games": 60,
+        "games_needed": 0,
+        "group_id": "doubles:open",
+        "group_title": "Men\u2019s Doubles",
+        "losses": 0,
+        "name": "B",
+        "qualified": true,
+        "rating": 18.79,
+        "rating_gain": 1.46,
+        "season_id": "5c9a07263823567cc04f8295b0543a06",
+        "season_name": "Winter league",
+        "start_date": "2025-12-31",
+        "ties": 0,
+        "win_pct": 1.0,
+        "wins": 60
+      }
+    ],
+    "seasons": [
+      {
+        "end_date": "2026-01-02",
+        "id": "5c9a07263823567cc04f8295b0543a06",
+        "minimum_games": null,
+        "minimum_mode": "automatic",
+        "name": "Winter league",
+        "share_url": null,
+        "start_date": "2025-12-31",
+        "status": "Completed",
+        "timezone": "America/Los_Angeles"
+      }
+    ]
+  },
+  "player": {
+    "awards_explanation": "Ratings start fresh and use only this season\u2019s games. Each game format has its own standings. The highest-rated qualifying player wins; formats without ratings use win percentage. Equal results share the award. Most improved is the largest positive rating gain from the end of a player\u2019s first rated playing day to their latest, with at least two rated playing days and the season minimum. Awards become final after the end day; corrections to games or season settings update the results.",
+    "game_count": 60,
+    "groups": [
+      {
+        "award_metric": "rating",
+        "champions": [
+          {
+            "first_rating": 17.33,
+            "games": 60,
+            "games_needed": 0,
+            "losses": 0,
+            "name": "B",
+            "qualified": true,
+            "rating": 18.79,
+            "rating_gain": 1.46,
+            "ties": 0,
+            "win_pct": 1.0,
+            "wins": 60
+          }
+        ],
+        "game_count": 60,
+        "id": "doubles:open",
+        "minimum_games": 2,
+        "most_improved": [
+          {
+            "first_rating": 14.33,
+            "games": 59,
+            "games_needed": 0,
+            "losses": 0,
+            "name": "A",
+            "qualified": true,
+            "rating": 15.94,
+            "rating_gain": 1.61,
+            "ties": 0,
+            "win_pct": 1.0,
+            "wins": 59
+          }
+        ],
+        "rare_stats": [
+          {
+            "first_rating": 4.97,
+            "games": 1,
+            "games_needed": 1,
+            "losses": 0,
+            "name": "Rare",
+            "qualified": false,
+            "rating": 4.97,
+            "rating_gain": null,
+            "ties": 0,
+            "win_pct": 1.0,
+            "wins": 1
+          }
+        ],
+        "rated_games": 60,
+        "rating_enabled": true,
+        "stats": [
+          {
+            "first_rating": 17.33,
+            "games": 60,
+            "games_needed": 0,
+            "losses": 0,
+            "name": "B",
+            "qualified": true,
+            "rating": 18.79,
+            "rating_gain": 1.46,
+            "ties": 0,
+            "win_pct": 1.0,
+            "wins": 60
+          },
+          {
+            "first_rating": 14.33,
+            "games": 59,
+            "games_needed": 0,
+            "losses": 0,
+            "name": "A",
+            "qualified": true,
+            "rating": 15.94,
+            "rating_gain": 1.61,
+            "ties": 0,
+            "win_pct": 1.0,
+            "wins": 59
+          },
+          {
+            "first_rating": -0.78,
+            "games": 60,
+            "games_needed": 0,
+            "losses": 60,
+            "name": "C",
+            "qualified": true,
+            "rating": -0.39,
+            "rating_gain": 0.39,
+            "ties": 0,
+            "win_pct": 0.0,
+            "wins": 0
+          },
+          {
+            "first_rating": -0.78,
+            "games": 60,
+            "games_needed": 0,
+            "losses": 60,
+            "name": "D",
+            "qualified": true,
+            "rating": -0.39,
+            "rating_gain": 0.39,
+            "ties": 0,
+            "win_pct": 0.0,
+            "wins": 0
+          }
+        ],
+        "title": "Men\u2019s Doubles",
+        "unrated_games": 0
+      }
+    ],
+    "minimum_explanation": "Automatic uses the same rule as the site: divide the number of games in each season standings group by 30, round down, and use at least 1. For example, 90 games means a player needs 3 games to qualify. It grows with participation, so a busy season asks for more games without making a quieter season too hard to qualify for. Choose a fixed minimum if your league needs a specific target.",
+    "player": {
+      "games": [
+        {
+          "day": "2025-12-31",
+          "id": "games:1",
+          "loser_score": 15,
+          "losers": [
+            "C",
+            "D"
+          ],
+          "result": "Win",
+          "winner_score": 21,
+          "winners": [
+            "Rare",
+            "B"
+          ]
+        }
+      ],
+      "group_title": "Men\u2019s Doubles",
+      "stats": {
+        "first_rating": 4.97,
+        "games": 1,
+        "games_needed": 1,
+        "losses": 0,
+        "name": "Rare",
+        "qualified": false,
+        "rating": 4.97,
+        "rating_gain": null,
+        "ties": 0,
+        "win_pct": 1.0,
+        "wins": 1
+      }
+    },
+    "season": {
+      "end_date": "2026-01-02",
+      "id": "5c9a07263823567cc04f8295b0543a06",
+      "minimum_games": null,
+      "minimum_mode": "automatic",
+      "name": "Winter league",
+      "share_url": null,
+      "start_date": "2025-12-31",
+      "status": "Completed",
+      "timezone": "America/Los_Angeles"
+    }
+  }
+}

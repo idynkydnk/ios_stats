@@ -69,6 +69,44 @@ final class PythonAnywhereClient {
         return try await verifiedSession(response.token)
     }
 
+    func statsShareToken() async throws -> String {
+        struct Share: Decodable { var view: String }
+        let auth = SiteAuthManager.shared
+        let response: Share = try await get("/api/account/stats-share", query: [
+            "preview": auth.isPreviewing || !auth.isLoggedIn ? "1" : "0",
+            "owned": auth.browseSelectedStats ? "0" : "1"
+        ])
+        return response.view
+    }
+
+    func seasons() async throws -> SiteSeasonsPayload {
+        try await get("/api/seasons", preview: false)
+    }
+
+    func season(id: String, player: String? = nil, group: String? = nil) async throws -> SiteSeasonPayload {
+        var query: [String: String] = [:]
+        if let player { query["player"] = player }
+        if let group { query["group"] = group }
+        return try await get("/api/seasons/\(id)", query: query, preview: false)
+    }
+
+    func saveSeason(_ draft: SiteSeasonDraft, id: String? = nil) async throws -> SiteSeasonPayload {
+        if let id { return try await putJSON("/api/seasons/\(id)", json: draft.fields) }
+        return try await postJSON("/api/seasons", json: draft.fields)
+    }
+
+    func deleteSeason(id: String) async throws {
+        try await delete("/api/seasons/\(id)")
+    }
+
+    func shareSeason(id: String, enabled: Bool) async throws -> SiteSeason {
+        struct Response: Decodable { var season: SiteSeason }
+        var req = request("/api/seasons/\(id)/share", method: enabled ? "POST" : "DELETE")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let value: Response = try await decode(req)
+        return value.season
+    }
+
     func statsSources() async throws -> StatsSourcesPayload {
         try await get("/api/account/stats-sources")
     }
@@ -959,7 +997,7 @@ final class PythonAnywhereClient {
     }
 
     private func request(_ path: String, method: String, query: [String: String] = [:], authed: Bool = true, preview: Bool? = nil) -> URLRequest {
-        var query = query
+        var query = preview == false ? query : SiteAuthManager.shared.statsFilters.apiQuery(path: path, method: method, query: query)
         if method == "GET" && path.hasPrefix("/api/doubles/") {
             query["division"] = UserDefaults.standard.string(forKey: "stats.doublesDivision") ?? "open"
         }
@@ -977,7 +1015,7 @@ final class PythonAnywhereClient {
         } else if method == "GET", authed, SiteAuthManager.shared.isLoggedIn {
             req.setValue("1", forHTTPHeaderField: "X-Stats-Owned")
         }
-        let previewPaths = ["/api/years", "/api/doubles/", "/api/vollis/", "/api/other/", "/api/volleyball/stats"]
+        let previewPaths = ["/api/account/stats-share", "/api/years", "/api/doubles/", "/api/vollis/", "/api/other/", "/api/volleyball/stats"]
         if preview ?? (token == nil || SiteAuthManager.shared.isPreviewing),
            previewPaths.contains(where: { $0.hasSuffix("/") ? path.hasPrefix($0) : path == $0 }) {
             req.setValue("1", forHTTPHeaderField: "X-Stats-Preview")

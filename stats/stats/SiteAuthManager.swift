@@ -39,13 +39,14 @@ final class SiteAuthManager: ObservableObject {
     @Published var isPreviewing = true
     @Published var browseSelectedStats = true
     @Published private(set) var statsViewRevision = 0
+    @Published private(set) var statsFilters = SiteStatsFilters()
     @Published var lastError: String?
     @Published private(set) var welcomeMessage: String?
 
     // Include the session and every browsing scope; raw credentials never go to disk.
     var browseCacheScope: String {
         let parts = [token ?? "public", username ?? "", String(isPrivate), String(isAdmin),
-                     String(isPreviewing), String(browseSelectedStats), String(showStarterStats)]
+                     String(isPreviewing), String(browseSelectedStats), String(showStarterStats), statsFilters.cacheKey]
         return String(data: try! JSONEncoder().encode(parts), encoding: .utf8)!
     }
 
@@ -287,6 +288,11 @@ final class SiteAuthManager: ObservableObject {
             showStarterStats = visible
             statsSourcesChanged()
         }
+    }
+
+    func setStatsFilters(_ filters: SiteStatsFilters) {
+        statsFilters = filters
+        statsSourcesChanged()
     }
 
     func statsSourcesChanged() {

@@ -73,6 +73,7 @@ enum SitePublicLink {
     }
 
     static func normalizedYear(_ raw: String) -> String {
+        if SiteAuthManager.shared.statsFilters.hasDates { return "All years" }
         if raw.isEmpty || raw == "All" { return "All years" }
         return raw
     }
@@ -101,14 +102,33 @@ struct SiteCopyLinkButton: View {
     // Published recaps can be shared even from a personal account.
     var isPublicLink: Bool = false
     @State private var copied = false
+    @State private var copying = false
+    @State private var shareError: String?
 
     var body: some View {
-        if let url, isPublicLink || !auth.isPrivate {
+        if let url {
             Button {
-                UIPasteboard.general.string = url.absoluteString
-                copied = true
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
-                    copied = false
+                Task {
+                    copying = true
+                    defer { copying = false }
+                    let scope = auth.browseCacheScope
+                    do {
+                        var sharedURL = url
+                        if !isPublicLink {
+                            let filters = auth.statsFilters
+                            let token = try await PythonAnywhereClient.shared.statsShareToken()
+                            guard auth.browseCacheScope == scope else { return }
+                            var parts = URLComponents(url: filters.applying(to: url), resolvingAgainstBaseURL: false)
+                            var items = (parts?.queryItems ?? []).filter { $0.name != "view" }
+                            items.append(URLQueryItem(name: "view", value: token))
+                            parts?.queryItems = items
+                            guard let result = parts?.url else { return }
+                            sharedURL = result
+                        }
+                        UIPasteboard.general.string = sharedURL.absoluteString
+                        copied = true
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { copied = false }
+                    } catch { shareError = error.localizedDescription }
                 }
             } label: {
                 if showsTitle {
@@ -117,7 +137,11 @@ struct SiteCopyLinkButton: View {
                     Image(systemName: copied ? "checkmark" : "link")
                 }
             }
-            .accessibilityLabel(copied ? "Copied" : "Copy link")
+            .disabled(copying)
+            .accessibilityLabel(copying ? "Creating share link" : copied ? "Copied" : "Copy link")
+            .alert("Could not copy link", isPresented: Binding(get: { shareError != nil }, set: { if !$0 { shareError = nil } })) {
+                Button("OK", role: .cancel) { shareError = nil }
+            } message: { Text(shareError ?? "") }
         }
     }
 }

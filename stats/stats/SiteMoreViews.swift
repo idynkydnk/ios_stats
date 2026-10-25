@@ -16,6 +16,18 @@ struct SiteMoreView: View {
     var body: some View {
         NavigationStack {
             List {
+                SiteListSection("Stats filters") {
+                    NavigationLink { SiteTimeFrameView(onApply: onHome) } label: {
+                        Label("Custom time frame", systemImage: "calendar")
+                    }
+                    NavigationLink { SiteLocationFilterView(onApply: onHome) } label: {
+                        Label("Location", systemImage: "mappin.and.ellipse")
+                    }
+                    if auth.statsFilters.isActive {
+                        Text(auth.statsFilters.summary).font(.caption).foregroundStyle(.secondary)
+                        Button("Clear filters") { auth.setStatsFilters(SiteStatsFilters()) }
+                    }
+                }
                 if !auth.isLoggedIn {
                     Section {
                         Button(action: onHome) { Label("Home", systemImage: "house") }
@@ -78,6 +90,7 @@ struct SiteMoreView: View {
                 }
                 if auth.isLoggedIn {
                 SiteListSection("Browse") {
+                    NavigationLink("Seasons") { SiteSeasonsView() }
                     NavigationLink("Players") { SitePlayersView() }
                     NavigationLink("AI Recaps") { SiteRecapsView() }
                     NavigationLink("Flyers") { SiteFlyersView() }
@@ -85,6 +98,7 @@ struct SiteMoreView: View {
                 }
                 if auth.isLoggedIn {
                     SiteListSection("Create") {
+                        NavigationLink("Season") { SiteCreateSeasonView() }
                         NavigationLink("AI Recap") { SiteAISummaryView() }
                         NavigationLink("Flyer") { SiteFlyerView() }
                     }
@@ -781,11 +795,13 @@ struct SiteTournamentsView: View {
 }
 
 struct SiteVolleyballView: View {
+    @ObservedObject private var auth = SiteAuthManager.shared
     @State private var payload: OtherStatsPayload?
     @State private var year = String(Calendar.current.component(.year, from: Date()))
 
     var body: some View {
         ScrollView {
+            SiteStatsFilterSummary()
             if let p = payload {
                 SiteLimitedRows(p.gameCards) { card in
                     RankingTable(title: card.gameName, rows: card.stats, showRating: false, year: year, section: .other)
@@ -803,12 +819,16 @@ struct SiteVolleyballView: View {
                 SiteCopyLinkButton(url: SitePublicLink.volleyball(year: year))
             }
         }
-        .task { await load() }
+        .task(id: auth.browseCacheScope) { await load() }
         .refreshable { await load() }
     }
 
     private func load() async {
-        payload = try? await PythonAnywhereClient.shared.volleyballStats(year: year)
+        let scope = auth.browseCacheScope
+        payload = nil
+        let result = try? await PythonAnywhereClient.shared.volleyballStats(year: year)
+        guard !Task.isCancelled, auth.browseCacheScope == scope else { return }
+        payload = result
     }
 }
 

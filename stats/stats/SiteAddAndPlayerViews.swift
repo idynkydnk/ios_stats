@@ -92,6 +92,7 @@ struct SitePlayerDetailView: View {
 
     var body: some View {
         ScrollView {
+            SiteStatsFilterSummary()
             HStack {
                 Text("Year").font(.subheadline.weight(.semibold))
                 Spacer()

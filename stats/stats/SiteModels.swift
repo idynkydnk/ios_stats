@@ -541,6 +541,7 @@ struct TodaysDoublesDashboard {
 }
 
 nonisolated struct YearsPayload: Codable, Sendable {
+    var locations: [String]? = nil
     var doubles: [String]
     var vollis: [String]
     var other: [String]
