@@ -31,7 +31,7 @@ struct statsApp: App {
                 }
                 .onChange(of: scenePhase) { _, phase in
                     if phase == .active {
-                        Task { await auth.restoreSessionOnLaunch() }
+                        Task { await auth.restoreSessionOnLaunch(); SiteLocalGameStore.shared.startSync() }
                     }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in

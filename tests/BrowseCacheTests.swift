@@ -34,11 +34,11 @@ struct BrowseCacheTests {
                          "account-a-combined-doubles-2026-women"] {
             precondition(cache.load(DoublesStatsPayload.self, key: otherKey) == nil)
         }
-        // Old snapshots are displayable during refresh, but eventually expire.
+        // Old snapshots stay displayable offline even after a month, but need refresh.
         cache.save(stats, key: "stale", generation: generation, now: now.addingTimeInterval(-360))
         precondition(cache.load(DoublesStatsPayload.self, key: "stale")?.isFresh() == false)
         cache.save(stats, key: "expired", generation: generation, now: now.addingTimeInterval(-31 * 86400))
-        precondition(cache.load(DoublesStatsPayload.self, key: "expired") == nil)
+        precondition(cache.load(DoublesStatsPayload.self, key: "expired")?.isFresh() == false)
         // Game changes preserve readable results across relaunch, but force a fetch.
         let refreshNotification = DispatchSemaphore(value: 0)
         let observer = NotificationCenter.default.addObserver(forName: SiteBrowseCache.didChange, object: cache, queue: nil) { _ in

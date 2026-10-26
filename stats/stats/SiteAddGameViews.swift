@@ -34,6 +34,16 @@ struct SiteAddDoublesView: View {
     @ObservedObject private var network = NetworkMonitor.shared
     @ObservedObject private var queue = SiteOfflineQueue.shared
     @ObservedObject private var auth = SiteAuthManager.shared
+    @ObservedObject private var localGames = SiteLocalGameStore.shared
+
+    private var displayedToday: TodaysDoublesDashboard? {
+        let selection = SiteLocalSelection(section: .doubles, year: "All years", division: UserDefaults.standard.string(forKey: "stats.doublesDivision") ?? "open")
+        let missing = SiteLocalStats.missing(localGames.games, included: today?.syncedLocalGameIds).filter { selection.matches($0, today: true) }
+        guard today != nil || !missing.isEmpty else { return nil }
+        let savedToday = (today?.games ?? []).filter { siteIsToday($0.date) }
+        let savedStats = savedToday.count == (today?.games.count ?? 0) ? (today?.stats ?? []) : []
+        return TodaysDoublesDashboard(year: today?.year ?? "", stats: SiteLocalStats.rows(savedStats, adding: missing), games: missing.reversed().compactMap { $0.doublesGame } + savedToday)
+    }
 
     private let winnerChips = [21, 15, 22, 23, 16]
 
@@ -85,7 +95,7 @@ struct SiteAddDoublesView: View {
                 }
                 .disabled(saving)
 
-                if showsHistory, let today, !today.stats.isEmpty || !today.games.isEmpty {
+                if showsHistory, let today = displayedToday, !today.stats.isEmpty || !today.games.isEmpty {
                     todayBoard(today)
                 }
             }
@@ -190,7 +200,15 @@ struct SiteAddDoublesView: View {
 
     private func refreshToday() async {
         guard showsHistory else { return }
-        today = try? await PythonAnywhereClient.shared.todaysDoublesDashboard()
+        let cache = SiteBrowseCache.shared
+        let key = auth.browseCacheScope + "-doubles-add-today-" + SiteStatsFilters.day(Date())
+        let generation = cache.generation
+        if today == nil { today = await cache.loadAsync(TodaysDoublesDashboard.self, key: key)?.value }
+        guard network.isConnected else { return }
+        if let result = try? await PythonAnywhereClient.shared.todaysDoublesDashboard() {
+            today = result
+            await cache.saveAsync(result, key: key, generation: generation)
+        }
     }
 
     private func applyEdit() {
@@ -263,19 +281,15 @@ struct SiteAddDoublesView: View {
         }
         if let savedGame { gameSaveStatus(savedGame) }
         do {
-            if !network.isConnected {
-                if let g = gameToEdit {
-                    queue.enqueue(method: "PUT", path: "/api/doubles/games/\(g.id)", body: fields)
-                } else {
-                    queue.enqueue(method: "POST", path: "/api/doubles/games", body: fields)
-                }
+            if !network.isConnected, let g = gameToEdit {
+                queue.enqueue(method: "PUT", path: "/api/doubles/games/\(g.id)", body: fields)
                 banner = "Saved offline — will sync"
             } else if let g = gameToEdit {
                 _ = try await PythonAnywhereClient.shared.updateDoubles(id: g.id, fields: fields)
                 banner = "Game saved"
             } else {
                 try await PythonAnywhereClient.shared.createDoubles(fields)
-                banner = "Game saved"
+                banner = "Saved on this phone — waiting to sync"
             }
         } catch {
             savedGame?.status = error.localizedDescription
@@ -321,6 +335,11 @@ struct SiteAddVollisView: View {
     @State private var players: [String] = []
     @State private var playerSuggestionsRevision = UUID()
     @State private var todayGames: [VollisGame] = []
+    @State private var includedToday: [String]? = nil
+    private var displayedTodayGames: [VollisGame] {
+        let selection = SiteLocalSelection(section: .vollis, year: "All years", game: "Vollis")
+        return SiteLocalStats.missing(localGames.games, included: includedToday).filter { selection.matches($0, today: true) }.reversed().compactMap { $0.vollisGame } + todayGames
+    }
     @State private var error: String?
     @State private var banner: String?
     @State private var saving = false
@@ -328,6 +347,7 @@ struct SiteAddVollisView: View {
     @Environment(\.gameSaveStatus) private var gameSaveStatus
     @FocusState private var focused: Field?
     @ObservedObject private var auth = SiteAuthManager.shared
+    @ObservedObject private var localGames = SiteLocalGameStore.shared
 
     private let winnerChips = Array(11...21)
 
@@ -387,9 +407,9 @@ struct SiteAddVollisView: View {
                 }
                 .disabled(saving)
 
-                if showsHistory, !todayGames.isEmpty {
-                    SiteExpandableSection(title: "Games", count: todayGames.count, subtitle: "Today") {
-                        ForEach(todayGames) { g in
+                if showsHistory, !displayedTodayGames.isEmpty {
+                    SiteExpandableSection(title: "Games", count: displayedTodayGames.count, subtitle: "Today") {
+                        ForEach(displayedTodayGames) { g in
                             VStack(alignment: .leading, spacing: 0) {
                                 VollisGameRow(game: g)
                                 SiteAddGameEditButton(game: .vollis(g), disabled: saving) {
@@ -452,8 +472,11 @@ struct SiteAddVollisView: View {
     private func refreshToday() async {
         guard showsHistory else { return }
         let year = String(Calendar.current.component(.year, from: Date()))
-        let all = (try? await PythonAnywhereClient.shared.vollisGames(year: year, preview: false))?.games ?? []
-        todayGames = all.filter { siteIsToday($0.date) }
+        guard NetworkMonitor.shared.isConnected else { return }
+        if let all = try? await PythonAnywhereClient.shared.vollisGames(year: year, preview: false) {
+            todayGames = all.games.filter { siteIsToday($0.date) }
+            includedToday = all.syncedLocalGameIds
+        }
     }
 
     private func clearForm() {
@@ -512,7 +535,7 @@ struct SiteAddVollisView: View {
         banner = "Game saved"
         successTick += 1
         sitePromote([w, l], in: &players)
-        savedGame?.status = "Game saved"
+        savedGame?.status = "Saved on this phone — waiting to sync"
         savedGame?.isSaving = false
         if let savedGame { gameSaveStatus(savedGame) }
         clearForm()
@@ -566,7 +589,21 @@ struct SiteAddOtherView: View {
     @Environment(\.gameSaveStatus) private var gameSaveStatus
     @State private var todayGames: [OtherGame] = []
     @State private var todayVollisGames: [VollisGame] = []
+    @State private var includedOtherToday: [String]? = nil
+    @State private var includedVollisToday: [String]? = nil
+    private var displayedTodayGames: [OtherGame] {
+        let missing = SiteLocalStats.missing(localGames.games, included: includedOtherToday).filter {
+            $0.kind == "other" && $0.day == SiteStatsFilters.day(Date()) && (!oneOnOneOnly || $0.oneOnOne)
+        }
+        return missing.reversed().compactMap { $0.otherGame } + todayGames
+    }
+    private var displayedTodayVollis: [VollisGame] {
+        SiteLocalStats.missing(localGames.games, included: includedVollisToday).filter {
+            $0.kind == "vollis" && $0.day == SiteStatsFilters.day(Date())
+        }.reversed().compactMap { $0.vollisGame } + todayVollisGames
+    }
     @ObservedObject private var auth = SiteAuthManager.shared
+    @ObservedObject private var localGames = SiteLocalGameStore.shared
 
     private var isVollis: Bool {
         gameToEdit == nil && gameName.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare("Vollis") == .orderedSame
@@ -702,9 +739,9 @@ struct SiteAddOtherView: View {
                 }
                 .disabled(saving)
 
-                if showsHistory, !todayVollisGames.isEmpty {
-                    SiteExpandableSection(title: "Vollis games", count: todayVollisGames.count, subtitle: "Today") {
-                        ForEach(todayVollisGames) { game in
+                if showsHistory, !displayedTodayVollis.isEmpty {
+                    SiteExpandableSection(title: "Vollis games", count: displayedTodayVollis.count, subtitle: "Today") {
+                        ForEach(displayedTodayVollis) { game in
                             VStack(alignment: .leading, spacing: 0) {
                                 VollisGameRow(game: game)
                                 SiteAddGameEditButton(game: .vollis(game), disabled: saving) {
@@ -714,9 +751,9 @@ struct SiteAddOtherView: View {
                         }
                     }
                 }
-                if showsHistory, !todayGames.isEmpty {
+                if showsHistory, !displayedTodayGames.isEmpty {
                     SiteContentCard(title: "Today's Games") {
-                    ForEach(todayGames) { g in
+                    ForEach(displayedTodayGames) { g in
                         VStack(alignment: .leading, spacing: 2) {
                             Text(g.gameName ?? "").font(.subheadline.weight(.semibold))
                             if g.isTie { Text("Tie").font(.caption.weight(.semibold)).foregroundStyle(.secondary) }
@@ -815,9 +852,10 @@ struct SiteAddOtherView: View {
     }
 
     private func refreshToday() async {
-        guard showsHistory else { return }
+        guard showsHistory, NetworkMonitor.shared.isConnected else { return }
         let year = String(Calendar.current.component(.year, from: Date()))
         if let all = try? await PythonAnywhereClient.shared.otherGames(year: year, preview: false) {
+            includedOtherToday = all.syncedLocalGameIds
             let formats = PythonAnywhereClient.shared.cachedOtherGameCatalog?.oneOnOneFormats ?? []
             todayGames = all.games.filter {
                 siteIsToday(DoublesGame.parseDate($0.gameDateOnly ?? $0.gameDate) ?? .distantPast)
@@ -827,6 +865,7 @@ struct SiteAddOtherView: View {
         }
         if oneOnOneOnly || isVollis || !todayVollisGames.isEmpty,
            let all = try? await PythonAnywhereClient.shared.vollisGames(year: year, preview: false) {
+            includedVollisToday = all.syncedLocalGameIds
             todayVollisGames = all.games.filter { siteIsToday($0.date) }
         }
     }
@@ -1176,7 +1215,7 @@ struct SiteAddOtherView: View {
         banner = "Game saved"
         successTick += 1
         sitePromote(w + l, in: &players)
-        savedGame?.status = "Game saved"
+        savedGame?.status = "Saved on this phone — waiting to sync"
         savedGame?.isSaving = false
         if let savedGame { gameSaveStatus(savedGame) }
         clearForm()
@@ -1203,7 +1242,7 @@ struct SiteSavedGameReceipt: Identifiable {
     var heading: String {
         if isSaving { return "Saving game…" }
         if isError { return "Save not confirmed" }
-        return status == "Saved offline — will sync" ? "Saved offline" : "Game added"
+        return status.contains("waiting to sync") ? "Saved on this phone" : (status == "Saved offline — will sync" ? "Saved offline" : "Game added")
     }
 }
 
@@ -1315,6 +1354,7 @@ private struct SiteAddGameEditButton: View {
     var disabled: Bool
     var onDismiss: () async -> Void
     @ObservedObject private var auth = SiteAuthManager.shared
+    @ObservedObject private var localGames = SiteLocalGameStore.shared
     @State private var showingEditor = false
 
     var body: some View {

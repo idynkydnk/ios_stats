@@ -77,6 +77,29 @@ struct SitePlayerDetailView: View {
     @State private var loadID = UUID()
     @State private var error: String?
     @ObservedObject private var auth = SiteAuthManager.shared
+    @ObservedObject private var localGames = SiteLocalGameStore.shared
+    @ObservedObject private var network = NetworkMonitor.shared
+
+    private var localResults: [SiteLocalGame] {
+        let selection = SiteLocalSelection(section: section, year: year, division: division, game: format, filters: auth.statsFilters)
+        return SiteLocalStats.missing(localGames.games, included: payload?.syncedLocalGameIds).filter {
+            selection.matches($0) && ($0.winners + $0.losers).contains { $0.caseInsensitiveCompare(name) == .orderedSame }
+        }
+    }
+    private var displayedPayload: DoublesPlayerPayload? {
+        guard !localResults.isEmpty else { return payload }
+        var p = payload ?? (try! JSONDecoder().decode(DoublesPlayerPayload.self, from: Data("{}".utf8)))
+        p.name = name; p.year = year
+        p.stats = SiteLocalStats.rows(p.stats.map { [$0] } ?? [], adding: localResults).first { $0.name.caseInsensitiveCompare(name) == .orderedSame }
+        // A website rank and streak cannot describe a partially synced history.
+        p.rank = nil; p.currentStreak = nil; p.recentForm = nil
+        let games = localResults.reversed().compactMap { item in
+            item.decode(DoublesGame.self, extra: ["winner1": item.winners.first ?? "", "winner2": item.winners.dropFirst().first ?? "", "loser1": item.losers.first ?? "", "loser2": item.losers.dropFirst().first ?? "", "game_name": item.gameName])
+        }
+        p.games = games + (p.games ?? [])
+        p.gamesTotal = (p.gamesTotal ?? 0) + localResults.count
+        return p
+    }
 
     init(name: String, year: String, section: GameSection, format: String = "") {
         self.name = name
@@ -101,11 +124,15 @@ struct SitePlayerDetailView: View {
             .padding(.horizontal)
             .padding(.top, 8)
             if section == .vollis { Text(format.isEmpty ? "All 1v1 volleyball" : format).font(.subheadline).foregroundStyle(.secondary) }
+            if !localResults.isEmpty {
+                Text("Includes games saved on this phone. Ratings await website confirmation.")
+                    .font(.caption).foregroundStyle(.secondary).padding(.horizontal)
+            }
             if let error { Text(error).foregroundStyle(.red).padding() }
-            if error == nil && (payload == nil || displayedCacheKey != cacheKey) {
+            if error == nil && displayedPayload == nil && network.isConnected {
                 ProgressView("Loading player…").padding()
             }
-            if let p = payload, displayedCacheKey == cacheKey {
+            if let p = displayedPayload, displayedCacheKey == cacheKey || payload == nil {
                 VStack(spacing: 14) {
                     HStack {
                         playerIdentity(p)
@@ -211,7 +238,7 @@ struct SitePlayerDetailView: View {
                 SiteCopyLinkButton(url: SitePublicLink.player(section: section, year: year, name: payload?.name ?? name, format: format))
             }
         }
-        .task(id: "\(cacheKey)-\(dataRevision)-\(auth.sessionReady)") { await load() }
+        .task(id: "\(cacheKey)-\(dataRevision)-\(auth.sessionReady)-\(network.isConnected)") { await load() }
         .refreshable { await load(force: true) }
         .onReceive(NotificationCenter.default.publisher(for: SiteBrowseCache.didChange, object: SiteBrowseCache.playerDetails)
             .receive(on: RunLoop.main)) { _ in
@@ -298,6 +325,7 @@ struct SitePlayerDetailView: View {
         }
         error = nil
         loading = false
+        if !network.isConnected { return }
         if !force, cached?.isFresh() == true { return }
         loading = true
         defer { if loadID == requestID { loading = false } }

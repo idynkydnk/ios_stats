@@ -218,14 +218,14 @@ final class PythonAnywhereClient {
         switch selection.section {
         case .doubles:
             let page = try await doublesGames(year: year, offset: 0, search: selection.search)
-            return SiteGamesSnapshot(doubles: page.games, nextOffset: page.nextOffset, total: page.total)
+            return SiteGamesSnapshot(syncedLocalGameIds: page.syncedLocalGameIds, doubles: page.games, nextOffset: page.nextOffset, total: page.total)
         case .vollis:
             let page = try await oneOnOneGames(year: year, format: selection.otherGame, offset: 0, search: selection.search)
-            return SiteGamesSnapshot(vollis: page.games, nextOffset: page.nextOffset, total: page.total)
+            return SiteGamesSnapshot(syncedLocalGameIds: page.syncedLocalGameIds, vollis: page.games, nextOffset: page.nextOffset, total: page.total)
         case .other:
             let page = try await otherGames(year: year, gameName: selection.otherGame.isEmpty ? nil : selection.otherGame,
                                            offset: 0, search: selection.search)
-            return SiteGamesSnapshot(other: page.games, nextOffset: page.nextOffset, total: page.total)
+            return SiteGamesSnapshot(syncedLocalGameIds: page.syncedLocalGameIds, other: page.games, nextOffset: page.nextOffset, total: page.total)
         }
     }
 
@@ -238,7 +238,9 @@ final class PythonAnywhereClient {
     }
 
     func createDoubles(_ fields: [String: Any]) async throws {
-        try await createGame("/api/doubles/games", fields: fields, canConfirm: true)
+        var fields = fields
+        fields["division"] = UserDefaults.standard.string(forKey: "stats.doublesDivision") ?? (SiteAuthManager.shared.username?.lowercased() == "jen" ? "women" : "open")
+        try SiteLocalGameStore.shared.save(kind: "doubles", fields: fields)
     }
 
     func updateDoubles(id: Int, fields: [String: Any]) async throws -> DoublesGame {
@@ -275,7 +277,7 @@ final class PythonAnywhereClient {
     }
 
     func createVollis(_ fields: [String: Any]) async throws {
-        try await createGame("/api/vollis/games", fields: fields, canConfirm: true)
+        try SiteLocalGameStore.shared.save(kind: "vollis", fields: fields)
     }
 
     func updateVollis(id: Int, fields: [String: Any]) async throws {
@@ -308,7 +310,7 @@ final class PythonAnywhereClient {
     }
 
     func createOther(_ fields: [String: Any]) async throws {
-        try await createGame("/api/other/games", fields: fields, canConfirm: false)
+        try SiteLocalGameStore.shared.save(kind: "other", fields: fields)
     }
 
     func updateOther(id: Int, fields: [String: Any]) async throws {
@@ -653,7 +655,7 @@ final class PythonAnywhereClient {
                 ))
             }
         }
-        return TodaysDoublesDashboard(year: year, stats: stats, games: games)
+        return TodaysDoublesDashboard(syncedLocalGameIds: json["synced_local_game_ids"] as? [String], year: year, stats: stats, games: games)
     }
 
     private func nameList(_ path: String) async throws -> [String] {
@@ -998,13 +1000,14 @@ final class PythonAnywhereClient {
 
     private func request(_ path: String, method: String, query: [String: String] = [:], authed: Bool = true, preview: Bool? = nil) -> URLRequest {
         var query = preview == false ? query : SiteAuthManager.shared.statsFilters.apiQuery(path: path, method: method, query: query)
-        if method == "GET" && path.hasPrefix("/api/doubles/") {
+        if method == "GET" && (path.hasPrefix("/api/doubles/") || path == "/api/todays_doubles_dashboard") {
             query["division"] = UserDefaults.standard.string(forKey: "stats.doublesDivision") ?? "open"
         }
         var req = URLRequest(url: url(path, query: query))
         req.httpMethod = method
         req.setValue("application/json", forHTTPHeaderField: "Accept")
         req.setValue("1", forHTTPHeaderField: "X-Stats-Account-Required")
+        if method == "GET" { req.setValue("1", forHTTPHeaderField: "X-Stats-Local-Snapshot") }
         // Add keeps game history owned, but player suggestions use enabled sources.
         let isPlayerSuggestion = path == "/api/doubles_players"
             || path == "/api/vollis_players"
@@ -1050,23 +1053,27 @@ final class PythonAnywhereClient {
         return try await decode(req)
     }
 
-    private func createGame(_ path: String, fields: [String: Any], canConfirm: Bool) async throws {
-        var req = request(path, method: "POST", authed: true)
+    func requireLocalGameSync() async throws {
+        struct Capability: Decodable { var version: Int }
+        let capability: Capability = try await get("/api/mobile-sync")
+        guard capability.version >= 1 else {
+            throw SiteAPIError.message("Games are saved on this phone. Waiting for the website’s sync update.")
+        }
+    }
+
+    func syncLocalGame(_ game: SiteLocalGame) async throws -> Int {
+        var req = request("/api/\(game.kind)/games", method: "POST", authed: true)
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try JSONSerialization.data(withJSONObject: fields)
-        var confirmation: URLRequest?
-        if canConfirm, let date = fields["game_date"] as? String {
-            var lookup = request(path, method: "GET", query: ["year": String(date.prefix(4))])
-            lookup.cachePolicy = .reloadIgnoringLocalCacheData
-            lookup.timeoutInterval = 10
-            confirmation = lookup
+        req.httpBody = game.body
+        req.timeoutInterval = 20
+        let (data, response) = try await session.data(for: req)
+        try throwIfNeeded(data, response)
+        struct Receipt: Decodable { var id: Int; var clientGameId: String; var synced: Bool }
+        let receipt = try decoder.decode(Receipt.self, from: data)
+        guard receipt.synced, receipt.clientGameId == game.id, receipt.id > 0 else {
+            throw SiteAPIError.message("Your game is saved on this phone. Waiting for confirmation from the website.")
         }
-        // Other games currently expose a display date without seconds, which
-        // cannot safely distinguish two identical games for reconciliation.
-        try await SiteGameSaveRequest.send(req, confirmationRequest: confirmation, fields: fields) {
-            try await self.session.data(for: $0)
-        }
-        await recordSuccessfulMutation(req)
+        return receipt.id
     }
 
     private func postJSON<T: Decodable>(_ path: String, json: Any) async throws -> T {
@@ -1221,6 +1228,8 @@ final class PythonAnywhereClient {
 final class SiteOfflineQueue: ObservableObject {
     static let shared = SiteOfflineQueue()
     private let key = "com.kt.stats.pa.offline_queue"
+    private var flushing = false
+    @Published private(set) var syncError: String?
     private var storedItems: [OfflineMutation] = []
     @Published var items: [OfflineMutation] = []
 
@@ -1250,12 +1259,21 @@ final class SiteOfflineQueue: ObservableObject {
     }
 
     func flush() async {
+        guard !flushing else { return }
+        flushing = true
+        defer { flushing = false }
         let ownerToken = SiteAuthManager.shared.token
         guard ownerToken != nil, !SiteAuthManager.shared.isPreviewing else { return }
         let pending = items
         for item in pending {
             guard SiteAuthManager.shared.token == ownerToken else { return }
             guard item.ownerUsername == SiteAuthManager.shared.username else { continue }
+            // A legacy POST may already have reached the server without a
+            // response. It has no server receipt, so never blindly replay it.
+            if item.method == "POST" {
+                syncError = "An older offline game needs review. Check the website before adding it again."
+                continue
+            }
             do {
                 var json: Any = [String: Any]()
                 if let body = item.body {

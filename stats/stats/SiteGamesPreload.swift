@@ -16,6 +16,7 @@ struct SiteGamesSelection: Equatable {
 
 // The foreground page and its preload must read exactly the same snapshot.
 struct SiteGamesSnapshot: Codable {
+    var syncedLocalGameIds: [String]? = nil
     var doubles: [DoublesGame] = []
     var vollis: [VollisGame] = []
     var other: [OtherGame] = []

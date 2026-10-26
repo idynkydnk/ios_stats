@@ -10,6 +10,17 @@ nonisolated final class SiteBrowseCache: @unchecked Sendable {
     static let library = SiteBrowseCache(directory: cacheDirectory("StatsLibrary-v1"))
     static let navigation = SiteBrowseCache(directory: cacheDirectory("StatsNavigation-v1"))
 
+    private static func savedBrowseDirectory() -> URL {
+        let target = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("StatsSavedBrowse-v1", isDirectory: true)
+        let previous = cacheDirectory("StatsBrowse-v1")
+        if !FileManager.default.fileExists(atPath: target.path), FileManager.default.fileExists(atPath: previous.path) {
+            try? FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? FileManager.default.copyItem(at: previous, to: target)
+        }
+        return target
+    }
+
     private static func cacheDirectory(_ name: String) -> URL {
         FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent(name, isDirectory: true)
@@ -68,7 +79,7 @@ nonisolated final class SiteBrowseCache: @unchecked Sendable {
     private let maxEntries = 48
     private var diskEntries: [String: Date]?
 
-    init(directory: URL = cacheDirectory("StatsBrowse-v1"), maxMemoryEntries: Int = 12,
+    init(directory: URL = savedBrowseDirectory(), maxMemoryEntries: Int = 12,
          maxMemoryBytes: Int = 16 * 1024 * 1024) {
         self.directory = directory
         self.maxMemoryEntries = maxMemoryEntries
@@ -89,7 +100,6 @@ nonisolated final class SiteBrowseCache: @unchecked Sendable {
     }
 
     private func refreshed<Value>(_ entry: Entry<Value>) -> Entry<Value>? {
-        guard Date().timeIntervalSince(entry.savedAt) < 30 * 24 * 60 * 60 else { return nil }
         var result = entry
         let currentSection = entry.section.map { revisions.sections[$0] } ?? revisions.unknown
         if entry.globalRevision != revisions.all || entry.sectionRevision != currentSection {

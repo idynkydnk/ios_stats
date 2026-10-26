@@ -9,7 +9,13 @@ nonisolated struct SiteStatsFilters: Codable, Equatable, Sendable {
 
     var hasDates: Bool { !startDay.isEmpty && !endDay.isEmpty }
     var isActive: Bool { hasDates || !location.isEmpty || missingLocation }
-    var cacheKey: String { (try? JSONEncoder().encode(self).base64EncodedString()) ?? "" }
+    var cacheKey: String {
+        let encoder = JSONEncoder()
+        // JSON object key order is otherwise unstable between encodes. This
+        // identity drives SwiftUI tasks; changing it restarts loads forever.
+        encoder.outputFormatting = .sortedKeys
+        return (try? encoder.encode(self).base64EncodedString()) ?? ""
+    }
     var query: [String: String] {
         var values: [String: String] = [:]
         if hasDates { values["start_date"] = startDay; values["end_date"] = endDay }

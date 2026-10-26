@@ -72,6 +72,7 @@ struct SiteRootView: View {
     @ObservedObject private var theme = SiteTheme.shared
     @ObservedObject private var network = NetworkMonitor.shared
     @ObservedObject private var queue = SiteOfflineQueue.shared
+    @ObservedObject private var localGames = SiteLocalGameStore.shared
     @State private var selectedTab = 0
     @State private var section: GameSection = .doubles
     @State private var selectedOtherGame = ""
@@ -90,11 +91,11 @@ struct SiteRootView: View {
     @State private var gamesPreloadRevision = UUID()
     @AppStorage("stats.doublesDivision") private var gamesPreloadDivision = "open"
     private var gamesPreloadSelection: SiteGamesSelection {
-        SiteGamesSelection(scope: auth.browseCacheScope, section: section, year: selectedYear.wrappedValue,
+        SiteGamesSelection(scope: auth.selectedStatsCacheScope, section: section, year: selectedYear.wrappedValue,
                            division: gamesPreloadDivision, otherGame: selectedOtherGame)
     }
     @State private var navigationRevision = UUID()
-    private var startupScope: String { "\(auth.browseCacheScope)-\(auth.statsViewRevision)" }
+    private var startupScope: String { "\(auth.selectedStatsCacheScope)-\(auth.statsViewRevision)" }
     private var years: [String] {
         let result: [String]?
         switch section {
@@ -119,10 +120,21 @@ struct SiteRootView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            if !localGames.pending.isEmpty {
+                SiteBackgroundStatusBanner(
+                    text: "\(localGames.pending.count) \(localGames.pending.count == 1 ? "game" : "games") saved on this phone",
+                    detail: localGames.message ?? localGames.pending.first(where: { $0.needsAttention })?.failure ?? (network.isConnected ? "Waiting to sync with the website" : "Offline · will sync when connected"),
+                    isBusy: localGames.syncing,
+                    isError: localGames.pending.contains { $0.needsAttention },
+                    actionTitle: localGames.syncing ? nil : "Retry",
+                    onAction: { localGames.retry() })
+                    .padding(.horizontal, 12).padding(.vertical, 4)
+            }
             if !queue.items.isEmpty {
                 SiteBackgroundStatusBanner(
                     text: "\(queue.items.count) \(queue.items.count == 1 ? "change" : "changes") waiting to sync",
-                    isBusy: network.isConnected)
+                    detail: queue.syncError,
+                    isBusy: network.isConnected && queue.syncError == nil)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 4)
             }
@@ -267,8 +279,9 @@ struct SiteRootView: View {
             yearLists = nil
             if !auth.isPreviewing && network.isConnected { Task { await queue.flush() } }
         }
-        .onChange(of: network.isConnected) { _, online in
-            if online { Task { await queue.flush() } }
+        .task(id: "local-sync-\(auth.username ?? "")-\(auth.sessionReady)-\(network.isConnected)") {
+            localGames.selectAccount(auth.isLoggedIn ? auth.username : nil)
+            if network.isConnected { localGames.startSync(); await queue.flush() }
         }
         .onChange(of: auth.username) { _, _ in
             recapJobID = nil
@@ -909,6 +922,19 @@ struct SiteStatsView: View {
     @State private var error: String?
     @State private var loading = false
     @ObservedObject private var auth = SiteAuthManager.shared
+    @ObservedObject private var localGames = SiteLocalGameStore.shared
+    @ObservedObject private var network = NetworkMonitor.shared
+
+    private var localSelection: SiteLocalSelection {
+        SiteLocalSelection(section: section, year: selectedYear, division: division, game: selectedOtherGame, filters: auth.statsFilters)
+    }
+    private var projectedDoubles: DoublesStatsPayload? { SiteLocalStats.doubles(doubles, games: localGames.games, selection: localSelection) }
+    private var projectedVollis: VollisStatsPayload? { SiteLocalStats.vollis(vollis, games: localGames.games, selection: localSelection) }
+    private var projectedOther: OtherStatsPayload? { SiteLocalStats.other(other, games: localGames.games, selection: localSelection) }
+    private var hasLocalChanges: Bool {
+        let included = section == .doubles ? doubles?.syncedLocalGameIds : section == .vollis ? vollis?.syncedLocalGameIds : other?.syncedLocalGameIds
+        return SiteLocalStats.missing(localGames.games, included: included).contains { localSelection.matches($0) || localSelection.matches($0, today: true) }
+    }
     @State private var loadID = UUID()
     @State private var displayedCacheKey: String?
 
@@ -918,12 +944,12 @@ struct SiteStatsView: View {
         var other: OtherStatsPayload?
     }
 
-    private var cacheKey: String { "\(auth.browseCacheScope)-stats-\(section.rawValue)-\(selectedYear)-\(division)-1v1-\(selectedOtherGame)" }
+    private var cacheKey: String { "\(auth.selectedStatsCacheScope)-stats-\(section.rawValue)-\(selectedYear)-\(division)-1v1-\(selectedOtherGame)" }
     private var hasStats: Bool {
         switch section {
-        case .doubles: return doubles != nil
-        case .vollis: return vollis != nil
-        case .other: return other != nil
+        case .doubles: return projectedDoubles != nil
+        case .vollis: return projectedVollis != nil
+        case .other: return projectedOther != nil
         }
     }
 
@@ -934,10 +960,23 @@ struct SiteStatsView: View {
                 ScrollView {
                     SiteStatsFilterSummary()
                     OtherGameNavigation(section: $section, selection: $selectedOtherGame, selectedYear: $selectedYear)
+                    if hasLocalChanges {
+                        Text("Includes games saved on this phone. Ratings await website confirmation.")
+                            .font(.caption).foregroundStyle(.secondary).padding(.horizontal)
+                        if doubles == nil && vollis == nil && other == nil {
+                            Text("Showing games saved on this phone. Connect to load earlier stats.")
+                                .font(.caption).foregroundStyle(.secondary).padding(.horizontal)
+                        }
+                    }
+                    if loading && !hasStats { ProgressView("Loading stats…").padding() }
+                    if !network.isConnected && !hasStats {
+                        Text("No saved stats for this selection yet. You can still add games offline.")
+                            .foregroundStyle(.secondary).padding()
+                    }
                     if let error { Text(error).foregroundStyle(.red).padding() }
                     switch section {
                     case .doubles:
-                        if let d = doubles {
+                        if let d = projectedDoubles {
                             if d.showingPreviousYear {
                                 Text("No games yet this year. Showing \(d.displayYear).")
                                     .font(.footnote).foregroundStyle(.secondary).padding(.horizontal)
@@ -960,7 +999,7 @@ struct SiteStatsView: View {
                             }
                         }
                     case .vollis:
-                        if let v = vollis {
+                        if let v = projectedVollis {
                             if v.showingPreviousYear {
                                 Text("No games yet this year. Showing \(v.displayYear).")
                                     .font(.footnote).foregroundStyle(.secondary).padding(.horizontal)
@@ -980,7 +1019,7 @@ struct SiteStatsView: View {
                             RankingTable(title: nil, rows: filter(v.stats), showRating: v.stats.contains { $0.rating != nil }, year: v.displayYear, section: .vollis)
                         }
                     case .other:
-                        if let o = other {
+                        if let o = projectedOther {
                             if o.showingPreviousYear {
                                 Text("No games yet this year. Showing \(o.displayYear).")
                                     .font(.footnote).foregroundStyle(.secondary).padding(.horizontal)
@@ -1016,7 +1055,7 @@ struct SiteStatsView: View {
                 .refreshable { await load(force: true) }
             }
             .environment(\.oneOnOneFormat, section == .vollis ? selectedOtherGame : "")
-            .navigationTitle(loading ? (hasStats ? "Updating stats…" : "Loading stats…") : (section == .vollis ? "1v1 Stats" : "Stats"))
+            .navigationTitle(section == .vollis ? "1v1 Stats" : "Stats")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -1026,7 +1065,7 @@ struct SiteStatsView: View {
                     SiteCopyLinkButton(url: SitePublicLink.stats(section: section, year: selectedYear, gameName: selectedOtherGame))
                 }
             }
-            .task(id: "\(cacheKey)-\(isActive)-\(dataRevision)") {
+            .task(id: "\(cacheKey)-\(isActive)-\(dataRevision)-\(network.isConnected)-\(SiteStatsFilters.day(Date()))") {
                 guard isActive else { return }
                 let scope = startupScope
                 await load()
@@ -1057,7 +1096,7 @@ struct SiteStatsView: View {
         let requestID = UUID()
         loadID = requestID
         let key = cacheKey
-        let scope = auth.browseCacheScope
+        let scope = auth.selectedStatsCacheScope
         let cache = SiteBrowseCache.shared
         let generation = cache.generation
         let cached = await cache.loadAsync(Snapshot.self, key: key)
@@ -1071,9 +1110,15 @@ struct SiteStatsView: View {
             vollis = nil
             other = nil
         }
+        if let cached, !Calendar.current.isDateInToday(cached.savedAt) {
+            doubles?.todayStats = []; doubles?.todayGameCount = 0
+            vollis?.todayStats = []; vollis?.todayGameCount = 0
+            other?.todayStatsByGame = []; other?.todayGames = []
+        }
         displayedCacheKey = key
         loading = false
         error = nil
+        if !network.isConnected { return }
         if !force, cached?.isFresh() == true { return }
         loading = true
         defer { if loadID == requestID { loading = false } }
@@ -1084,15 +1129,13 @@ struct SiteStatsView: View {
             case .doubles:
                 let payload = try await PythonAnywhereClient.shared.doublesStats(year: year)
                 try Task.checkCancellation()
-                guard loadID == requestID, auth.browseCacheScope == scope, cache.generation == generation else { return }
+                guard loadID == requestID, auth.selectedStatsCacheScope == scope, cache.generation == generation else { return }
                 doubles = payload
-                if payload.showingPreviousYear { selectedYear = payload.displayYear }
             case .vollis:
                 let payload = try await PythonAnywhereClient.shared.oneOnOneStats(year: year, format: selectedOtherGame)
                 try Task.checkCancellation()
-                guard loadID == requestID, auth.browseCacheScope == scope, cache.generation == generation else { return }
+                guard loadID == requestID, auth.selectedStatsCacheScope == scope, cache.generation == generation else { return }
                 vollis = payload
-                if payload.showingPreviousYear { selectedYear = payload.displayYear }
             case .other:
                 var payload = try await PythonAnywhereClient.shared.otherStats(year: year)
                 if payload.includesVolleyball != true {
@@ -1101,9 +1144,8 @@ struct SiteStatsView: View {
                     payload.gameCards.append(contentsOf: volleyball.gameCards)
                 }
                 try Task.checkCancellation()
-                guard loadID == requestID, auth.browseCacheScope == scope, cache.generation == generation else { return }
+                guard loadID == requestID, auth.selectedStatsCacheScope == scope, cache.generation == generation else { return }
                 other = payload
-                if payload.showingPreviousYear { selectedYear = payload.displayYear }
             }
             await cache.saveAsync(Snapshot(doubles: doubles, vollis: vollis, other: other), key: key, generation: generation)
         } catch {
@@ -1149,9 +1191,15 @@ struct SiteGamesView: View {
     private typealias Snapshot = SiteGamesSnapshot
     @ObservedObject private var network = NetworkMonitor.shared
     @ObservedObject private var queue = SiteOfflineQueue.shared
+    @ObservedObject private var localGames = SiteLocalGameStore.shared
 
+    @State private var syncedLocalGameIds: [String]? = nil
+    private var pendingRows: [SiteLocalGame] {
+        let selection = SiteLocalSelection(section: section, year: selectedYear, division: division, game: selectedOtherGame, filters: auth.statsFilters, search: search)
+        return SiteLocalStats.missing(localGames.games, included: syncedLocalGameIds).filter { selection.matches($0) }.sorted { $0.day > $1.day || ($0.day == $1.day && $0.localID < $1.localID) }
+    }
     private var gamesCacheKey: String {
-        SiteGamesSelection(scope: auth.browseCacheScope, section: section, year: selectedYear,
+        SiteGamesSelection(scope: auth.selectedStatsCacheScope, section: section, year: selectedYear,
                            division: division, otherGame: selectedOtherGame, search: search).cacheKey
     }
 
@@ -1187,7 +1235,7 @@ struct SiteGamesView: View {
                     SiteStatsFilterSummary()
                     OtherGameNavigation(section: $section, selection: $selectedOtherGame, selectedYear: $selectedYear)
                     Section {
-                        SiteSectionBubble(title: "Games", count: totalGames ?? visibleGameCount, expanded: $gamesExpanded)
+                        SiteSectionBubble(title: "Games", count: totalGames.map { $0 + pendingRows.count } ?? visibleGameCount, expanded: $gamesExpanded)
                             .listRowInsets(EdgeInsets())
                             .listRowBackground(appearance.panel)
                             .listRowSeparator(.hidden)
@@ -1195,19 +1243,20 @@ struct SiteGamesView: View {
                             switch section {
                             case .doubles:
                                 ForEach(filteredDoubles) { g in
+                                    if g.id < 0 { Text("Saved on this phone · waiting for website stats").font(.caption).foregroundStyle(.secondary) }
                                     DoublesGameRow(game: g, year: selectedYear, section: .doubles)
                                         .listRowSeparator(.hidden)
                                         .listRowBackground(appearance.panel)
                                         .listRowInsets(EdgeInsets())
                                     .buttonStyle(.borderless)
                                     .swipeActions {
-                                        if canEdit && g.id < 4_294_967_296 && !isDeleting {
+                                        if canEdit && g.id > 0 && g.id < 4_294_967_296 && !isDeleting {
                                             Button("Edit") { onEditDoubles(g) }
                                             Button("Delete", role: .destructive) { Task { await deleteDoubles(g) } }
                                         }
                                     }
                                     .contextMenu {
-                                        if canEdit && g.id < 4_294_967_296 && !isDeleting {
+                                        if canEdit && g.id > 0 && g.id < 4_294_967_296 && !isDeleting {
                                             Button("Edit") { onEditDoubles(g) }
                                             Button("Delete", role: .destructive) { Task { await deleteDoubles(g) } }
                                         }
@@ -1215,6 +1264,7 @@ struct SiteGamesView: View {
                                 }
                             case .vollis:
                                 ForEach(filteredVollis) { g in
+                                    if g.id < 0 { Text("Saved on this phone · waiting for website stats").font(.caption).foregroundStyle(.secondary) }
                                     VollisGameRow(game: g, year: selectedYear, section: .vollis)
                                         .listRowSeparator(.hidden)
                                         .listRowBackground(appearance.panel)
@@ -1236,6 +1286,7 @@ struct SiteGamesView: View {
                             case .other:
                                 ForEach(filteredOther) { g in
                                     VStack(alignment: .leading, spacing: 7) {
+                                        if g.id < 0 { Text("Saved on this phone · waiting for website stats").font(.caption).foregroundStyle(.secondary) }
                                         Text("\(g.gameName ?? "") · \(g.gameType ?? "")").font(.headline)
                                         SiteGameDateLabel(raw: g.gameDate ?? g.gameDateOnly)
                                         if g.isTie { Text("Tie").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary) }
@@ -1253,12 +1304,12 @@ struct SiteGamesView: View {
                                         .listRowInsets(EdgeInsets())
                                     .buttonStyle(.borderless)
                                     .swipeActions {
-                                        if canEdit && g.id < 4_294_967_296 && !isDeleting {
+                                        if canEdit && g.id > 0 && g.id < 4_294_967_296 && !isDeleting {
                                             Button("Delete", role: .destructive) { Task { await deleteOther(g) } }
                                         }
                                     }
                                     .contextMenu {
-                                        if canEdit && g.id < 4_294_967_296 && !isDeleting {
+                                        if canEdit && g.id > 0 && g.id < 4_294_967_296 && !isDeleting {
                                             Button("Delete", role: .destructive) { Task { await deleteOther(g) } }
                                         }
                                     }
@@ -1301,7 +1352,7 @@ struct SiteGamesView: View {
             }
             .sensoryFeedback(.success, trigger: successTick)
             .refreshable { await load(force: true) }
-            .task(id: "\(auth.browseCacheScope)-\(section.rawValue)-\(selectedYear)-\(division)-\(isActive)-\(dataRevision)-\(search)-\(selectedOtherGame)") {
+            .task(id: "\(auth.selectedStatsCacheScope)-\(section.rawValue)-\(selectedYear)-\(division)-\(isActive)-\(dataRevision)-\(search)-\(selectedOtherGame)-\(network.isConnected)") {
                 guard isActive else { return }
                 error = nil
                 if !search.isEmpty {
@@ -1334,16 +1385,16 @@ struct SiteGamesView: View {
         }
     }
     private var filteredDoubles: [DoublesGame] {
-        if totalGames != nil { return doubles }
-        return doubles.filter { legacyMatches([$0.winner1, $0.winner2, $0.loser1, $0.loser2, $0.comments].compactMap { $0 }.joined(separator: " ")) }
+        if totalGames != nil { return pendingRows.compactMap { $0.doublesGame } + doubles }
+        return pendingRows.compactMap { $0.doublesGame } + doubles.filter { legacyMatches([$0.winner1, $0.winner2, $0.loser1, $0.loser2, $0.comments].compactMap { $0 }.joined(separator: " ")) }
     }
     private var filteredVollis: [VollisGame] {
-        if totalGames != nil { return vollis }
-        return vollis.filter { legacyMatches("\($0.winner ?? "") \($0.loser ?? "")") }
+        if totalGames != nil { return pendingRows.compactMap { $0.vollisGame } + vollis }
+        return pendingRows.compactMap { $0.vollisGame } + vollis.filter { legacyMatches("\($0.winner ?? "") \($0.loser ?? "")") }
     }
     private var filteredOther: [OtherGame] {
-        if totalGames != nil { return other }
-        return other.filter { (selectedOtherGame.isEmpty || $0.gameName == selectedOtherGame) && legacyMatches("\($0.gameName ?? "") \($0.displayWinners) \($0.displayLosers)") }
+        if totalGames != nil { return pendingRows.compactMap { $0.otherGame } + other }
+        return pendingRows.compactMap { $0.otherGame } + other.filter { (selectedOtherGame.isEmpty || $0.gameName == selectedOtherGame) && legacyMatches("\($0.gameName ?? "") \($0.displayWinners) \($0.displayLosers)") }
     }
 
     @MainActor
@@ -1358,7 +1409,7 @@ struct SiteGamesView: View {
         loadID = requestID
         loading = true
         defer { if loadID == requestID { loading = false } }
-        let scope = auth.browseCacheScope
+        let scope = auth.selectedStatsCacheScope
         let year = selectedYear == "All" ? "All years" : selectedYear
         let key = gamesCacheKey
         let cache = SiteBrowseCache.shared
@@ -1372,41 +1423,53 @@ struct SiteGamesView: View {
             other = cached.value.other
             nextOffset = cached.value.nextOffset
             totalGames = cached.value.total
+            syncedLocalGameIds = cached.value.syncedLocalGameIds
         } else if displayedCacheKey != key {
             doubles = []
             vollis = []
             other = []
             nextOffset = nil
             totalGames = nil
+            syncedLocalGameIds = nil
         }
         displayedCacheKey = key
         error = nil
+        if !network.isConnected { return }
         if !force, !older, cached?.isFresh() == true { return }
         do {
             switch section {
             case .doubles:
                 let p = try await PythonAnywhereClient.shared.doublesGames(year: year, offset: offset, search: search)
                 try Task.checkCancellation()
-                guard loadID == requestID, gamesCacheKey == key, auth.browseCacheScope == scope, cache.generation == generation else { return }
+                guard loadID == requestID, gamesCacheKey == key, auth.selectedStatsCacheScope == scope, cache.generation == generation else { return }
                 doubles = older ? doubles + p.games.filter { game in !doubles.contains { $0.id == game.id } } : p.games
                 nextOffset = p.nextOffset
-                totalGames = p.total
+                if !older {
+                    totalGames = p.total
+                    syncedLocalGameIds = p.syncedLocalGameIds
+                }
             case .vollis:
                 let p = try await PythonAnywhereClient.shared.oneOnOneGames(year: year, format: selectedOtherGame, offset: offset, search: search)
                 try Task.checkCancellation()
-                guard loadID == requestID, gamesCacheKey == key, auth.browseCacheScope == scope, cache.generation == generation else { return }
+                guard loadID == requestID, gamesCacheKey == key, auth.selectedStatsCacheScope == scope, cache.generation == generation else { return }
                 vollis = older ? vollis + p.games.filter { game in !vollis.contains { $0.id == game.id } } : p.games
                 nextOffset = p.nextOffset
-                totalGames = p.total
+                if !older {
+                    totalGames = p.total
+                    syncedLocalGameIds = p.syncedLocalGameIds
+                }
             case .other:
                 let p = try await PythonAnywhereClient.shared.otherGames(year: year, gameName: selectedOtherGame.isEmpty ? nil : selectedOtherGame, offset: offset, search: search)
                 try Task.checkCancellation()
-                guard loadID == requestID, gamesCacheKey == key, auth.browseCacheScope == scope, cache.generation == generation else { return }
+                guard loadID == requestID, gamesCacheKey == key, auth.selectedStatsCacheScope == scope, cache.generation == generation else { return }
                 other = older ? other + p.games.filter { game in !other.contains { $0.id == game.id } } : p.games
                 nextOffset = p.nextOffset
-                totalGames = p.total
+                if !older {
+                    totalGames = p.total
+                    syncedLocalGameIds = p.syncedLocalGameIds
+                }
             }
-            await cache.saveAsync(Snapshot(doubles: doubles, vollis: vollis, other: other, nextOffset: nextOffset, total: totalGames), key: key, generation: generation)
+            await cache.saveAsync(Snapshot(syncedLocalGameIds: syncedLocalGameIds, doubles: doubles, vollis: vollis, other: other, nextOffset: nextOffset, total: totalGames), key: key, generation: generation)
             error = nil
         } catch {
             guard !Task.isCancelled, loadID == requestID else { return }
@@ -1697,7 +1760,7 @@ struct OtherGameNavigation: View {
         .padding()
         .onAppear { expanded = selectedGame.isEmpty }
         .onChange(of: selectedGame) { _, game in expanded = game.isEmpty }
-        .task(id: "\(auth.sessionReady)-\(auth.browseCacheScope)-\(auth.statsViewRevision)-\(browseReady)-\(isActive)-\(expanded)-\(navigationRevision)") {
+        .task(id: "\(auth.sessionReady)-\(auth.selectedStatsCacheScope)-\(auth.statsViewRevision)-\(browseReady)-\(isActive)-\(expanded)-\(navigationRevision)") {
             guard auth.sessionReady, isActive, browseReady || expanded else { return }
             await load()
         }
@@ -1744,16 +1807,16 @@ struct OtherGameNavigation: View {
     }
 
     private func load() async {
-        let scope = auth.browseCacheScope
+        let scope = auth.selectedStatsCacheScope
         do {
             let navigation = try await PythonAnywhereClient.shared.otherNavigationGroups()
-            guard !Task.isCancelled, auth.browseCacheScope == scope else { return }
+            guard !Task.isCancelled, auth.selectedStatsCacheScope == scope else { return }
             groups = navigation.groups
             defaultYears = navigation.defaultYears
             vollisDefaultYear = navigation.vollisDefaultYear
             oneOnOneFormats = navigation.formats
             loadError = false
-        } catch { if !Task.isCancelled, auth.browseCacheScope == scope { loadError = true } }
+        } catch { if !Task.isCancelled, auth.selectedStatsCacheScope == scope { loadError = true } }
     }
 
     private func divisionChoice(_ title: String, value: String) -> some View {

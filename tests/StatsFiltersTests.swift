@@ -3,7 +3,12 @@ import Foundation
 @main
 struct StatsFiltersTests {
     static func main() {
+        let unchanged = SiteStatsFilters()
+        precondition(Set((0..<1000).map { _ in unchanged.cacheKey }).count == 1)
         let filters = SiteStatsFilters(startDay: "2025-12-31", endDay: "2026-01-02", location: "Beach & Park")
+        precondition(Set((0..<1000).map { _ in filters.cacheKey }).count == 1)
+        let restored = try! JSONDecoder().decode(SiteStatsFilters.self, from: JSONEncoder().encode(filters))
+        precondition(restored.cacheKey == filters.cacheKey)
         for root in ["/api/doubles", "/api/vollis", "/api/other"] {
             for path in [root + "/stats", root + "/games", root + "/players/Alex"] {
                 let query = filters.apiQuery(path: path, method: "GET", query: ["year": "2026", "offset": "50", "q": "Alex"])

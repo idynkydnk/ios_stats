@@ -141,6 +141,7 @@ struct RankingRow: Codable, Identifiable {
 }
 
 struct DoublesStatsPayload: Codable {
+    var syncedLocalGameIds: [String]? = nil
     var year: String
     var displayYear: String
     var showingPreviousYear: Bool
@@ -227,6 +228,7 @@ struct DoublesGame: Codable, Identifiable, Hashable {
 }
 
 struct GamesListPayload<T: Codable>: Codable {
+    var syncedLocalGameIds: [String]? = nil
     var games: [T]
     var total: Int? = nil
     var nextOffset: Int? = nil
@@ -251,6 +253,7 @@ struct StreakInfo: Codable {
 }
 
 struct DoublesPlayerPayload: Codable {
+    var syncedLocalGameIds: [String]? = nil
     var name: String
     var year: String
     var allYears: [String]
@@ -273,6 +276,7 @@ struct DoublesPlayerPayload: Codable {
     var email: String?
 
     enum CodingKeys: String, CodingKey {
+        case syncedLocalGameIds
         case name, year, allYears, stats, rating, rank, totalRanked
         case currentStreak, recentForm, partnerMinGames, partners, opponents
         case gamesTotal, gamesNextOffset
@@ -281,6 +285,7 @@ struct DoublesPlayerPayload: Codable {
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        syncedLocalGameIds = try c.decodeIfPresent([String].self, forKey: .syncedLocalGameIds)
         name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
         year = try c.decodeIfPresent(String.self, forKey: .year) ?? ""
         allYears = try c.decodeIfPresent([String].self, forKey: .allYears) ?? []
@@ -324,6 +329,7 @@ struct VollisGame: Codable, Identifiable, Hashable {
 }
 
 struct VollisStatsPayload: Codable {
+    var syncedLocalGameIds: [String]? = nil
     var year: String
     var displayYear: String
     var showingPreviousYear: Bool
@@ -468,6 +474,7 @@ struct SiteGameCard: Codable, Identifiable {
 }
 
 struct OtherStatsPayload: Codable {
+    var syncedLocalGameIds: [String]? = nil
     var includesVolleyball: Bool? = nil
     var year: String
     var displayYear: String
@@ -534,7 +541,8 @@ struct Tournament: Codable, Identifiable {
     var tournamentName: String?
 }
 
-struct TodaysDoublesDashboard {
+struct TodaysDoublesDashboard: Codable {
+    var syncedLocalGameIds: [String]? = nil
     var year: String
     var stats: [RankingRow]
     var games: [DoublesGame]

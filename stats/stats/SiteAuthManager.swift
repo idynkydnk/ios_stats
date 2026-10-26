@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import Combine
 import Security
 import LocalAuthentication
@@ -43,10 +44,49 @@ final class SiteAuthManager: ObservableObject {
     @Published var lastError: String?
     @Published private(set) var welcomeMessage: String?
 
+    private struct SavedSession: Codable {
+        var tokenHash: String
+        var me: MePayload
+    }
+    private let savedSessionKey = "com.kt.stats.verifiedOfflineSession"
+    private func tokenHash(_ token: String) -> String {
+        SHA256.hash(data: Data(token.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+    private func rememberVerifiedSession(_ me: MePayload, token: String) {
+        if let data = try? JSONEncoder().encode(SavedSession(tokenHash: tokenHash(token), me: me)) {
+            UserDefaults.standard.set(data, forKey: savedSessionKey)
+        }
+    }
+    @discardableResult
+    private func restoreSavedSession(token: String) -> Bool {
+        guard let data = UserDefaults.standard.data(forKey: savedSessionKey),
+              let saved = try? JSONDecoder().decode(SavedSession.self, from: data),
+              saved.tokenHash == tokenHash(token), saved.me.loggedIn, saved.me.isPrivate != nil else { return false }
+        let me = saved.me
+        self.token = token
+        username = me.username
+        displayName = me.displayName
+        isPrivate = me.isPrivate ?? true
+        isAdmin = me.isAdmin
+        showStarterStats = me.showStarterStats ?? true
+        needsLoginEmail = me.needsLoginEmail ?? false
+        isPreviewing = false
+        sessionReady = true
+        SiteOfflineQueue.shared.selectAccount(me.username)
+        SiteLocalGameStore.shared.selectAccount(me.username)
+        return true
+    }
+
     // Include the session and every browsing scope; raw credentials never go to disk.
     var browseCacheScope: String {
         let parts = [token ?? "public", username ?? "", String(isPrivate), String(isAdmin),
                      String(isPreviewing), String(browseSelectedStats), String(showStarterStats), statsFilters.cacheKey]
+        return String(data: try! JSONEncoder().encode(parts), encoding: .utf8)!
+    }
+
+    var selectedStatsCacheScope: String {
+        let parts = [token ?? "public", username ?? "", String(isPrivate), String(isAdmin),
+                     String(isPreviewing), "true", String(showStarterStats), statsFilters.cacheKey]
         return String(data: try! JSONEncoder().encode(parts), encoding: .utf8)!
     }
 
@@ -87,6 +127,7 @@ final class SiteAuthManager: ObservableObject {
                 sessionReady = true
             }
         } else {
+            if let token { restoreSavedSession(token: token) }
             await refreshMe()
         }
     }
@@ -115,7 +156,8 @@ final class SiteAuthManager: ObservableObject {
 
     private func accept(me: MePayload, token: String, biometric: Bool = false) async {
         await MainActor.run {
-            SiteBrowseCache.shared.invalidate()
+            rememberVerifiedSession(me, token: token)
+            SiteBrowseCache.shared.markStale()
             if biometric {
                 // The server has verified the saved session. Names remain keyed
                 // by that session and its permissions, just like ordinary launch
@@ -137,6 +179,7 @@ final class SiteAuthManager: ObservableObject {
             self.displayName = me.displayName
             UserDefaults.standard.set(me.displayName, forKey: self.displayNameKey)
             SiteOfflineQueue.shared.selectAccount(me.username)
+            SiteLocalGameStore.shared.selectAccount(me.username)
             self.isAdmin = me.isAdmin
             self.isPrivate = me.isPrivate ?? true
             self.showStarterStats = me.showStarterStats ?? true
@@ -181,6 +224,10 @@ final class SiteAuthManager: ObservableObject {
         try await context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics,
                                          localizedReason: "Sign in to Stats.")
         let savedToken = try KeychainStore.getBiometric(biometricKey, context: context)
+        if restoreSavedSession(token: savedToken) {
+            await refreshMe()
+            return
+        }
         let (me, verifiedToken) = try await PythonAnywhereClient.shared.emailSession(savedToken)
         try Task.checkCancellation()
         guard biometricEnabled, !isLoggedIn else { throw CancellationError() }
@@ -209,10 +256,12 @@ final class SiteAuthManager: ObservableObject {
                 throw SiteAPIError.message("The server needs the accounts update before you can sign in.")
             }
             await MainActor.run {
+                if let refreshingToken { rememberVerifiedSession(me, token: refreshingToken) }
                 self.username = me.username
                 self.displayName = me.displayName
                 UserDefaults.standard.set(me.displayName, forKey: self.displayNameKey)
                 SiteOfflineQueue.shared.selectAccount(me.username)
+                SiteLocalGameStore.shared.selectAccount(me.username)
                 self.isAdmin = me.isAdmin
                 self.isPrivate = me.isPrivate ?? true
                 self.showStarterStats = me.showStarterStats ?? true
@@ -260,6 +309,8 @@ final class SiteAuthManager: ObservableObject {
         SiteBrowseCache.library.invalidate()
         SiteBrowseCache.navigation.invalidate()
         SiteOfflineQueue.shared.clear()
+        SiteLocalGameStore.shared.selectAccount(nil)
+        if !preservingBiometrics { UserDefaults.standard.removeObject(forKey: savedSessionKey) }
         URLCache.shared.removeAllCachedResponses()
         KeychainStore.delete(tokenKey)
         if !preservingBiometrics { removeBiometricSignIn() }
@@ -320,7 +371,10 @@ final class SiteAuthManager: ObservableObject {
         let deletingUsername = username
         let result = try await PythonAnywhereClient.shared.deleteAccount()
         await MainActor.run {
-            if let deletingUsername { SiteOfflineQueue.shared.removeAccount(deletingUsername) }
+            if let deletingUsername {
+                SiteOfflineQueue.shared.removeAccount(deletingUsername)
+                try? SiteLocalGameStore.shared.removeAccount(deletingUsername)
+            }
             guard token == deletingToken else { return }
             UserDefaults.standard.removeObject(forKey: "com.kt.stats.pa.lastLoginEmail")
             clearSession()
