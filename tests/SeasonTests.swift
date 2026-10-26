@@ -31,6 +31,23 @@ struct SeasonTests {
         precondition(player.games[0].winnerScore == 21)
         precondition(detail.minimumExplanation == SiteSeasonDraft.minimumExplanation)
 
+        struct PublicContract: Decodable {
+            var library: SiteSeasonsPayload
+            var detail: SiteSeasonPayload
+            var player: SiteSeasonPayload
+            var ownerLibrary: SiteSeasonsPayload
+        }
+        let publicPath = URL(fileURLWithPath: path).deletingLastPathComponent().appendingPathComponent("season-public-contract.json")
+        let shared = try decoder.decode(PublicContract.self, from: Data(contentsOf: publicPath))
+        precondition(shared.library.seasons.count == 1)
+        precondition(shared.library.seasons[0].name == "Shared season")
+        precondition(shared.detail.season.canManage == false && shared.detail.season.owner == "alice")
+        precondition(shared.detail.season.shareUrl != nil)
+        precondition(shared.player.player?.games.count == 1)
+        precondition(shared.ownerLibrary.seasons.count == 2)
+        precondition(shared.ownerLibrary.seasons.allSatisfy { $0.canManage == true })
+        precondition(shared.ownerLibrary.seasons.first { $0.name == "Private season" }?.shareUrl == nil)
+
         var draft = SiteSeasonDraft(season: detail.season)
         precondition(draft.validationError == nil && draft.automatic)
         precondition(draft.fields["start_date"] as? String == "2025-12-31")

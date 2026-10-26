@@ -3,7 +3,6 @@ import Combine
 import PhotosUI
 
 struct SiteMoreView: View {
-    @Environment(\.siteAppearance) private var appearance
     var onHome: () -> Void
     @ObservedObject private var auth = SiteAuthManager.shared
     @State private var confirmDeletion = false
@@ -16,30 +15,6 @@ struct SiteMoreView: View {
     var body: some View {
         NavigationStack {
             List {
-                SiteListSection("Stats filters") {
-                    NavigationLink { SiteTimeFrameView(onApply: onHome) } label: {
-                        Label("Custom time frame", systemImage: "calendar")
-                    }
-                    NavigationLink { SiteLocationFilterView(onApply: onHome) } label: {
-                        Label("Location", systemImage: "mappin.and.ellipse")
-                    }
-                    if auth.statsFilters.isActive {
-                        Text(auth.statsFilters.summary).font(.caption).foregroundStyle(.secondary)
-                        Button("Clear filters") { auth.setStatsFilters(SiteStatsFilters()) }
-                    }
-                }
-                if !auth.isLoggedIn {
-                    Section {
-                        Button(action: onHome) { Label("Home", systemImage: "house") }
-                        NavigationLink { SiteAppearanceView() } label: {
-                            Label("Appearance", systemImage: "paintpalette")
-                        }
-                        NavigationLink("AI Recaps") { SiteRecapsView() }
-                        NavigationLink("Login") { LoginView() }
-                    }
-                    .listRowBackground(appearance.panel)
-                }
-                if auth.isLoggedIn {
                 SiteListSection("Account") {
                     if auth.isLoggedIn {
                         Text(auth.needsAccountName ? "Signed in" : "Signed in as \(auth.accountDisplayName)")
@@ -61,7 +36,6 @@ struct SiteMoreView: View {
                                 .font(.footnote).foregroundStyle(.secondary)
                         }
                         Button("Log out") { Task { await auth.logout() } }
-                        NavigationLink("Stats to include") { SiteStatsSourcesView() }
                         if auth.isPrivate {
                             Toggle("Show KT Stats", isOn: Binding(
                                 get: { auth.showStarterStats },
@@ -80,45 +54,49 @@ struct SiteMoreView: View {
                             if deletingAccount { ProgressView("Deleting account…") }
                         }
                         if let accountError { Text(accountError).foregroundStyle(.red) }
+                    } else {
+                        NavigationLink("Login") { LoginView() }
                     }
+                }
+                SiteListSection("General") {
+                    Button(action: onHome) { Label("Home", systemImage: "house") }
                     NavigationLink {
                         SiteAppearanceView()
                     } label: {
                         Label("Appearance", systemImage: "paintpalette")
                     }
                 }
+                SiteListSection("Stats filters") {
+                    NavigationLink { SiteTimeFrameView(onApply: onHome) } label: {
+                        Label("Custom time frame", systemImage: "calendar")
+                    }
+                    NavigationLink { SiteLocationFilterView(onApply: onHome) } label: {
+                        Label("Location", systemImage: "mappin.and.ellipse")
+                    }
+                    if auth.isLoggedIn {
+                        NavigationLink("Stats to include") { SiteStatsSourcesView() }
+                    }
+                    if auth.statsFilters.isActive {
+                        Text(auth.statsFilters.summary).font(.caption).foregroundStyle(.secondary)
+                        Button("Clear filters") { auth.setStatsFilters(SiteStatsFilters()) }
+                    }
                 }
-                if auth.isLoggedIn {
                 SiteListSection("Browse") {
                     NavigationLink("Seasons") { SiteSeasonsView() }
-                    NavigationLink("Players") { SitePlayersView() }
+                    if auth.isLoggedIn { NavigationLink("Players") { SitePlayersView() } }
                     NavigationLink("AI Recaps") { SiteRecapsView() }
                     NavigationLink("Flyers") { SiteFlyersView() }
-                }
-                }
-                if auth.isLoggedIn {
-                    SiteListSection("Create") {
-                        NavigationLink("Season") { SiteCreateSeasonView() }
-                        NavigationLink("AI Recap") { SiteAISummaryView() }
-                        NavigationLink("Flyer") { SiteFlyerView() }
-                    }
                 }
                 if auth.isAdmin {
                     SiteListSection("Admin") {
                         NavigationLink("Admin dashboard") { SiteAdminView() }
+                        NavigationLink("Site updates") { SiteUpdatesView() }
                         NavigationLink("Content reports") {
                             SiteRecapPageView(title: "Content reports",
                                 url: PythonAnywhereClient.shared.baseURL.appendingPathComponent("admin/content-reports"),
                                 showsCopyLink: false)
                         }
-                        NavigationLink("Site updates") { SiteUpdatesView() }
                     }
-                }
-                Section("Privacy and help") {
-                    NavigationLink("Privacy and safety") { SitePrivacySafetyView() }
-                    Link("Privacy policy", destination: SitePolicyLinks.privacy)
-                    Link("Support", destination: SitePolicyLinks.support)
-                    Link("Community guidelines", destination: SitePolicyLinks.community)
                 }
             }
             .navigationTitle("Menu")
@@ -1551,23 +1529,6 @@ struct SiteRecapsView: View {
                         .foregroundStyle(.secondary)
                     Spacer()
                 }
-                NavigationLink {
-                    SiteRecapSubscriptionView()
-                } label: {
-                    HStack(spacing: 12) {
-                        Image(systemName: "envelope")
-                            .foregroundStyle(appearance.accent)
-                        Text("Get recaps by email")
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                    }
-                    .font(.subheadline)
-                    .padding(16)
-                    .background(appearance.panel, in: RoundedRectangle(cornerRadius: appearance.style.radius(14)))
-                }
-                .buttonStyle(.plain)
                 if let error {
                     VStack(spacing: 10) {
                         Text(error).font(.subheadline).foregroundStyle(.secondary)
@@ -1580,8 +1541,6 @@ struct SiteRecapsView: View {
                     ContentUnavailableView("No recaps yet", systemImage: "text.book.closed",
                                            description: Text("New game stories will appear here."))
                 }
-                Text("Older recaps are removed automatically after new ones are created. Pin favorites to protect them and their shared links.")
-                    .font(.caption).foregroundStyle(.secondary)
                 ForEach(items) { recap in
                     if let url = recap.publicURL {
                         NavigationLink {
@@ -1620,6 +1579,29 @@ struct SiteRecapsView: View {
                         .buttonStyle(.bordered)
                         .padding(.bottom)
                 }
+                NavigationLink {
+                    SiteRecapSubscriptionView()
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "envelope")
+                            .foregroundStyle(appearance.accent)
+                        Text("Get recaps by email")
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                    .font(.subheadline)
+                    .padding(16)
+                    .background(appearance.panel, in: RoundedRectangle(cornerRadius: appearance.style.radius(14)))
+                }
+                .buttonStyle(.plain)
+                if auth.isLoggedIn {
+                    DisclosureGroup("Keeping your recaps") {
+                        Text("Older recaps are removed automatically after new ones are created. Pin favorites to protect them and their shared links.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
             }
             .frame(maxWidth: 680)
             .padding(16)
@@ -1634,7 +1616,7 @@ struct SiteRecapsView: View {
                     NavigationLink {
                         SiteAISummaryView()
                     } label: {
-                        Image(systemName: "plus")
+                        Label("Create recap", systemImage: "plus")
                     }
                     .accessibilityLabel("Create recap")
                 }
@@ -1771,7 +1753,7 @@ struct SiteFlyersView: View {
     var body: some View {
         List {
             Section {
-                Text("Save the picture to Photos, then share it from there. Older flyers are removed after new ones are created; pinned favorites and flyers for today or later are protected.")
+                Text("Save the picture to Photos, then share it from there.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -1780,7 +1762,7 @@ struct SiteFlyersView: View {
             }
             if loading { ProgressView("Loading flyers…") }
             if items.isEmpty, loaded, !loading, error == nil {
-                Text("No flyers yet. Pull down to refresh, or create one from Create Flyer.")
+                Text(auth.isLoggedIn ? "No flyers yet. Tap Create flyer to make one." : "No flyers have been published yet.")
                     .foregroundStyle(.secondary)
             }
             SiteLimitedRows(items) { flyer in
@@ -1828,16 +1810,23 @@ struct SiteFlyersView: View {
                 }
                 .padding(.vertical, 4)
             }
-        }
-        .navigationTitle(SiteAuthManager.shared.isAdmin ? "All flyers" : "Flyers")
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                NavigationLink {
-                    SiteFlyerView()
-                } label: {
-                    Image(systemName: "plus")
+            if auth.isLoggedIn {
+                DisclosureGroup("Keeping your flyers") {
+                    Text("Older flyers are removed after new ones are created; pinned favorites and flyers for today or later are protected.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
-                .accessibilityLabel("Create flyer")
+            }
+        }
+        .navigationTitle("Flyers")
+        .toolbar {
+            if auth.isLoggedIn {
+                ToolbarItem(placement: .primaryAction) {
+                    NavigationLink {
+                        SiteFlyerView()
+                    } label: {
+                        Label("Create flyer", systemImage: "plus")
+                    }
+                }
             }
         }
         .task(id: "\(auth.browseCacheScope)-\(auth.sessionReady)-\(auth.isAdmin)-\(auth.statsViewRevision)") { await load(force: false) }
@@ -1880,7 +1869,7 @@ struct SiteFlyersView: View {
         let loadStarted = Date()
         defer { SitePerformance.record("flyers-load", since: loadStarted) }
         guard auth.sessionReady else { return }
-        let scope = "\(auth.browseCacheScope)-\(auth.isAdmin)-\(auth.statsViewRevision)-flyers-safety-v1"
+        let scope = "\(auth.browseCacheScope)-\(auth.isAdmin)-\(auth.statsViewRevision)-flyers-public-v2"
         let requestID = UUID()
         loadID = requestID
         let cache = SiteBrowseCache.library

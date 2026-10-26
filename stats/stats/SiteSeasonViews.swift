@@ -18,20 +18,24 @@ struct SiteSeasonsView: View {
             if loading && visiblePayload == nil { ProgressView("Loading seasons…") }
             if let error { Text(error).foregroundStyle(.red); Button("Try again") { Task { await load() } } }
             SiteListSection("Seasons") {
-                Button { created = nil; creating = true } label: { Label("Create season", systemImage: "calendar.badge.plus") }
+                if auth.isLoggedIn {
+                    Button { created = nil; creating = true } label: { Label("Create season", systemImage: "calendar.badge.plus") }
+                }
                 SiteLimitedRows(visiblePayload?.seasons ?? []) { season in
                     NavigationLink { SiteSeasonDetailView(id: season.id) } label: {
                         VStack(alignment: .leading, spacing: 6) {
                             Text(season.name).font(.headline)
+                            Text((season.canManage == true ? "Your season" : season.owner ?? "Shared season") + " · " + (season.shareUrl == nil ? "Private" : "Shared"))
+                                .font(.caption).foregroundStyle(.secondary)
                             Text(season.dates).font(.subheadline)
                             Text("\(season.status) · \(season.minimumDescription)").font(.caption).foregroundStyle(.secondary)
                         }.padding(.vertical, 4)
                     }
                 }
                 if visiblePayload?.seasons.isEmpty == true {
-                    Text("Choose a name and dates to bring a league, tournament, or stretch of games together.").foregroundStyle(.secondary)
+                    Text(auth.isLoggedIn ? "Create a season to bring a league, tournament, or stretch of games together." : "Shared seasons will appear here. Sign in to create your own.").foregroundStyle(.secondary)
                 }
-            } footer: { Text("Seasons use only games you entered, and sync with the website.") }
+            } footer: { Text("Browse shared seasons for standings, player stats, and awards." + (auth.isLoggedIn ? " Your private seasons appear here too." : "")) }
             if let payload = visiblePayload, !payload.seasons.isEmpty {
                 SiteListSection("All-time champions board") {
                     SiteLimitedRows(payload.champions) { winner in
@@ -216,7 +220,7 @@ struct SiteSeasonDetailView: View {
                     }
                     if payload.groups.isEmpty {
                         SiteContentCard(title: "No season games yet") {
-                            Text("Games you enter between \(payload.season.startDate) and \(payload.season.endDate) will appear here automatically.")
+                            Text("Games \(payload.season.canManage == true ? "you enter" : "the creator enters") between \(payload.season.startDate) and \(payload.season.endDate) will appear here automatically.")
                         }.padding(.horizontal, 12)
                     }
                     DisclosureGroup("How this season works") {
@@ -232,7 +236,7 @@ struct SiteSeasonDetailView: View {
         .task(id: auth.token) { await load() }
         .refreshable { await load() }
         .toolbar {
-            if loadedAccount == auth.token, payload != nil {
+            if loadedAccount == auth.token, auth.isLoggedIn, payload?.season.canManage == true {
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
                         Button("Edit season", systemImage: "pencil") { editing = true }
@@ -270,15 +274,17 @@ struct SiteSeasonDetailView: View {
             DisclosureGroup("Share season") {
                 VStack(alignment: .leading, spacing: 12) {
                     if let url = shareURL(payload.season) {
-                        Text("Anyone with this link can view this season and its player stats.").font(.caption).foregroundStyle(.secondary)
+                        Text("Everyone can find this season in Seasons and view its standings and player stats.").font(.caption).foregroundStyle(.secondary)
                         ViewThatFits(in: .horizontal) {
                             HStack(spacing: 20) { shareActions(url) }
                             VStack(alignment: .leading, spacing: 12) { shareActions(url) }
                         }
-                        Button("Stop sharing") { Task { await share(false) } }
-                    } else {
-                        Text("Create a read-only link to share this private season.").font(.caption).foregroundStyle(.secondary)
-                        Button("Create share link") { Task { await share(true) } }
+                        if auth.isLoggedIn, payload.season.canManage == true {
+                            Button("Stop sharing") { Task { await share(false) } }
+                        }
+                    } else if auth.isLoggedIn, payload.season.canManage == true {
+                        Text("Sharing adds this season to Seasons for everyone to browse and creates a read-only link.").font(.caption).foregroundStyle(.secondary)
+                        Button("Share season") { Task { await share(true) } }
                     }
                     if working { ProgressView() }
                 }.padding(.top, 8).disabled(working)

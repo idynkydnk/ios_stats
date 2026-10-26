@@ -10,6 +10,8 @@ struct SiteSeason: Decodable, Identifiable {
     var timezone: String
     var status: String
     var shareUrl: String?
+    var canManage: Bool?
+    var owner: String?
 
     var dates: String { "\(startDate) – \(endDate)" }
     var minimumDescription: String {

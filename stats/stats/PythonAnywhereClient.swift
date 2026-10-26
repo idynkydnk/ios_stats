@@ -80,14 +80,14 @@ final class PythonAnywhereClient {
     }
 
     func seasons() async throws -> SiteSeasonsPayload {
-        try await get("/api/seasons", preview: false)
+        try await getPublic("/api/seasons")
     }
 
     func season(id: String, player: String? = nil, group: String? = nil) async throws -> SiteSeasonPayload {
         var query: [String: String] = [:]
         if let player { query["player"] = player }
         if let group { query["group"] = group }
-        return try await get("/api/seasons/\(id)", query: query, preview: false)
+        return try await getPublic("/api/seasons/\(id)", query: query)
     }
 
     func saveSeason(_ draft: SiteSeasonDraft, id: String? = nil) async throws -> SiteSeasonPayload {
@@ -801,7 +801,7 @@ final class PythonAnywhereClient {
         var items: [FlyerItem] = []
         var page = 1
         while true {
-            let result: Wrap = try await get("/api/flyers", query: ["page": String(page)])
+            let result: Wrap = try await getPublic("/api/flyers", query: ["page": String(page)])
             let existing = Set(items.map(\.id))
             let added = result.flyers.filter { !existing.contains($0.id) }
             items.append(contentsOf: added)
@@ -1031,6 +1031,12 @@ final class PythonAnywhereClient {
 
     private func get<T: Decodable>(_ path: String, query: [String: String] = [:], preview: Bool? = nil) async throws -> T {
         let req = request(path, method: "GET", query: query, authed: token != nil, preview: preview)
+        return try await decode(req)
+    }
+
+    private func getPublic<T: Decodable>(_ path: String, query: [String: String] = [:]) async throws -> T {
+        var req = request(path, method: "GET", query: query, preview: false)
+        if token == nil { req.setValue(nil, forHTTPHeaderField: "X-Stats-Account-Required") }
         return try await decode(req)
     }
 
