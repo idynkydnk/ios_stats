@@ -234,9 +234,17 @@ struct SiteRootView: View {
             switch section {
             case .doubles:
                 _ = try? await client.doublesPlayers()
-            case .vollis where selectedOtherGame.isEmpty || selectedOtherGame.caseInsensitiveCompare("Vollis") == .orderedSame:
-                _ = try? await client.vollisPlayers()
-            case .vollis, .other:
+            case .vollis:
+                async let roster = try? client.otherGamePlayers(gameName: "")
+                if selectedOtherGame.isEmpty || selectedOtherGame.caseInsensitiveCompare("Vollis") == .orderedSame {
+                    _ = try? await client.vollisPlayers()
+                } else {
+                    async let scores = try? client.otherGameCommonScores(gameName: selectedOtherGame, oneOnOne: true)
+                    _ = try? await client.otherGamePlayers(gameName: selectedOtherGame)
+                    _ = await scores
+                }
+                _ = await roster
+            case .other:
                 if !selectedOtherGame.isEmpty {
                     _ = try? await client.otherGamePlayers(gameName: selectedOtherGame)
                 }

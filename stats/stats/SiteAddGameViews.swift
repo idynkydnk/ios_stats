@@ -670,7 +670,7 @@ struct SiteAddOtherView: View {
                         }
                     }
 
-                    if !isVollis {
+                    if !isVollis && !oneOnOneOnly {
                         Picker("Scoring", selection: $scoreType) {
                             Text("Team").tag("team")
                             Text("Individual").tag("individual")
@@ -789,10 +789,27 @@ struct SiteAddOtherView: View {
             if isVollis { configureVollis() }
             if gameName.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare(playerGameName) != .orderedSame {
                 playerGameName = ""
-                players = []
+                players = oneOnOneOnly ? savedEntryPlayers() : []
+                if oneOnOneOnly && !isVollis { winnerChips = [] }
+            }
+        }
+        .onChange(of: focused) { previous, _ in
+            if previous == .gameName, !gameName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+               gameName.caseInsensitiveCompare(playerGameName) != .orderedSame {
+                Task { await applyGameName(advanceFocus: false) }
             }
         }
         .task(id: "\(playerSuggestionsKey)-\(playerSuggestionsRevision)") { await refreshPlayers() }
+        .task(id: "scores-\(playerSuggestionsKey)-\(playerSuggestionsRevision)") { await refreshScores() }
+        .task(id: auth.playerSuggestionsScope) {
+            guard oneOnOneOnly else { return }
+            let scope = auth.playerSuggestionsScope
+            if players.isEmpty { players = savedEntryPlayers() }
+            if let names = try? await PythonAnywhereClient.shared.otherGamePlayers(gameName: ""),
+               !Task.isCancelled, scope == auth.playerSuggestionsScope, players.isEmpty {
+                players = names
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: SiteBrowseCache.didChange, object: SiteBrowseCache.playerSuggestions)
             .receive(on: RunLoop.main)) { _ in playerSuggestionsRevision = UUID() }
         .task(id: auth.playerSuggestionsScope) {
@@ -805,7 +822,7 @@ struct SiteAddOtherView: View {
         }
         .task {
             applyEdit()
-            if oneOnOneOnly { gameType = "Volleyball" }
+            if oneOnOneOnly { configureOneOnOne() }
             await refreshToday()
         }
     }
@@ -831,18 +848,52 @@ struct SiteAddOtherView: View {
         location = game.location ?? ""
     }
 
+    private func savedEntryPlayers() -> [String] {
+        let client = PythonAnywhereClient.shared
+        for names in [client.cachedOtherGamePlayers(gameName: ""), client.cachedVollisPlayers, client.cachedDoublesPlayers] {
+            if !names.isEmpty { return names }
+        }
+        return []
+    }
+
     private func selectPlayerGame(_ name: String) {
         playerGameName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let client = PythonAnywhereClient.shared
         players = isVollis ? client.cachedVollisPlayers : client.cachedOtherGamePlayers(gameName: playerGameName)
+        if oneOnOneOnly && players.isEmpty { players = savedEntryPlayers() }
+    }
+
+    private func refreshScores() async {
+        let name = playerGameName
+        guard !name.isEmpty, !isVollis else { return }
+        let key = playerSuggestionsKey
+        let client = PythonAnywhereClient.shared
+        if let saved = client.cachedOtherGameCommonScores(gameName: name, oneOnOne: oneOnOneOnly) {
+            applyScores(saved)
+        } else {
+            winnerChips = oneOnOneOnly ? [] : [21, 25, 15, 18, 20]
+            loserChips = oneOnOneOnly ? [] : [19, 23, 12, 16, 17]
+            indivChips = Array(0...10)
+        }
+        if let scores = try? await client.otherGameCommonScores(gameName: name, oneOnOne: oneOnOneOnly),
+           !Task.isCancelled, key == playerSuggestionsKey,
+           gameName.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare(name) == .orderedSame {
+            applyScores(scores)
+        }
+    }
+
+    private func applyScores(_ scores: PythonAnywhereClient.OtherGameCommonScores) {
+        winnerChips = scores.winnerScores
+        loserChips = scores.loserScores
+        indivChips = scores.winnerIndividualScores
     }
 
     private func refreshPlayers() async {
         let name = playerGameName
-        guard !name.isEmpty else { players = []; return }
+        guard !name.isEmpty else { players = oneOnOneOnly ? savedEntryPlayers() : []; return }
         let key = playerSuggestionsKey
         let client = PythonAnywhereClient.shared
-        players = isVollis ? client.cachedVollisPlayers : client.cachedOtherGamePlayers(gameName: name)
+        selectPlayerGame(name)
         let refreshed = isVollis
             ? (try? await client.vollisPlayers())
             : (try? await client.otherGamePlayers(gameName: name))
@@ -993,10 +1044,20 @@ struct SiteAddOtherView: View {
 
     private func loserChipsForTeam() -> [Int] {
         if isTie, let score = teamWinnerScore { return [score] + loserChips.filter { $0 != score } }
+        if oneOnOneOnly {
+            return teamWinnerScore.map { siteLoserScores(winner: $0) } ?? []
+        }
         if gameType.lowercased().contains("volleyball"), let w = teamWinnerScore {
             return siteLoserScores(winner: w)
         }
         return loserChips
+    }
+
+    private func configureOneOnOne() {
+        isTie = false
+        gameType = "Volleyball"
+        scoreType = "team"
+        resizeSlots(winnerCount: 1, loserCount: 1)
     }
 
     private func configureVollis() {
@@ -1030,8 +1091,12 @@ struct SiteAddOtherView: View {
             return
         }
         todayVollisGames = []
-        winnerChips = [21, 25, 15, 18, 20]
-        loserChips = [19, 23, 12, 16, 17]
+        if oneOnOneOnly {
+            configureOneOnOne()
+            winnerChips = PythonAnywhereClient.shared.cachedOtherGameCommonScores(gameName: name, oneOnOne: true)?.winnerScores ?? []
+            if advanceFocus { focused = .winner(0) }
+            return
+        }
         let key = name.lowercased()
         var defaults = entryDefaults[key]
         if defaults == nil, let info = try? await PythonAnywhereClient.shared.otherGameInfo(name: name) {
@@ -1053,16 +1118,8 @@ struct SiteAddOtherView: View {
                 resizeSlots(winnerCount: 2, loserCount: 2)
             }
         }
-        if oneOnOneOnly { gameType = "Volleyball"; resizeSlots(winnerCount: 1, loserCount: 1) }
         if advanceFocus {
             focused = gameType.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .gameType : .winner(0)
-        }
-        if let scores = try? await PythonAnywhereClient.shared.otherGameCommonScores(gameName: name) {
-            guard !Task.isCancelled, scope == auth.playerSuggestionsScope,
-                  gameName.trimmingCharacters(in: .whitespacesAndNewlines) == name else { return }
-            if !scores.winners.isEmpty { winnerChips = scores.winners }
-            if !scores.losers.isEmpty { loserChips = scores.losers }
-            if !scores.winnerIndiv.isEmpty { indivChips = scores.winnerIndiv }
         }
     }
 

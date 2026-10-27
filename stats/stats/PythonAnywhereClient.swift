@@ -12,6 +12,7 @@ final class PythonAnywhereClient {
     private let browsingSession: URLSession
     private let getRequests = SiteGETRequests()
     private let yearsCache = SiteReadCache<YearsPayload>(cache: .navigation)
+    private let commonScoreCache = SiteReadCache<OtherGameCommonScores>(cache: .navigation)
     private let catalogCache = SiteReadCache<OtherGameCatalog>(cache: .navigation)
 
     private init() {
@@ -602,18 +603,37 @@ final class PythonAnywhereClient {
         let name = gameName.trimmingCharacters(in: .whitespacesAndNewlines)
         return try await SitePlayerSuggestionCache.shared.load(key: otherGamePlayersCacheKey(gameName: name)) {
             let encoded = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? name
-            return try await self.nameList("/api/other_game_players/\(encoded)")
+            return try await self.nameList(name.isEmpty ? "/api/other_game_players" : "/api/other_game_players/\(encoded)")
         }
     }
 
-    func otherGameCommonScores(gameName: String) async throws -> (winners: [Int], losers: [Int], winnerIndiv: [Int], loserIndiv: [Int]) {
-        let encoded = gameName.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? gameName
-        let json = try await getJSON("/api/other_game_common_scores/\(encoded)")
-        let w = (json["winner_scores"] as? [Any] ?? []).compactMap { Self.jsonInt($0) }
-        let l = (json["loser_scores"] as? [Any] ?? []).compactMap { Self.jsonInt($0) }
-        let wi = (json["winner_individual_scores"] as? [Any] ?? []).compactMap { Self.jsonInt($0) }
-        let li = (json["loser_individual_scores"] as? [Any] ?? []).compactMap { Self.jsonInt($0) }
-        return (w, l, wi, li)
+    nonisolated struct OtherGameCommonScores: Codable, Sendable {
+        var winnerScores: [Int] = []
+        var loserScores: [Int] = []
+        var winnerIndividualScores: [Int] = []
+        var loserIndividualScores: [Int] = []
+    }
+
+    private func commonScoresRequest(gameName: String, oneOnOne: Bool) -> URLRequest {
+        let name = gameName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let encoded = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? name
+        return request("/api/other_game_common_scores/\(encoded)", method: "GET",
+                       query: oneOnOne ? ["one_on_one": "1"] : [:],
+                       authed: token != nil, preview: false)
+    }
+
+    @MainActor
+    func cachedOtherGameCommonScores(gameName: String, oneOnOne: Bool) -> OtherGameCommonScores? {
+        let req = commonScoresRequest(gameName: gameName, oneOnOne: oneOnOne)
+        return SiteBrowseCache.navigation.load(OtherGameCommonScores.self, key: metadataKey(req))?.value
+    }
+
+    @MainActor
+    func otherGameCommonScores(gameName: String, oneOnOne: Bool = false) async throws -> OtherGameCommonScores {
+        let req = commonScoresRequest(gameName: gameName, oneOnOne: oneOnOne)
+        return try await commonScoreCache.load(key: metadataKey(req), maxAge: 60) {
+            try await self.decode(req)
+        }
     }
 
     func todaysDoublesDashboard() async throws -> TodaysDoublesDashboard {
