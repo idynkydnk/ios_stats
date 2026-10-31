@@ -266,6 +266,8 @@ struct SiteEditPlayerView: View {
     @State private var saving = false
     @State private var traitsBusy = false
     @State private var photoBusy = false
+    @State private var loadingPhoto = false
+    @State private var pendingFacePhoto: SiteFacePhoto?
     @State private var photoUrl: String?
     @State private var photoRevision = UUID()
     @State private var picker: PhotosPickerItem?
@@ -316,11 +318,11 @@ struct SiteEditPlayerView: View {
             if auth.isLoggedIn {
                 PhotosPicker(selection: $picker, matching: .images) {
                     HStack {
-                        if photoBusy { ProgressView() }
-                        Text(photoBusy ? "Uploading face photo…" : "Upload face photo")
+                        if photoBusy || loadingPhoto { ProgressView() }
+                        Text(loadingPhoto ? "Opening photo…" : (photoBusy ? "Uploading face photo…" : "Upload face photo"))
                     }
                 }
-                .disabled(photoBusy || saving)
+                .disabled(photoBusy || loadingPhoto || saving)
                 SiteListSection("AI character") {
                     if let url = SitePublicLink.absolute(aiImageUrl) {
                         AsyncImage(url: url) { phase in
@@ -434,7 +436,7 @@ struct SiteEditPlayerView: View {
                     TextField("Height", text: $height)
                     TextField("Date of birth", text: $dob)
                     Button("Save") { Task { await save() } }
-                        .disabled(saving || photoBusy || name.trimmingCharacters(in: .whitespaces).isEmpty)
+                        .disabled(saving || photoBusy || loadingPhoto || name.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             } else {
                 if let url = SitePublicLink.absolute(aiImageUrl) {
@@ -472,35 +474,64 @@ struct SiteEditPlayerView: View {
         .refreshable { await refreshFromServer() }
         .onChange(of: picker) { _, item in
             guard let item else { return }
-            Task { await uploadPhoto(item, isCharacter: false) }
+            Task { await prepareFacePhoto(item) }
         }
         .onChange(of: characterPicker) { _, item in
             guard let item else { return }
-            Task { await uploadPhoto(item, isCharacter: true) }
+            Task { await uploadCharacterPhoto(item) }
+        }
+        .fullScreenCover(item: $pendingFacePhoto) { photo in
+            SitePhotoCropView(image: photo.image) { data in
+                try await uploadFacePhoto(data, playerName: photo.playerName)
+            }
         }
     }
 
     @MainActor
-    private func uploadPhoto(_ item: PhotosPickerItem, isCharacter: Bool) async {
-        guard auth.isLoggedIn else { return }
-        if isCharacter {
-            guard !aiBusy else { return }
-            aiBusy = true
-        } else {
-            guard !photoBusy else { return }
-            photoBusy = true
-        }
+    private func prepareFacePhoto(_ item: PhotosPickerItem) async {
+        guard auth.isLoggedIn, !loadingPhoto, !photoBusy else { return }
+        loadingPhoto = true
         let playerName = canonicalName
         error = nil
         banner = nil
         defer {
-            if isCharacter {
-                characterPicker = nil
-                aiBusy = false
-            } else {
-                picker = nil
-                photoBusy = false
+            picker = nil
+            loadingPhoto = false
+        }
+        do {
+            guard let original = try await item.loadTransferable(type: Data.self) else {
+                throw SitePhotoUpload.Failure.unreadable
             }
+            let image = try await Task.detached(priority: .userInitiated) {
+                try SitePhotoUpload.preview(from: original)
+            }.value
+            pendingFacePhoto = SiteFacePhoto(playerName: playerName, image: image)
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func uploadFacePhoto(_ data: Data, playerName: String) async throws {
+        photoBusy = true
+        defer { photoBusy = false }
+        photoUrl = try await PythonAnywhereClient.shared.uploadPlayerPhoto(
+            name: playerName, imageData: data, filename: "photo.jpg"
+        )
+        photoRevision = UUID()
+        banner = "Face photo updated"
+    }
+
+    @MainActor
+    private func uploadCharacterPhoto(_ item: PhotosPickerItem) async {
+        guard auth.isLoggedIn, !aiBusy else { return }
+        aiBusy = true
+        let playerName = canonicalName
+        error = nil
+        banner = nil
+        defer {
+            characterPicker = nil
+            aiBusy = false
         }
         do {
             guard let original = try await item.loadTransferable(type: Data.self) else {
@@ -509,19 +540,11 @@ struct SiteEditPlayerView: View {
             let data = try await Task.detached(priority: .userInitiated) {
                 try SitePhotoUpload.jpeg(from: original)
             }.value
-            if isCharacter {
-                aiImageUrl = try await PythonAnywhereClient.shared.uploadPlayerAIImage(
-                    name: playerName, imageData: data, filename: "character.jpg"
-                )
-                banner = "AI character uploaded"
-                await refreshAIVersions()
-            } else {
-                photoUrl = try await PythonAnywhereClient.shared.uploadPlayerPhoto(
-                    name: playerName, imageData: data, filename: "photo.jpg"
-                )
-                photoRevision = UUID()
-                banner = "Face photo updated"
-            }
+            aiImageUrl = try await PythonAnywhereClient.shared.uploadPlayerAIImage(
+                name: playerName, imageData: data, filename: "character.jpg"
+            )
+            banner = "AI character uploaded"
+            await refreshAIVersions()
         } catch {
             self.error = error.localizedDescription
         }

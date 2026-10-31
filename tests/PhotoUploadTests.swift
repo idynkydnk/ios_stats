@@ -23,10 +23,76 @@ struct PhotoUploadTests {
 
     static func decoded(_ data: Data) throws -> CGImage {
         let jpeg = try SitePhotoUpload.jpeg(from: data)
+        return decodeJPEG(jpeg)
+    }
+
+    static func decodeJPEG(_ jpeg: Data) -> CGImage {
         precondition(jpeg.count <= SitePhotoUpload.maximumBytes)
         let source = CGImageSourceCreateWithData(jpeg as CFData, nil)!
         precondition(CGImageSourceGetType(source) as String? == UTType.jpeg.identifier)
         return CGImageSourceCreateImageAtIndex(source, 0, nil)!
+    }
+
+    static func color(atX x: Int, y: Int, in image: CGImage) -> [UInt8] {
+        let context = CGContext(data: nil, width: image.width, height: image.height,
+                                bitsPerComponent: 8, bytesPerRow: image.width * 4,
+                                space: CGColorSpaceCreateDeviceRGB(),
+                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        let pixels = context.data!.assumingMemoryBound(to: UInt8.self)
+        let offset = (y * image.width + x) * 4
+        return Array(UnsafeBufferPointer(start: pixels + offset, count: 3))
+    }
+
+    static func checkCrops() throws {
+        let original = fixture(width: 400, height: 200, type: .png)
+        let preview = try SitePhotoUpload.preview(from: original)
+        let left = decodeJPEG(try SitePhotoUpload.croppedJPEG(
+            from: preview, rect: CGRect(x: 10, y: 30, width: 100, height: 100)
+        ))
+        precondition(left.width == 100 && left.height == 100)
+        let red = color(atX: 50, y: 50, in: left)
+        let previewRed = color(atX: 50, y: 50, in: preview)
+        precondition(red[0] > 200 && red[1] < 80 && red[2] < 80)
+        precondition(zip(previewRed, red).allSatisfy { abs(Int($0) - Int($1)) < 12 },
+                     "Crop must use the selected region and preserve its color")
+        let right = decodeJPEG(try SitePhotoUpload.croppedJPEG(
+            from: preview, rect: CGRect(x: 280, y: 30, width: 100, height: 100)
+        ))
+        precondition(color(atX: 50, y: 50, in: right).allSatisfy { $0 > 245 }, "Panning must change saved pixels")
+
+        for rect in [CGRect(x: -20, y: -10, width: 99.8, height: 99.8),
+                     CGRect(x: 390, y: 190, width: 99.8, height: 99.8),
+                     CGRect(x: -100, y: -100, width: 900, height: 900)] {
+            let result = decodeJPEG(try SitePhotoUpload.croppedJPEG(from: preview, rect: rect))
+            precondition(result.width == result.height && result.width <= preview.height,
+                         "Edge crops must stay square and within the photo")
+        }
+        for rect in [CGRect.zero, CGRect(x: CGFloat.nan, y: 0, width: 100, height: 100)] {
+            do {
+                _ = try SitePhotoUpload.croppedJPEG(from: preview, rect: rect)
+                preconditionFailure("Invalid crop was accepted")
+            } catch SitePhotoUpload.Failure.unreadable {}
+        }
+
+        // All camera orientations, including mirrored selfies, must be baked
+        // into the preview before its crop coordinates are used for export.
+        for orientation in 1...8 {
+            let rotated = try SitePhotoUpload.preview(from: fixture(width: 400, height: 200, type: .jpeg, orientation: orientation))
+            precondition(rotated.width == (orientation <= 4 ? 400 : 200))
+            precondition(rotated.height == (orientation <= 4 ? 200 : 400))
+            let rect = CGRect(x: 25, y: 35, width: 100, height: 100)
+            let selected = rotated.cropping(to: rect)!
+            let saved = decodeJPEG(try SitePhotoUpload.croppedJPEG(from: rotated, rect: rect))
+            let expected = color(atX: 50, y: 50, in: selected)
+            let actual = color(atX: 50, y: 50, in: saved)
+            precondition(zip(expected, actual).allSatisfy { abs(Int($0) - Int($1)) < 12 },
+                         "Saved crop must match the oriented preview")
+        }
+        let large = try SitePhotoUpload.preview(from: fixture(width: 5000, height: 2500, type: .png))
+        precondition(large.width == 4096 && large.height == 2048, "Preview must have bounded memory use")
+        let zoomed = decodeJPEG(try SitePhotoUpload.croppedJPEG(from: large, rect: CGRect(x: 1100, y: 100, width: 300, height: 300)))
+        precondition(zoomed.width == 300 && zoomed.height == 300, "Zoomed crops must not be upscaled")
     }
 
     static func main() throws {
@@ -51,6 +117,7 @@ struct PhotoUploadTests {
         let pixels = context.data!.assumingMemoryBound(to: UInt8.self)
         let offset = (50 * 100 + 90) * 4
         precondition(pixels[offset] > 245 && pixels[offset + 1] > 245 && pixels[offset + 2] > 245)
-        print("Photo upload tests passed: HEIC, PNG, JPEG, orientation, resizing, transparency, and invalid data.")
+        try checkCrops()
+        print("Photo upload tests passed: formats, all orientations, resizing, transparency, crop selection, crop edges, preview size, and invalid data.")
     }
 }
