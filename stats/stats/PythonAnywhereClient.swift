@@ -553,20 +553,45 @@ final class PythonAnywhereClient {
     }
 
     @MainActor
+    private func pendingPlayerNames(kind: String, gameName: String = "") -> [String] {
+        guard SiteAuthManager.shared.isLoggedIn, !SiteAuthManager.shared.isPreviewing else { return [] }
+        return SiteLocalGameStore.shared.pending.reversed().filter {
+            $0.owner == SiteAuthManager.shared.username && $0.kind == kind && (kind != "other" || gameName.isEmpty ||
+                $0.gameName.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare(gameName) == .orderedSame)
+        }.flatMap { $0.winners + $0.losers }
+    }
+
+    @MainActor
+    private func loadPlayers(key: String, kind: String, gameName: String = "", path: String) async throws -> [String] {
+        let pending = pendingPlayerNames(kind: kind, gameName: gameName)
+        let names = try await SitePlayerSuggestionCache.shared.load(key: key) {
+            try await self.nameList(path)
+        }
+        // Include saves made during the request, and games acknowledged while it ran.
+        return SitePlayerSuggestionCache.promoting(
+            pendingPlayerNames(kind: kind, gameName: gameName) + pending, in: names)
+    }
+
+    @MainActor
+    func rememberPlayers(in game: SiteLocalGame) {
+        let key = game.kind == "doubles" ? doublesPlayersCacheKey :
+            game.kind == "vollis" ? vollisPlayersCacheKey : otherGamePlayersCacheKey(gameName: game.gameName)
+        SitePlayerSuggestionCache.shared.remember(game.winners + game.losers, key: key)
+    }
+
+    @MainActor
     var doublesPlayersCacheKey: String {
         "\(SiteAuthManager.shared.playerSuggestionsScope)-doubles-players"
     }
 
     @MainActor
     var cachedDoublesPlayers: [String] {
-        SitePlayerSuggestionCache.shared.saved(key: doublesPlayersCacheKey)
+        SitePlayerSuggestionCache.promoting(pendingPlayerNames(kind: "doubles"), in: SitePlayerSuggestionCache.shared.saved(key: doublesPlayersCacheKey))
     }
 
     @MainActor
     func doublesPlayers() async throws -> [String] {
-        try await SitePlayerSuggestionCache.shared.load(key: doublesPlayersCacheKey) {
-            try await self.nameList("/api/doubles_players")
-        }
+        try await loadPlayers(key: doublesPlayersCacheKey, kind: "doubles", path: "/api/doubles_players")
     }
 
     @MainActor
@@ -576,14 +601,12 @@ final class PythonAnywhereClient {
 
     @MainActor
     var cachedVollisPlayers: [String] {
-        SitePlayerSuggestionCache.shared.saved(key: vollisPlayersCacheKey)
+        SitePlayerSuggestionCache.promoting(pendingPlayerNames(kind: "vollis"), in: SitePlayerSuggestionCache.shared.saved(key: vollisPlayersCacheKey))
     }
 
     @MainActor
     func vollisPlayers() async throws -> [String] {
-        try await SitePlayerSuggestionCache.shared.load(key: vollisPlayersCacheKey) {
-            try await self.nameList("/api/vollis_players")
-        }
+        try await loadPlayers(key: vollisPlayersCacheKey, kind: "vollis", path: "/api/vollis_players")
     }
 
     @MainActor
@@ -595,16 +618,15 @@ final class PythonAnywhereClient {
 
     @MainActor
     func cachedOtherGamePlayers(gameName: String) -> [String] {
-        SitePlayerSuggestionCache.shared.saved(key: otherGamePlayersCacheKey(gameName: gameName))
+        SitePlayerSuggestionCache.promoting(pendingPlayerNames(kind: "other", gameName: gameName), in: SitePlayerSuggestionCache.shared.saved(key: otherGamePlayersCacheKey(gameName: gameName)))
     }
 
     @MainActor
     func otherGamePlayers(gameName: String) async throws -> [String] {
         let name = gameName.trimmingCharacters(in: .whitespacesAndNewlines)
-        return try await SitePlayerSuggestionCache.shared.load(key: otherGamePlayersCacheKey(gameName: name)) {
-            let encoded = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? name
-            return try await self.nameList(name.isEmpty ? "/api/other_game_players" : "/api/other_game_players/\(encoded)")
-        }
+        let encoded = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? name
+        return try await loadPlayers(key: otherGamePlayersCacheKey(gameName: name), kind: "other", gameName: name,
+            path: name.isEmpty ? "/api/other_game_players" : "/api/other_game_players/\(encoded)")
     }
 
     nonisolated struct OtherGameCommonScores: Codable, Sendable {

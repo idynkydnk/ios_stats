@@ -34,8 +34,9 @@ final class SiteLocalGameStore: ObservableObject {
         guard let name = SiteAuthManager.shared.username, SiteAuthManager.shared.isLoggedIn else { throw SiteAPIError.unauthorized }
         selectAccount(name)
         guard let ledger else { throw SiteAPIError.message(message ?? "Couldn’t open saved games on this phone.") }
-        try ledger.add(owner: name, kind: kind, fields: fields)
+        let game = try ledger.add(owner: name, kind: kind, fields: fields)
         publish()
+        PythonAnywhereClient.shared.rememberPlayers(in: game)
         startSync()
     }
     func removeAccount(_ name: String) throws {

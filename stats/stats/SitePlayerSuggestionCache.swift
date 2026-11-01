@@ -16,6 +16,20 @@ final class SitePlayerSuggestionCache {
         cache.load([String].self, key: key)?.value ?? []
     }
 
+    static func promoting(_ recent: [String], in names: [String]) -> [String] {
+        var seen = Set<String>()
+        return (recent + names).filter {
+            !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && seen.insert($0.lowercased()).inserted
+        }
+    }
+
+    func remember(_ names: [String], key: String) {
+        let updated = Self.promoting(names, in: saved(key: key))
+        // Reject requests that started before the local save.
+        cache.markStale()
+        cache.save(updated, key: key, generation: cache.generation)
+    }
+
     func load(key: String, fetch: @escaping @MainActor () async throws -> [String]) async throws -> [String] {
         if let saved = cache.load([String].self, key: key), saved.isFresh(maxAge: 60) {
             return saved.value

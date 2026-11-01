@@ -119,6 +119,24 @@ struct PlayerSuggestionCacheTests {
         finish?.resume(returning: ["Current source"])
         _ = try await current.value
         precondition(suggestions.saved(key: key) == ["Current source"])
+        // A local save immediately replaces stale ordering and rejects a response
+        // already in flight; the next form and a relaunched app see saved players.
+        disk.markStale()
+        finish = nil
+        let beforeLocalSave = Task { try await suggestions.load(key: key, fetch: fetch) }
+        while finish == nil { await Task.yield() }
+        suggestions.remember(["Winner", "Loser", "winner", ""], key: key)
+        let expected = ["Winner", "Loser", "Current source"]
+        precondition(suggestions.saved(key: key) == expected)
+        precondition(SitePlayerSuggestionCache(cache: SiteBrowseCache(directory: directory)).saved(key: key) == expected)
+        finish?.resume(returning: ["Old server order"])
+        do {
+            _ = try await beforeLocalSave.value
+            preconditionFailure("A response predating the save must not reset suggestions")
+        } catch is CancellationError { }
+        let immediate = try await suggestions.load(key: key) { preconditionFailure("Saved names should be immediately available") }
+        precondition(immediate == expected)
+        precondition(SitePlayerSuggestionCache.promoting(["Newest", "Winner"], in: expected) == ["Newest", "Winner", "Loser", "Current source"])
         print("Player suggestions: canceled preload sharing, instant stale reuse, persistence, per-game/account isolation, failed refresh, mutation races, and invalidation passed.")
     }
 }
