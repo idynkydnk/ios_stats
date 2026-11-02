@@ -1193,7 +1193,7 @@ struct SiteGamesView: View {
     @State private var isDeleting = false
     @State private var successTick = 0
     @State private var openedPlayer: SitePlayerRoute?
-    @State private var editingOneOnOne: OtherGame?
+    @State private var editingOtherGame: OtherGame?
     @State private var loadID = UUID()
     @State private var displayedCacheKey: String?
     private typealias Snapshot = SiteGamesSnapshot
@@ -1280,13 +1280,13 @@ struct SiteGamesView: View {
                                     .buttonStyle(.borderless)
                                     .swipeActions {
                                         if canEdit && g.canEdit == true && !isDeleting {
-                                            Button("Edit") { if let original = g.otherGame { editingOneOnOne = original } else { onEditVollis(g) } }
+                                            Button("Edit") { if let original = g.otherGame { editingOtherGame = original } else { onEditVollis(g) } }
                                             Button("Delete", role: .destructive) { Task { await deleteVollis(g) } }
                                         }
                                     }
                                     .contextMenu {
                                         if canEdit && g.canEdit == true && !isDeleting {
-                                            Button("Edit") { if let original = g.otherGame { editingOneOnOne = original } else { onEditVollis(g) } }
+                                            Button("Edit") { if let original = g.otherGame { editingOtherGame = original } else { onEditVollis(g) } }
                                             Button("Delete", role: .destructive) { Task { await deleteVollis(g) } }
                                         }
                                     }
@@ -1298,12 +1298,8 @@ struct SiteGamesView: View {
                                         Text("\(g.gameName ?? "") · \(g.gameType ?? "")").font(.headline)
                                         SiteGameDateLabel(raw: g.gameDate ?? g.gameDateOnly)
                                         if g.isTie { Text("Tie").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary) }
-                                        SiteTeamScorePanel(score: g.winnerScore, winner: true, isTie: g.isTie) {
-                                            SitePlayerNamesLine(names: g.displayWinners, year: selectedYear, section: .other, color: g.isTie ? .primary : .green)
-                                        }
-                                        SiteTeamScorePanel(score: g.loserScore, winner: false, isTie: g.isTie) {
-                                            SitePlayerNamesLine(names: g.displayLosers, year: selectedYear, section: .other, color: g.isTie ? .primary : .red)
-                                        }
+                                        SiteOtherGameScorePanel(game: g, winner: true, year: selectedYear)
+                                        SiteOtherGameScorePanel(game: g, winner: false, year: selectedYear)
                                         if let c = g.comment, !c.isEmpty { Text(c).font(.caption).italic() }
                                     }
                                     .padding(.horizontal, 12).padding(.vertical, 10)
@@ -1313,11 +1309,13 @@ struct SiteGamesView: View {
                                     .buttonStyle(.borderless)
                                     .swipeActions {
                                         if canEdit && g.id > 0 && g.id < 4_294_967_296 && !isDeleting {
+                                            Button("Edit") { editingOtherGame = g }
                                             Button("Delete", role: .destructive) { Task { await deleteOther(g) } }
                                         }
                                     }
                                     .contextMenu {
                                         if canEdit && g.id > 0 && g.id < 4_294_967_296 && !isDeleting {
+                                            Button("Edit") { editingOtherGame = g }
                                             Button("Delete", role: .destructive) { Task { await deleteOther(g) } }
                                         }
                                     }
@@ -1345,7 +1343,7 @@ struct SiteGamesView: View {
                 SitePlayerDetailView(name: route.name, year: route.year, section: route.section, format: section == .vollis ? selectedOtherGame : "")
                     .environment(\.openSitePlayer, nil)
             }
-            .sheet(item: $editingOneOnOne, onDismiss: { Task { await load(force: true) } }) { game in
+            .sheet(item: $editingOtherGame, onDismiss: { Task { await load(force: true) } }) { game in
                 SiteAddGameEditor(game: .other(game))
             }
             .navigationTitle(section == .vollis ? "1v1 Games" : "Games")
@@ -1606,7 +1604,7 @@ struct SitePlayerNamesLine: View {
     var color: Color
 
     var body: some View {
-        HStack(spacing: 4) {
+        VStack(alignment: .leading, spacing: 6) {
             ForEach(Array(names.enumerated()), id: \.offset) { _, name in
                 SitePlayerNameLink(name: name, year: year, section: section, color: color)
             }
@@ -1638,6 +1636,7 @@ struct SiteTeamScorePanel<Players: View>: View {
     var score: Int?
     var winner: Bool
     var isTie = false
+    var showsTeamScore = true
     @ViewBuilder var players: Players
 
     private var color: Color { isTie ? .secondary : (winner ? .green : .red) }
@@ -1649,14 +1648,47 @@ struct SiteTeamScorePanel<Players: View>: View {
                 players.font(.subheadline.weight(.semibold))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            Text(score.map(String.init) ?? "—")
-                .font(.system(.title, design: .rounded, weight: .bold))
-                .monospacedDigit().foregroundStyle(color)
+            if showsTeamScore {
+                Text(score.map(String.init) ?? "—")
+                    .font(.system(.title, design: .rounded, weight: .bold))
+                    .monospacedDigit().foregroundStyle(color)
+                    .fixedSize()
+            }
         }
         .padding(.horizontal, 12).padding(.vertical, 9)
         .background(color.opacity(0.09), in: RoundedRectangle(cornerRadius: 14))
         .overlay(alignment: .leading) {
             Capsule().fill(color).frame(width: 3).padding(.vertical, 10)
+        }
+    }
+}
+
+struct SiteOtherGameScorePanel: View {
+    var game: OtherGame
+    var winner: Bool
+    var year: String
+
+    private var color: Color { game.isTie ? .primary : (winner ? .green : .red) }
+    private var individual: Bool { game.editingScoreType == "individual" }
+
+    var body: some View {
+        SiteTeamScorePanel(score: winner ? game.winnerScore : game.loserScore,
+                           winner: winner, isTie: game.isTie, showsTeamScore: !individual) {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(Array(game.displayPlayers(winner: winner).enumerated()), id: \.offset) { _, player in
+                    HStack(alignment: .firstTextBaseline, spacing: 12) {
+                        SitePlayerNameLink(name: player.name, year: year, section: .other, color: color)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                        if individual {
+                            Text(player.score.map(String.init) ?? "—")
+                                .font(.system(.title2, design: .rounded, weight: .bold))
+                                .monospacedDigit().foregroundStyle(color)
+                                .fixedSize()
+                        }
+                    }
+                }
+            }
         }
     }
 }

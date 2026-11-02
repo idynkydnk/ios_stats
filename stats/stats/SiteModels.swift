@@ -436,6 +436,13 @@ struct OtherGame: Codable, Identifiable, Hashable {
             && gameName.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare("Vollis") != .orderedSame
     }
 
+    func displayPlayers(winner: Bool) -> [OtherGamePlayer] {
+        let players = (winner ? winners : losers) ?? []
+        let namedPlayers = players.filter { !$0.name.isEmpty }
+        if !namedPlayers.isEmpty { return namedPlayers }
+        return (winner ? displayWinners : displayLosers).map { OtherGamePlayer(name: $0) }
+    }
+
     var editingScoreType: String {
         if ((winners ?? []) + (losers ?? [])).contains(where: { $0.score != nil }) {
             return "individual"

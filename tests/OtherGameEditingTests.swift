@@ -24,6 +24,11 @@ struct OtherGameEditingTests {
         precondition(individual.winners?.map(\.score) == [12, 9])
         precondition(individual.losers?.first?.score == 0)
 
+        let catan = try game(#"{"id":965,"winner_score":1,"loser_score":5,"winners":[{"name":"Kyle Thomson","score":11}],"losers":[{"name":"Lisa Hoang","score":5},{"name":"Stella Weckstein","score":6}]}"#)
+        precondition(catan.displayPlayers(winner: true) == [OtherGamePlayer(name: "Kyle Thomson", score: 11)])
+        precondition(catan.displayPlayers(winner: false) == [OtherGamePlayer(name: "Lisa Hoang", score: 5), OtherGamePlayer(name: "Stella Weckstein", score: 6)])
+        precondition(catan.editingScoreType == "individual", "Individual scores take precedence over side aggregates")
+
         let team = try game(#"{"id":8,"winner_score":21,"loser_score":0,"winners":[{"name":"A","score":null}],"losers":[{"name":"B","score":null}]}"#)
         precondition(team.editingScoreType == "team")
         precondition(team.loserScore == 0)
@@ -36,6 +41,8 @@ struct OtherGameEditingTests {
         let legacy = try game(#"{"game_id":10,"winner1":"A","winner2":"B","loser1":"C","winner_score":"5","loser_score":"3"}"#)
         precondition(legacy.id == 10 && legacy.editingScoreType == "team")
         precondition(legacy.displayWinners == ["A", "B"])
+        precondition(legacy.displayPlayers(winner: true).map(\.name) == ["A", "B"])
+        precondition(unscored.displayPlayers(winner: true).allSatisfy { $0.score == nil })
         precondition(!legacy.isTie && !individual.isTie, "Old results must retain their recorded outcome")
         let tie = try game(#"{"id":11,"game_name":"Sequence","is_tie":true,"winner_score":1,"loser_score":1,"winners":[{"name":"A"}],"losers":[{"name":"B"}]}"#)
         precondition(tie.isTie && tie.editingScoreType == "team")
