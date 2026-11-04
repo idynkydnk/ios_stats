@@ -1076,6 +1076,8 @@ struct SiteFlyerDraft: Hashable {
     var eventTime: String
     var location: String
     var imageDetails: String
+    var seasonID: String = ""
+    var seasonName: String = ""
 }
 
 struct SiteAIRosterView: View {
@@ -1234,9 +1236,10 @@ struct SiteAIRosterView: View {
             let games = gameIds.count
             let people = players.count
             return "\(games) game\(games == 1 ? "" : "s") selected · \(people) player\(people == 1 ? "" : "s")"
-        case .flyer:
+        case let .flyer(draft):
             let people = players.count
-            return "\(people) player\(people == 1 ? "" : "s") selected"
+            let season = draft.seasonName.isEmpty ? "" : " · \(draft.seasonName) stats"
+            return "\(people) player\(people == 1 ? "" : "s") selected" + season
         }
     }
 
@@ -1300,6 +1303,7 @@ struct SiteAIRosterView: View {
                 "event_time": draft.eventTime,
                 "location": draft.location,
                 "image_details": draft.imageDetails,
+                "season_id": draft.seasonID,
             ])
             banner = "Working in the background. You can leave and check Flyers in about 5 minutes."
             let result = await siteWaitForAIShare(jobId: id, recap: false)
@@ -1926,6 +1930,7 @@ struct SiteFlyersView: View {
 
 struct SiteFlyerView: View {
     @Environment(\.siteAppearance) private var appearance
+    @ObservedObject private var auth = SiteAuthManager.shared
 
     enum Field: Hashable { case player, location, details }
 
@@ -1942,6 +1947,12 @@ struct SiteFlyerView: View {
     @State private var banner: String?
     @State private var bannerIsError = false
     @State private var showRoster = false
+    @State private var seasonID = ""
+    @State private var seasons: [SiteSeason] = []
+    @State private var seasonError: String?
+    @State private var seasonsLoading = false
+    @State private var loadedSeasonAccount: String?
+    @State private var seasonLoads = SiteSeasonLoadGate()
     @FocusState private var focused: Field?
 
     private let timePresets = [16, 17, 18, 19, 20]
@@ -1968,6 +1979,8 @@ struct SiteFlyerView: View {
                             .textFieldStyle(.roundedBorder)
                     }
                 }
+
+                seasonPicker
 
                 Text("Who’s playing")
                     .font(.subheadline.weight(.semibold))
@@ -2090,6 +2103,7 @@ struct SiteFlyerView: View {
                     title: "Continue",
                     filled: true,
                     disabled: selected.isEmpty
+                        || (!seasonID.isEmpty && !visibleSeasons.contains(where: { $0.id == seasonID }))
                         || location.trimmingCharacters(in: .whitespaces).isEmpty
                         || (gameType == "other" && gameName.trimmingCharacters(in: .whitespaces).isEmpty)
                 ) {
@@ -2114,9 +2128,55 @@ struct SiteFlyerView: View {
             }
         }
         .task { await loadPlayers() }
-        .refreshable { await loadPlayers() }
+        .task(id: auth.token) { await loadSeasons() }
+        .refreshable { await loadPlayers(); await loadSeasons() }
         .onChange(of: gameType) { _, _ in
             Task { await loadRecent() }
+        }
+    }
+
+    private var visibleSeasons: [SiteSeason] {
+        loadedSeasonAccount == auth.token ? seasons : []
+    }
+
+    private var seasonPicker: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Picker("Season (optional)", selection: $seasonID) {
+                Text("No season (default stats)").tag("")
+                ForEach(visibleSeasons) { season in
+                    Text("\(season.name) · \(season.dates) · \(season.owner ?? "Shared")").tag(season.id)
+                }
+                if !seasonID.isEmpty && !visibleSeasons.contains(where: { $0.id == seasonID }) {
+                    Text("Season unavailable — choose another").tag(seasonID)
+                }
+            }
+            .pickerStyle(.menu)
+            Text("Choose a season to show only its stats and ratings. With no season, doubles flyers use year-to-date stats.")
+                .font(.caption).foregroundStyle(.secondary)
+            if seasonsLoading { ProgressView("Loading seasons…") }
+            if let seasonError {
+                Text(seasonError).font(.caption).foregroundStyle(.red)
+                Button("Retry seasons") { Task { await loadSeasons() } }
+            }
+        }
+    }
+
+    private func loadSeasons() async {
+        let token = auth.token
+        if loadedSeasonAccount != token {
+            seasons = []; seasonID = ""; showRoster = false; loadedSeasonAccount = token
+        }
+        let ticket = seasonLoads.begin(account: token)
+        seasonsLoading = true; seasonError = nil
+        defer { if seasonLoads.accepts(ticket, account: auth.token) { seasonsLoading = false } }
+        do {
+            let result = try await PythonAnywhereClient.shared.seasons()
+            guard seasonLoads.accepts(ticket, account: auth.token), !Task.isCancelled else { return }
+            seasons = result.seasons
+        } catch {
+            if seasonLoads.accepts(ticket, account: auth.token), !Task.isCancelled {
+                seasonError = error.localizedDescription
+            }
         }
     }
 
@@ -2215,7 +2275,9 @@ struct SiteFlyerView: View {
             eventDate: dateFmt.string(from: eventDate),
             eventTime: timeFmt.string(from: eventTime),
             location: location.trimmingCharacters(in: .whitespaces),
-            imageDetails: imageDetails.trimmingCharacters(in: .whitespacesAndNewlines)
+            imageDetails: imageDetails.trimmingCharacters(in: .whitespacesAndNewlines),
+            seasonID: seasonID,
+            seasonName: visibleSeasons.first(where: { $0.id == seasonID })?.name ?? ""
         )
     }
 }
