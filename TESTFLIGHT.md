@@ -2,6 +2,38 @@
 
 Follow these steps to install the app via TestFlight (no App Store review required for internal testing).
 
+## Agent workflow for update requests
+
+The user has authorized local Mac and Xcode control whenever they ask to update
+TestFlight. This workflow is an exception to the website project's cloud-only
+rule. Complete the upload without asking for renewed permission or asking the
+user to perform routine Organizer steps.
+
+1. Inspect the current source, version, build number, and recent uploads. Prepare
+   the next unused build number, run appropriate build checks, and keep the
+   website's app update notes current without duplicating existing entries.
+2. Use the existing Xcode installation and signed-in account. Open the project,
+   choose **Any iOS Device**, and use **Product → Archive**. Then use
+   **Window → Organizer** to select the intended version/build.
+3. Choose **Distribute App → App Store Connect → Distribute** (or the equivalent
+   upload controls shown by the installed Xcode). Follow the upload through its
+   completion confirmation.
+4. Record the confirmed version/build and upload result in the ignored
+   `app-store/builds/<version>-<build>/` release records. Report whether Apple
+   processing and tester availability were actually checked.
+
+Command-line builds and verification are useful, but command-line upload may
+report missing App Store Connect access while Organizer can upload successfully
+with the existing account. Continue through Xcode before treating that error as
+a login blocker. If importing a prepared archive or opening file dialogs causes
+computer-control errors, raise the Xcode window and use **Product → Archive**
+followed by **Window → Organizer** instead. Try this recovery before requesting
+manual help; ask only when an actual user-only step or unresolved tool failure
+prevents further progress.
+
+This route successfully uploaded version 9.5 (8) on November 11, 2026 after the
+command-line upload failed. Use the current version/build on future requests.
+
 ---
 
 ## Prerequisites

@@ -1,5 +1,19 @@
 # iPhone app project instructions
 
+## TestFlight updates
+
+When the user asks to update TestFlight, prepare and upload the next build.
+They have given standing authorization to control their local Mac, Xcode, and
+related upload screens for this task, overriding the website project's
+cloud-only computer-use rule for this workflow. Do not ask for local-computer
+permission again or hand routine Xcode steps back to the user.
+
+Follow the agent workflow in `TESTFLIGHT.md`. Prefer Xcode Organizer for the
+upload; a command-line App Store Connect account error does not establish that
+Xcode's signed-in UI cannot upload. Verify the actual upload confirmation for
+the intended version/build before reporting success. Distinguish upload success
+from Apple processing and tester availability when those have not been checked.
+
 ## Push requests
 
 When the user says "push", commit and push pending changes in both this app
