@@ -53,6 +53,7 @@ struct SiteAddHubView: View {
             }
             .pickerStyle(.segmented)
             .padding(.horizontal)
+            .id(SiteAddFormScrollAnchor.gameTabs)
             .padding(.top, 8)
         }
         .padding(.bottom, 12)

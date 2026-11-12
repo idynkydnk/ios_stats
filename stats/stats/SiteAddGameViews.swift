@@ -48,7 +48,7 @@ struct SiteAddDoublesView: View {
     private let winnerChips = [21, 15, 22, 23, 16]
 
     var body: some View {
-        SiteAddFormScrollView(focused: focused, header: header) {
+        SiteAddFormScrollView(focused: focused, firstField: .w1, header: header) {
             VStack(alignment: .leading, spacing: 14) {
                 SiteContentCard(title: "Doubles game") {
                     if let error {
@@ -352,7 +352,7 @@ struct SiteAddVollisView: View {
     private let winnerChips = Array(11...21)
 
     var body: some View {
-        SiteAddFormScrollView(focused: focused, header: header) {
+        SiteAddFormScrollView(focused: focused, firstField: .winner, header: header) {
             VStack(alignment: .leading, spacing: 14) {
                 SiteContentCard(title: "Vollis game") {
                     if let error { SiteAddBanner(text: error, isError: true) }
@@ -629,7 +629,7 @@ struct SiteAddOtherView: View {
     }
 
     var body: some View {
-        SiteAddFormScrollView(focused: focused, header: header) {
+        SiteAddFormScrollView(focused: focused, firstField: .gameName, header: header) {
             VStack(alignment: .leading, spacing: 14) {
                 SiteContentCard(title: oneOnOneOnly ? "1v1 volleyball" : "Other game") {
                     if let error { SiteAddBanner(text: error, isError: true) }

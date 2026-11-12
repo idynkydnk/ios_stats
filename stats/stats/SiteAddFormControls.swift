@@ -1,12 +1,17 @@
 import SwiftUI
 import Combine
 
-/// Keep the hub controls in the same scroll area as the fields so focusing even
-/// the first player can move them offscreen and leave room for suggestions.
+enum SiteAddFormScrollAnchor: Hashable {
+    case gameTabs
+}
+
+/// Keep the game tabs visible for the first field, then let later fields move
+/// the header offscreen to leave room for their suggestions.
 struct SiteAddFormScrollView<Field: Hashable, Content: View>: View {
     @Environment(\.siteAppearance) private var appearance
 
     var focused: Field?
+    var firstField: Field
     var header: AnyView?
     @ViewBuilder var content: Content
 
@@ -30,18 +35,25 @@ struct SiteAddFormScrollView<Field: Hashable, Content: View>: View {
                     // Allow the newly selected field's suggestions to lay out first.
                     do { try await Task.sleep(for: .milliseconds(60)) }
                     catch { return }
-                    withAnimation(.easeOut(duration: 0.2)) {
-                        proxy.scrollTo(focused, anchor: .top)
-                    }
+                    scrollToFocused(focused, using: proxy)
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
                     // Re-align after keyboard avoidance finishes resizing the form.
                     if let focused {
-                        withAnimation(.easeOut(duration: 0.2)) {
-                            proxy.scrollTo(focused, anchor: .top)
-                        }
+                        scrollToFocused(focused, using: proxy)
                     }
                 }
+            }
+        }
+    }
+
+    private func scrollToFocused(_ field: Field, using proxy: ScrollViewProxy) {
+        if header != nil && field == firstField {
+            // Switching game tabs opens suggestions without sliding the tabs away.
+            proxy.scrollTo(SiteAddFormScrollAnchor.gameTabs, anchor: .top)
+        } else {
+            withAnimation(.easeOut(duration: 0.2)) {
+                proxy.scrollTo(field, anchor: .top)
             }
         }
     }
