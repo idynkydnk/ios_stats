@@ -83,7 +83,7 @@ struct SitePlayerDetailView: View {
 
     private var localResults: [SiteLocalGame] {
         let selection = SiteLocalSelection(section: section, year: year, division: division, game: format, filters: auth.statsFilters)
-        return SiteLocalStats.missing(localGames.games, included: payload?.syncedLocalGameIds).filter {
+        return SiteLocalStats.missing(localGames.games, included: payload?.syncedLocalGameIds, includesOwnStats: payload?.includesOwnStats).filter {
             selection.matches($0) && ($0.winners + $0.losers).contains { $0.caseInsensitiveCompare(name) == .orderedSame }
         }
     }

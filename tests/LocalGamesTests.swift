@@ -60,6 +60,29 @@ struct LocalGamesTests {
         precondition(v.stats.first { $0.name == "A" }?.wins == 1)
         precondition(singles.vollisGame?.winner == "A")
         precondition(SiteLocalStats.other(nil, games: [singles], selection: SiteLocalSelection(section: .other, year: "All years")) == nil)
+        // Excluding owned stats must also exclude unsynced and previously synced
+        // games on the phone, even though their receipts are absent from this view.
+        var foreignDoubles = base
+        foreignDoubles.syncedLocalGameIds = []
+        foreignDoubles.includesOwnStats = false
+        foreignDoubles.stats = []; foreignDoubles.todayStats = []; foreignDoubles.todayGameCount = 0
+        let ownSelection = SiteLocalSelection(section: .doubles, year: "All years")
+        let excluded = SiteLocalStats.doubles(foreignDoubles, games: restored.games, selection: ownSelection)!
+        precondition(excluded.stats.isEmpty && excluded.todayStats.isEmpty && excluded.todayGameCount == 0)
+        precondition(SiteLocalStats.missing(restored.games, included: [], includesOwnStats: false).isEmpty)
+        precondition(SiteLocalStats.missing(restored.games, included: [], includesOwnStats: true).count == 2)
+        var foreignVollis = v
+        foreignVollis.includesOwnStats = false
+        precondition(SiteLocalStats.vollis(foreignVollis, games: [singles], selection: SiteLocalSelection(section: .vollis, year: "All years", game: "No jump"))!.stats.first?.wins == v.stats.first?.wins)
+        var foreignOther = other
+        foreignOther.includesOwnStats = false
+        precondition(SiteLocalStats.other(foreignOther, games: [tie], selection: SiteLocalSelection(section: .other, year: "All years"))!.gameCards[0].stats[0].ties == 1)
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let gamesPage = try decoder.decode(GamesListPayload<DoublesGame>.self, from: Data("{\"games\":[],\"includes_own_stats\":false}".utf8))
+        precondition(gamesPage.includesOwnStats == false)
+        let player = try decoder.decode(DoublesPlayerPayload.self, from: Data("{\"includes_own_stats\":false}".utf8))
+        precondition(player.includesOwnStats == false)
         // Disk failure leaves the in-memory ledger untouched and fails Save.
         let blocked = dir.appendingPathComponent("not-a-directory")
         try Data().write(to: blocked)

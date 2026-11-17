@@ -121,7 +121,8 @@ struct SiteLocalSelection {
 /// acknowledgement alone never removes a game from an older displayed snapshot.
 @MainActor
 enum SiteLocalStats {
-    static func missing(_ games: [SiteLocalGame], included: [String]?) -> [SiteLocalGame] {
+    static func missing(_ games: [SiteLocalGame], included: [String]?, includesOwnStats: Bool? = nil) -> [SiteLocalGame] {
+        guard includesOwnStats != false else { return [] }
         let known = Set(included ?? [])
         return games.filter { !known.contains($0.id) }
     }
@@ -148,7 +149,7 @@ enum SiteLocalStats {
         return rows
     }
     static func doubles(_ base: DoublesStatsPayload?, games: [SiteLocalGame], selection: SiteLocalSelection) -> DoublesStatsPayload? {
-        let missing = missing(games, included: base?.syncedLocalGameIds)
+        let missing = missing(games, included: base?.syncedLocalGameIds, includesOwnStats: base?.includesOwnStats)
         let annual = missing.filter { selection.matches($0) }
         let today = missing.filter { selection.matches($0, today: true) }
         guard base != nil || !annual.isEmpty || !today.isEmpty else { return nil }
@@ -164,7 +165,7 @@ enum SiteLocalStats {
         return result
     }
     static func vollis(_ base: VollisStatsPayload?, games: [SiteLocalGame], selection: SiteLocalSelection) -> VollisStatsPayload? {
-        let missing = missing(games, included: base?.syncedLocalGameIds)
+        let missing = missing(games, included: base?.syncedLocalGameIds, includesOwnStats: base?.includesOwnStats)
         let annual = missing.filter { selection.matches($0) }
         let today = missing.filter { selection.matches($0, today: true) }
         guard base != nil || !annual.isEmpty || !today.isEmpty else { return nil }
@@ -176,7 +177,7 @@ enum SiteLocalStats {
         return result
     }
     static func other(_ base: OtherStatsPayload?, games: [SiteLocalGame], selection: SiteLocalSelection) -> OtherStatsPayload? {
-        let missing = missing(games, included: base?.syncedLocalGameIds)
+        let missing = missing(games, included: base?.syncedLocalGameIds, includesOwnStats: base?.includesOwnStats)
         let annual = missing.filter { selection.matches($0) }
         let today = missing.filter { selection.matches($0, today: true) }
         guard base != nil || !annual.isEmpty || !today.isEmpty else { return nil }

@@ -74,7 +74,7 @@ struct SiteMoreView: View {
                         Label("Location", systemImage: "mappin.and.ellipse")
                     }
                     if auth.isLoggedIn {
-                        NavigationLink("Stats to include") { SiteStatsSourcesView() }
+                        NavigationLink("Stats to include") { SiteStatsSourcesView(onApply: onHome) }
                     }
                     if auth.statsFilters.isActive {
                         Text(auth.statsFilters.summary).font(.caption).foregroundStyle(.secondary)

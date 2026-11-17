@@ -941,7 +941,8 @@ struct SiteStatsView: View {
     private var projectedOther: OtherStatsPayload? { SiteLocalStats.other(other, games: localGames.games, selection: localSelection) }
     private var hasLocalChanges: Bool {
         let included = section == .doubles ? doubles?.syncedLocalGameIds : section == .vollis ? vollis?.syncedLocalGameIds : other?.syncedLocalGameIds
-        return SiteLocalStats.missing(localGames.games, included: included).contains { localSelection.matches($0) || localSelection.matches($0, today: true) }
+        let includesOwnStats = section == .doubles ? doubles?.includesOwnStats : section == .vollis ? vollis?.includesOwnStats : other?.includesOwnStats
+        return SiteLocalStats.missing(localGames.games, included: included, includesOwnStats: includesOwnStats).contains { localSelection.matches($0) || localSelection.matches($0, today: true) }
     }
     @State private var loadID = UUID()
     @State private var displayedCacheKey: String?
@@ -1202,9 +1203,10 @@ struct SiteGamesView: View {
     @ObservedObject private var localGames = SiteLocalGameStore.shared
 
     @State private var syncedLocalGameIds: [String]? = nil
+    @State private var includesOwnStats: Bool? = nil
     private var pendingRows: [SiteLocalGame] {
         let selection = SiteLocalSelection(section: section, year: selectedYear, division: division, game: selectedOtherGame, filters: auth.statsFilters, search: search)
-        return SiteLocalStats.missing(localGames.games, included: syncedLocalGameIds).filter { selection.matches($0) }.sorted { $0.day > $1.day || ($0.day == $1.day && $0.localID < $1.localID) }
+        return SiteLocalStats.missing(localGames.games, included: syncedLocalGameIds, includesOwnStats: includesOwnStats).filter { selection.matches($0) }.sorted { $0.day > $1.day || ($0.day == $1.day && $0.localID < $1.localID) }
     }
     private var gamesCacheKey: String {
         SiteGamesSelection(scope: auth.selectedStatsCacheScope, section: section, year: selectedYear,
@@ -1430,6 +1432,7 @@ struct SiteGamesView: View {
             nextOffset = cached.value.nextOffset
             totalGames = cached.value.total
             syncedLocalGameIds = cached.value.syncedLocalGameIds
+            includesOwnStats = cached.value.includesOwnStats
         } else if displayedCacheKey != key {
             doubles = []
             vollis = []
@@ -1437,6 +1440,7 @@ struct SiteGamesView: View {
             nextOffset = nil
             totalGames = nil
             syncedLocalGameIds = nil
+            includesOwnStats = nil
         }
         displayedCacheKey = key
         error = nil
@@ -1453,6 +1457,7 @@ struct SiteGamesView: View {
                 if !older {
                     totalGames = p.total
                     syncedLocalGameIds = p.syncedLocalGameIds
+                    includesOwnStats = p.includesOwnStats
                 }
             case .vollis:
                 let p = try await PythonAnywhereClient.shared.oneOnOneGames(year: year, format: selectedOtherGame, offset: offset, search: search)
@@ -1463,6 +1468,7 @@ struct SiteGamesView: View {
                 if !older {
                     totalGames = p.total
                     syncedLocalGameIds = p.syncedLocalGameIds
+                    includesOwnStats = p.includesOwnStats
                 }
             case .other:
                 let p = try await PythonAnywhereClient.shared.otherGames(year: year, gameName: selectedOtherGame.isEmpty ? nil : selectedOtherGame, offset: offset, search: search)
@@ -1473,9 +1479,10 @@ struct SiteGamesView: View {
                 if !older {
                     totalGames = p.total
                     syncedLocalGameIds = p.syncedLocalGameIds
+                    includesOwnStats = p.includesOwnStats
                 }
             }
-            await cache.saveAsync(Snapshot(syncedLocalGameIds: syncedLocalGameIds, doubles: doubles, vollis: vollis, other: other, nextOffset: nextOffset, total: totalGames), key: key, generation: generation)
+            await cache.saveAsync(Snapshot(syncedLocalGameIds: syncedLocalGameIds, includesOwnStats: includesOwnStats, doubles: doubles, vollis: vollis, other: other, nextOffset: nextOffset, total: totalGames), key: key, generation: generation)
             error = nil
         } catch {
             guard !Task.isCancelled, loadID == requestID else { return }

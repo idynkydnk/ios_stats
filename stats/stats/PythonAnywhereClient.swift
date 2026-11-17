@@ -116,6 +116,10 @@ final class PythonAnywhereClient {
         try await putJSON("/api/account/stats-sources", json: ["owner": owner, "enabled": enabled])
     }
 
+    func selectOnlyStatsSource(owner: String) async throws -> StatsSourcesPayload {
+        try await putJSON("/api/account/stats-sources", json: ["owner": owner, "enabled": true, "only": true])
+    }
+
     func setStatsSharing(_ enabled: Bool) async throws -> StatsSourcesPayload {
         try await putJSON("/api/account/stats-sharing", json: ["share_stats": enabled])
     }
@@ -219,14 +223,14 @@ final class PythonAnywhereClient {
         switch selection.section {
         case .doubles:
             let page = try await doublesGames(year: year, offset: 0, search: selection.search)
-            return SiteGamesSnapshot(syncedLocalGameIds: page.syncedLocalGameIds, doubles: page.games, nextOffset: page.nextOffset, total: page.total)
+            return SiteGamesSnapshot(syncedLocalGameIds: page.syncedLocalGameIds, includesOwnStats: page.includesOwnStats, doubles: page.games, nextOffset: page.nextOffset, total: page.total)
         case .vollis:
             let page = try await oneOnOneGames(year: year, format: selection.otherGame, offset: 0, search: selection.search)
-            return SiteGamesSnapshot(syncedLocalGameIds: page.syncedLocalGameIds, vollis: page.games, nextOffset: page.nextOffset, total: page.total)
+            return SiteGamesSnapshot(syncedLocalGameIds: page.syncedLocalGameIds, includesOwnStats: page.includesOwnStats, vollis: page.games, nextOffset: page.nextOffset, total: page.total)
         case .other:
             let page = try await otherGames(year: year, gameName: selection.otherGame.isEmpty ? nil : selection.otherGame,
                                            offset: 0, search: selection.search)
-            return SiteGamesSnapshot(syncedLocalGameIds: page.syncedLocalGameIds, other: page.games, nextOffset: page.nextOffset, total: page.total)
+            return SiteGamesSnapshot(syncedLocalGameIds: page.syncedLocalGameIds, includesOwnStats: page.includesOwnStats, other: page.games, nextOffset: page.nextOffset, total: page.total)
         }
     }
 
